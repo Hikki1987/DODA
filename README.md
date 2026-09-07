@@ -6,9 +6,14 @@ arxitektura: [`docs/DODA-TRD-v2.0.docx`](docs/DODA-TRD-v2.0.docx)
 
 ## Holat
 
-Bosqich **0 — Foundation** qurilmoqda: config, DB (PostgreSQL + pgvector,
+Bosqich **0 — Foundation** yakunlandi: config, DB (PostgreSQL + pgvector,
 RLS tenant izolyatsiyasi bilan), Redis, object storage, Identity/Customer/
 Workspace/Audit domen skeleti.
+
+Bosqich **1 — S1** (17.2-bo'lim) yakunlandi: Task/Action/Approval domen
+skeleti, action execution state machine (4.2), risk-based approval routing
+(9.1), approval invariantlari (9.2), idempotentlik (FR-ACT-004) va
+transactional outbox (FR-ACT-008, ADR-003) — Redis Stream'ga relay bilan.
 
 ## Ishga tushirish (local dev)
 

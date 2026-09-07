@@ -12,6 +12,10 @@ from doda.domain.identity import models as identity_models  # noqa: F401
 from doda.domain.customer import models as customer_models  # noqa: F401
 from doda.domain.workspace import models as workspace_models  # noqa: F401
 from doda.domain.audit import models as audit_models  # noqa: F401
+from doda.domain.task import models as task_models  # noqa: F401
+from doda.domain.action import models as action_models  # noqa: F401
+from doda.domain.action import approval as action_approval_models  # noqa: F401
+from doda.domain.outbox import models as outbox_models  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

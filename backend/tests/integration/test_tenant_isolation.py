@@ -7,21 +7,8 @@ compose up + alembic upgrade head). Skips automatically if unreachable, so
 
 import uuid
 
-import pytest
-from sqlalchemy.exc import OperationalError
-
-from doda.db import async_session_factory, tenant_scoped_session
+from doda.db import tenant_scoped_session
 from doda.domain.workspace.models import Workspace
-
-
-@pytest.fixture
-async def db_available() -> bool:
-    try:
-        async with async_session_factory() as session:
-            await session.connection()
-    except OperationalError:
-        pytest.skip("Postgres not reachable — start it with `docker compose up -d postgres`")
-    return True
 
 
 async def test_workspace_query_is_isolated_by_tenant_guc(db_available: bool) -> None:

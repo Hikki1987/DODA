@@ -26,6 +26,12 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# A single event loop for the whole test session, matching the lifetime of
+# the module-level engine in doda.db — otherwise asyncpg connections bound
+# to one per-test loop get reused from a later test's different loop and
+# blow up with "Future attached to a different loop".
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 
 [build-system]

@@ -73,5 +73,28 @@ FR-AUD (audit), NFR-* (11-bo'lim), UC-* (use case), RISK-*, OD-*, ASM-*.
 → 5 Launch hardening → 6 Expansion. Kritik yo'l: outbox/idempotency →
 approval → connector → E2E.
 
-**Holat**: 0-Foundation qurilmoqda (repo bo'sh boshlangan; hujjatdagi
-"Bajarilgan" belgisi bu kod bazasiga tegishli emas).
+**Holat**: 0-Foundation yakunlandi (config, RLS bilan DB, Identity/Customer/
+Workspace/Audit skeleti — hujjatdagi "Bajarilgan" belgisi bu kod bazasiga
+tegishli emas edi, endi haqiqatda shunday). S1 (17.2-bo'lim: outbox +
+idempotency asosi, Task/Action/Approval skeleti) yakunlandi va real
+Postgres+Redis'da tekshirildi: state machine (4.2), risk-based approval
+routing (9.1), approval invariantlari — payload-hash bog'lanish, bir martalik
+nonce, muddat (9.2), idempotentlik (FR-ACT-004) va transactional outbox
+(FR-ACT-008, ADR-003) barchasi ishlaydi va testlangan.
+
+Keyingi qadam — S2 (17.2): API application adapterlari (FastAPI routerlar
+action_service ustida), va real integratsiya uchun connector tanlovi
+(OD-002) hal qilinishi kerak S6'dan oldin.
+
+**Bilingan cheklovlar (keyingi ishlarda hisobga olinsin):**
+- Audit hash-zanjiri (`application/audit_service.py`) bir xil customer uchun
+  concurrent yozuvlarda xavfsiz emas — chain fork bo'lishi mumkin. Production
+  uchun per-customer chain-tip qatorini `SELECT ... FOR UPDATE` bilan
+  lock qilish kerak.
+- Outbox relay hozircha connector'siz — faqat Redis Stream'ga yetkazishni
+  isbotlaydi. Haqiqiy tashqi effekt (S7, birinchi konnektor) connector'ning
+  o'zi ham idempotent bo'lishini talab qiladi.
+- `pytest` `asyncio_default_fixture_loop_scope = "session"` talab qiladi —
+  `doda.db`dagi global `engine` bitta event loop'ga bog'lanadi; buni servis
+  darajasida (masalan har-request engine) hal qilish keyingi bosqichda
+  ko'rib chiqilishi mumkin.
