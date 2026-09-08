@@ -8,10 +8,12 @@ import {
   changeTaskStatus,
   createTask,
   getWorkspaceKillSwitch,
+  listActions,
   listNotifications,
   listTasks,
   listWorkspaceMembers,
   markNotificationRead,
+  type ActionOut,
   type KillSwitchStatusOut,
   type NotificationOut,
   type TaskOut,
@@ -32,6 +34,7 @@ export default function WorkspacePage() {
 
   const [killSwitch, setKillSwitch] = useState<KillSwitchStatusOut | null>(null);
   const [tasks, setTasks] = useState<TaskOut[] | null>(null);
+  const [actions, setActions] = useState<ActionOut[] | null>(null);
   const [notifications, setNotifications] = useState<NotificationOut[] | null>(null);
   const [members, setMembers] = useState<WorkspaceMemberOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +46,7 @@ export default function WorkspacePage() {
     listTasks(sessionId, workspaceId)
       .then(setTasks)
       .catch((err) => setError(err instanceof ApiError ? err.message : "Yuklab bo'lmadi."));
+    listActions(sessionId, workspaceId).then(setActions).catch(() => {});
     listNotifications(sessionId, workspaceId).then(setNotifications).catch(() => {});
     listWorkspaceMembers(sessionId, workspaceId).then(setMembers).catch(() => {});
   }, [sessionId, workspaceId]);
@@ -141,6 +145,27 @@ export default function WorkspacePage() {
           ))}
           {tasks !== null && tasks.length === 0 && (
             <p className="text-sm text-gray-500">Hali task yo&apos;q.</p>
+          )}
+        </ul>
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-lg font-semibold">Action&apos;lar</h2>
+        <ul className="space-y-2">
+          {actions?.map((action) => (
+            <li
+              key={action.id}
+              className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-sm"
+            >
+              <div className="flex flex-col">
+                <span>{action.tool_name}</span>
+                <span className="text-xs text-gray-500">risk: {action.risk_level}</span>
+              </div>
+              <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{action.status}</span>
+            </li>
+          ))}
+          {actions !== null && actions.length === 0 && (
+            <p className="text-sm text-gray-500">Hali action yo&apos;q.</p>
           )}
         </ul>
       </section>

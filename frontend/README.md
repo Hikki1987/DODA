@@ -36,7 +36,21 @@ print(session.id)  # shu UUID'ni login sahifasiga kiriting
 
 Login (dev seam) → `/v1/me/workspaces` orqali workspace tanlash →
 workspace ichida: kill-switch holati, task'lar (ro'yxat/yaratish/holat
-o'zgartirish), bildirishnomalar (ro'yxat/o'qildi belgilash), a'zolar
+o'zgartirish), action'lar (ro'yxat — tool_name/risk_level/status, faqat
+o'qish uchun), bildirishnomalar (ro'yxat/o'qildi belgilash), a'zolar
 ro'yxati. Chat (FR-CONV) va Knowledge/RAG (2-bosqich) qurilmagan — backend'da
 ham hali yo'q, shuning uchun bu yerda ham yo'q (soxta UI qurish "DEMO ≠
 PRODUCTION" qoidasini buzardi).
+
+Action'lar bo'limi ataylab faqat o'qish uchun: yangi action taklif qilish
+(propose) formasi qurilmadi, chunki hali hech qanday haqiqiy tool/connector
+yo'q (S7, OD-002) — mavjud bo'lmagan tool nomlarini erkin kiritish
+imkoniyatini berish "DEMO ≠ PRODUCTION" qoidasini buzardi. Approval
+(tasdiqlash) tugmasi ham qurilmadi: `nonce` (bir martalik tasdiqlash
+kaliti, 9.2) faqat action taklif qilingan paytdagi HTTP javobida bir marta
+qaytariladi va boshqa hech qanday joyda (jumladan shu ro'yxatlash
+endpoint'ida) qayta ko'rsatilmaydi — bu ataylab shunday (backend
+`ApprovalOut.nonce`ning docstring'iga qarang). Demak ro'yxatdagi
+AWAITING_APPROVAL action'ni shu ekrandan tasdiqlab bo'lmaydi; buning uchun
+propose+approve bitta oqim ichida (bir xil sahifa yuklanishida) qurilishi
+kerak — bu alohida ish, chunki u ham propose formasini talab qiladi.

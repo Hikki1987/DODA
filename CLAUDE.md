@@ -497,9 +497,39 @@ orqali, real ma'lumot bilan ishlashi ko'rsatilgan.
 **Ataylab qurilmagan**: Chat (FR-CONV) va Knowledge/RAG ekranlari —
 backend'da bu domainlar umuman yo'q, shuning uchun ularning UI'sini
 qurish "mavjud bo'lmagan backend uchun soxta frontend" bo'lar edi.
-Actions bo'limi ham workspace sahifasiga qo'shilmadi (vaqt/ko'lam
-sababli, TaskService/NotificationService'dan farqli o'laroq bu "keyingi
-navbatdagi" ekran, backend endpointi allaqachon tayyor va testlangan).
+
+CI'ga yangi `frontend-quality` job (ESLint + `tsc --noEmit`) qo'shilgandan
+keyin real xato topildi: `src/app/layout.tsx`dagi `LayoutProps<'/'>`
+(Next.js 16'ning o'z, hujjatlashtirilgan konvensiyasi,
+`node_modules/next/dist/docs/`da tasdiqlangan) toza checkout'da
+`Cannot find name 'LayoutProps'` bilan qizardi — bu tip faqat
+`next build`/`next dev`/`next typegen` ishga tushgandan keyin generatsiya
+qilinadi, mahalliy tekshiruvim esa (tasodifan) allaqachon `next dev`
+ishlatilgan papkada bo'lgani uchun yolg'on o'tgan edi. `rm -rf .next
+node_modules && npm ci && ...` bilan chinakam toza reproduktsiya qilib
+tasdiqlandi, `frontend-quality`ga `npx next typegen` qadami (`tsc`dan
+oldin) qo'shilib tuzatildi va CI'da haqiqatda yashil bo'lgani real
+`get_check_runs` orqali tekshirildi (barcha 4 job: lint/format/mypy,
+frontend lint+types, migration round-trip, test suite).
+
+Keyin **Actions bo'limi ham workspace sahifasiga qo'shildi** — avval
+bu "keyingi navbatdagi" ekran deb qoldirilgan edi, garchi backend
+endpointi (`GET /v1/workspaces/{id}/actions`) allaqachon tayyor va
+testlangan bo'lsa ham (yana bir "yozish/o'zgartirish bor, ko'rish yo'q"
+naqshi). Ataylab faqat o'qish: tool_name/risk_level/status ko'rsatiladi,
+propose (yangi action yaratish) va approve (tasdiqlash) formalari
+qurilmadi — ikkalasi ham chinakam sabablarga ko'ra: propose formasi
+hali mavjud bo'lmagan tool/connector nomlarini erkin kiritishga ruxsat
+berardi (S7/OD-002'dan oldin "DEMO ≠ PRODUCTION"ni buzardi), approve
+tugmasi esa umuman ishlamaydi — `Approval.nonce` (bir martalik tasdiqlash
+kaliti) faqat action taklif qilingan HTTP javobida bir marta qaytariladi,
+`GET .../actions` orqali qayta ko'rinmaydi (`api/schemas.py`dagi
+`ApprovalOut.nonce`ning docstring'iga qarang — bu ataylab shunday, 9.2
+approval invariantlarining bir qismi). Real backend'ga (native
+Postgres 16+pgvector, Redis) qarshi 163 test qayta o'tkazildi, so'ng
+haqiqiy seed qilingan R3 action bilan Playwright orqali brauzer'da
+tasdiqlandi — "send_email / risk: R3 / AWAITING_APPROVAL" ekranda
+to'g'ri ko'rinadi, konsol xatosiz.
 
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
