@@ -109,6 +109,18 @@ switch'ni yoqib/o'chirib, hammasi audit'da to'g'ri ko'rinishini
 tasdiqlab — barchasi ekranda to'g'ri ko'rinishi tasdiqlandi, konsol
 xatosiz.
 
+Shu paytgacha yuqoridagi barcha Playwright tekshiruvlari qo'lda, throwaway
+scratchpad skriptlar bilan qilingan edi — hech biri repo'ga kirmagan,
+hech qanday kelajakdagi o'zgarish ularni qayta ishga tushirmagan bo'lardi.
+Bu haqiqiy bo'shliq edi: "DEMO ≠ PRODUCTION" qoidasi testlarsiz modul
+CLOSED bo'lishini taqiqlaydi, lekin frontend'ning o'z acceptance testi
+umuman yo'q edi. Endi `frontend/e2e/` (Playwright, `@playwright/test`)
+va `backend/scripts/seed_e2e_demo.py` bor — real Postgres+Redis+backend+
+frontend (production build) ustida ishlaydigan, commit qilingan, CI'da
+avtomatik ishga tushadigan ikkita spec (`workspace.spec.ts`,
+`customer.spec.ts`), bugungacha qo'lda tekshirilgan HAR BIR oqimni
+qamrab oladi. Tafsilot `frontend/README.md`da.
+
 ## Ishga tushirish (local dev)
 
 ```bash
@@ -137,9 +149,11 @@ ruff format --check .           # format
 mypy src/doda                   # tiplar
 ```
 
-CI (`.github/workflows/ci.yml`): har push/PR'da lint+format+mypy, Alembic
-migratsiya round-trip (upgrade→downgrade→upgrade, real Postgres'da), va
-to'liq test suite (real Postgres+Redis'da) ishga tushadi.
+CI (`.github/workflows/ci.yml`): har push/PR'da lint+format+mypy, frontend
+lint+types, Alembic migratsiya round-trip (upgrade→downgrade→upgrade, real
+Postgres'da), to'liq backend test suite (real Postgres+Redis'da), va
+end-to-end Playwright suite (real Postgres+Redis+backend+frontend
+production build ustida) ishga tushadi.
 
 Frontend (backend allaqachon ishga tushirilgan bo'lishi kerak):
 
@@ -184,11 +198,13 @@ backend/
     api/            # Experience qatlami (FastAPI routerlar)
     config.py, db.py, main.py
   migrations/       # Alembic
+  scripts/          # seed_e2e_demo.py — frontend E2E suite uchun demo ma'lumot
   tests/
 frontend/
   src/
-    app/            # Next.js App Router sahifalari (login, workspaces, workspace/[id])
+    app/            # Next.js App Router sahifalari (login, workspaces, workspace/[id], customers/[id])
     lib/            # api.ts (backend client), session.ts, useSession.ts
+  e2e/              # Playwright — real backend+frontend'ga qarshi, CI'da ishlaydi
 infra/
   postgres-init/    # doda_app (huquqi cheklangan) rolini yaratuvchi bootstrap skript
 docs/

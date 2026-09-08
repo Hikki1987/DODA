@@ -32,6 +32,46 @@ session = await create_session(db, user_id=..., auth_strength=AuthStrength.AAL2)
 print(session.id)  # shu UUID'ni login sahifasiga kiriting
 ```
 
+## End-to-end testlar (Playwright)
+
+Bu sessiyagacha har bir frontend tekshiruvi qo'lda, scratchpad'dagi
+throwaway skriptlar bilan qilingan edi — hech biri repo'ga kirmagan va
+hech qanday keyingi o'zgarish ularni qayta ishga tushirmagan. `e2e/`
+buni haqiqiy, commit qilingan, CI'da ishlaydigan test suite'ga
+aylantiradi ("DEMO ≠ PRODUCTION" qoidasi: qo'lda bir marta tekshirilgan
+narsa keyingi o'zgarishlar uni buzmasligini kafolatlamaydi).
+
+```bash
+# Terminal 1 — backend (real Postgres+Redis kerak, docker compose up -d)
+cd backend && uvicorn doda.main:app --reload
+
+# Terminal 2 — frontend
+cd frontend && npm run dev
+
+# Terminal 3 — demo ma'lumot urug'lash va testlarni ishga tushirish
+cd backend
+python scripts/seed_e2e_demo.py --prefix E2E_ >> /tmp/e2e.env
+python scripts/seed_e2e_demo.py --prefix E2E_CUSTOMER_ >> /tmp/e2e.env
+cd ../frontend
+set -a && source /tmp/e2e.env && set +a
+npm run e2e
+```
+
+Ikkita alohida `--prefix` bilan urug'lash ataylab: `customer.spec.ts`
+customer-keng kill switch'ni yoqadi, bu esa SECURITY_ALERT bildirishnomasini
+customer'ning BARCHA a'zolariga (jumladan workspace egasi) yuboradi — agar
+ikkala spec bitta seed'dan foydalansa, bu `workspace.spec.ts`ning
+bildirishnoma-sonini tekshiruvchi assertion'ini buzardi (`e2e/customer.spec.ts`
+ichidagi izohga qarang). `backend/scripts/seed_e2e_demo.py` xuddi
+`tests/integration/conftest.py`dagi `seed_workspace_member` bilan bir xil
+dev/test seam'dan foydalanadi (haqiqiy OIDC hali yo'q — yuqoriga qarang).
+
+CI (`.github/workflows/ci.yml`ning `e2e` job'i) xuddi shu ketma-ketlikni
+avtomatik bajaradi: real Postgres+Redis, backend `uvicorn` orqali,
+frontend `next build && next start` orqali (dev server emas — production
+build'ning o'zi ishlashini tekshiradi), ikkita mustaqil seed, va
+`npx playwright test`.
+
 ## Qamrov
 
 Login (dev seam) → `/v1/me/workspaces` orqali workspace tanlash →

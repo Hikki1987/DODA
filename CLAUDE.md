@@ -637,6 +637,63 @@ ko'rinishi tekshirildi), FAILED_ACTION sozlamasini o'chirib/yoqib
 qaytarish, SECURITY_ALERT'da tugma yo'qligi, va kill switch'ni haqiqatan
 yoqib/o'chirish — barchasi konsol xatosiz.
 
+**Frontend E2E testlari CI'ga qo'shildi — bu paytgacha "real backend'ga
+qarshi Playwright orqali tasdiqlandi" degan har bir da'vo qo'lda,
+scratchpad'dagi throwaway skriptlar bilan qilingan edi.** Bu haqiqiy
+bo'shliq edi: hech biri repo'ga kirmagan, demak hech qanday keyingi
+o'zgarish ularni qayta ishga tushirmasdi — "DEMO ≠ PRODUCTION" qoidasi
+("testlarsiz modul CLOSED bo'lmaydi") aslida frontend uchun to'liq
+qamrab olinmagan edi, faqat lint/tsc (kod yozilgani, ishlashi emas).
+
+Tuzatish: `frontend/e2e/` — `@playwright/test` bilan yozilgan, ikkita
+spec (`workspace.spec.ts`, `customer.spec.ts`) bu sessiyada qo'lda
+tekshirilgan HAR BIR oqimni (login → workspace → task/action/
+bildirishnoma/audit/tarix, va customer sahifasidagi a'zo qo'shish/rol
+o'zgartirish/chiqarish/bildirishnoma sozlamalari/kill switch) qamrab
+oladi. `backend/scripts/seed_e2e_demo.py` — `tests/integration/
+conftest.py`dagi `seed_workspace_member` bilan bir xil dev/test seam'dan
+foydalanadigan, mustaqil ishga tushiriladigan seed skripti (haqiqiy OIDC
+hali yo'q, session HTTP orqali yaratib bo'lmaydi).
+
+**Ikkita spec ATAYLAB ikkita mustaqil seed ishlatadi** (`--prefix E2E_`
+va `--prefix E2E_CUSTOMER_`) — buni yozish jarayonida haqiqiy, nozik xato
+ochib berdi: dastlab ikkalasi bitta seed'ni bo'lishgan edi, va
+`customer.spec.ts`ning kill switch'ni yoqishi (`SECURITY_ALERT`ni
+customer'ning BARCHA a'zolariga broadcast qiladi — `kill_switch_service.
+engage_customer_kill_switch`) `workspace.spec.ts`ning "bildirishnomani
+o'qildi deb belgilagandan keyin 0 ta belgilanmagan qoladi" degan
+assertion'ini buzdi (aslida 1 ta — SECURITY_ALERT — qolib ketardi,
+chunki u xuddi shu Demo User'ga, xuddi shu workspace'ning
+bildirishnoma ro'yxatida ham ko'rinadi — `list_notifications_for_user`
+"workspace_id berilsa, o'sha workspace YOKI customer-keng (workspace_id
+NULL) bildirishnomalarni" qaytaradi, ataylab shunday hujjatlashtirilgan).
+Bu ikkita spec fayl bir xil mutable seed holatini bo'lishmasligi kerak
+degan haqiqiy dars edi — E2E test dizaynida keng tarqalgan xato sinfi,
+shuning uchun aynan shu injiq bog'liqlikni ushlab, kelajakda takrorlanishining
+oldini olish uchun `--prefix` qo'shildi.
+
+CI'ga yangi `e2e` job qo'shildi (`.github/workflows/ci.yml`): real
+Postgres+Redis service konteynerlari, backend `uvicorn` orqali fon
+jarayonida (health-check `/healthz` orqali kutiladi), frontend esa
+`next build && next start` orqali — ataylab `next dev` emas, production
+build'ning o'zi ishlashini tekshirish uchun. Mahalliy tekshiruvda ham
+xuddi shu production-build ketma-ketligi (`npm run build && npm run
+start`) qo'lda takrorlandi va ikki marta ketma-ket (fresh seed bilan)
+ishga tushirilib, natija barqaror ekani tasdiqlandi.
+
+Bu ishni qilish jarayonida boshqa bir haqiqiy xato ham topildi va
+tuzatildi: dastlabki spec `page.getByText("AWAITING_APPROVAL")` (strict-
+mode, aniq bitta element kutadi) ishlatgan edi, lekin workspace
+sahifasida endi Audit bo'limi ham bor va u yerda `action.awaiting_
+approval.v1` degan audit event_type string ham ko'rinadi — Playwright'ning
+`getByText` standart rejimi katta-kichik harfga sezgir emas va substring
+bo'yicha moslashtiradi, shuning uchun ikkalasi ham topilib strict-mode
+xatosi berdi. Bu mening avvalgi qo'lda yozilgan scratchpad skriptlarimda
+hech qachon ko'rinmagan edi, chunki ular eski `page.waitForSelector("text=
+...")` API'sini ishlatgan (birinchi moslikni qabul qiladi, strict emas) —
+yangi, qat'iyroq `getByText().toBeVisible()` shakli buni haqiqatda
+ushladi. `{ exact: true }` bilan tuzatildi.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,
