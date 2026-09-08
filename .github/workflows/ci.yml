@@ -236,7 +236,7 @@ jobs:
             sleep 1
           done
           echo "backend never became healthy" && cat /tmp/backend.log && exit 1
-      - name: Seed E2E demo data (two independent seeds — see workspace/customer specs)
+      - name: Seed E2E demo data (independent seeds per spec file)
         # A single shared seed would let one spec's side effects (the
         # customer spec engages a kill switch, which broadcasts a
         # SECURITY_ALERT notification to every member) leak into the
@@ -244,6 +244,7 @@ jobs:
         run: |
           python scripts/seed_e2e_demo.py --prefix E2E_ >> "$GITHUB_ENV"
           python scripts/seed_e2e_demo.py --prefix E2E_CUSTOMER_ >> "$GITHUB_ENV"
+          python scripts/seed_e2e_demo.py --prefix E2E_A11Y_ >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"

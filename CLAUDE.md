@@ -951,6 +951,50 @@ yangilamagan. ADR'larning o'zi nuqtai-vaqt hujjat (point-in-time reference)
 bo'lishi kerak, xronologik log emas — shuning uchun haqiqiy joriy holatga
 (uchta istisno) tuzatildi.
 
+**NFR-ACC-001 (WCAG 2.2 AA, "Avtomatik + qo'lda audit") uchun birinchi
+avtomatik tekshiruv qo'shildi — hech qachon frontend'ga qarshi bironta
+accessibility check ishga tushirilmagan edi.** `frontend/e2e/
+accessibility.spec.ts` (`@axe-core/playwright`) real backend+frontend'ga
+qarshi har bir haqiqiy authenticated sahifani (`/login`, `/workspaces`,
+`/workspaces/[id]`, `/customers/[id]`, `/sessions`) skanerlaydi va
+`serious`/`critical` darajadagi WCAG 2.0/2.1/2.2 AA buzilishlari nolga
+teng bo'lishini talab qiladi — moderate/minor darajadagilar hozircha
+qat'iy gate emas (haligi subyektiv/shovqinli topilmalar uchun), lekin
+`serious`/`critical` "gate emas, faqat qayd etiladi" bo'lishi mumkin
+emas edi, chunki bular haqiqiy, foydalanuvchiga to'sqinlik qiladigan
+kamchiliklar.
+
+Birinchi haqiqiy ishga tushirishda ikkita **real** WCAG buzilishi topildi,
+sintetik emas:
+1. `/customers/[id]`dagi ikkita `<select>` (yangi a'zo roli tanlash, mavjud
+   a'zo rolini o'zgartirish) hech qanday accessible name'ga ega emas edi
+   (`critical: select-name`) — ekran o'quvchisi foydalanuvchisi uchun bu
+   ikkala boshqaruv elementi ham "nomsiz" bo'lib qolardi. `aria-label`
+   qo'shib tuzatildi.
+2. `/workspaces/[id]` va `/customers/[id]`dagi 7 ta joyda "ro'yxat bo'sh"
+   holati `<ul>` ichida to'g'ridan-to'g'ri `<p>` sifatida render qilinardi
+   (`serious: list` — `<ul>`/`<ol>` faqat `<li>`ni to'g'ridan-to'g'ri farzand
+   sifatida qabul qilishi kerak). Bu yerda faqat bitta joy (bo'sh task
+   ro'yxati) haqiqiy topilma sifatida ko'rindi, chunki seed qilingan
+   ma'lumotda faqat shu ro'yxat bo'sh edi — lekin xuddi shu naqsh (action/
+   bildirishnoma/audit/a'zo ro'yxatlarining bo'sh holati) yana olti joyda
+   aynan takrorlangan edi, shuning uchun barcha ettitasi ham `<p>`dan
+   `<li>`ga o'zgartirildi — faqat testda ko'ringan bittasini emas, xuddi
+   shu buzuq naqshning har bir nusxasini.
+
+Ikkalasi ham qayta build+start qilingan production frontend'ga qarshi,
+haqiqiy `axe-core` skaneri bilan qayta tekshirildi (avval qizil, tuzatishdan
+keyin yashil) — audit-zanjiri uslubidagi revert-test-restore emas, lekin
+xuddi shunday "avval haqiqiy xato ko'rsat, keyin tuzatilganini ko'rsat"
+tamoyili. Mavjud ikkita E2E spec (`workspace.spec.ts`, `customer.spec.ts`)
+ham `<p>`→`<li>` o'zgarishidan keyin qayta ishga tushirilib, regressiya
+yo'qligi tasdiqlandi (ularning assertion'lari `getByText` orqali, tegga
+bog'liq emas). CI'ning mavjud `e2e` job'iga uchinchi mustaqil seed
+(`--prefix E2E_A11Y_`) qo'shildi — xuddi ikkita mavjud spec bir xil seed'ni
+bo'lishmasligi kerak degan avvalgi dars bilan bir xil ehtiyot choralari,
+garchi bu spec hech qanday state'ni o'zgartirmasa ham (faqat navigatsiya +
+skanerlash).
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,

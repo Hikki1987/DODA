@@ -227,6 +227,7 @@ export default function CustomerPage() {
             className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-black focus:outline-none"
           />
           <select
+            aria-label="Yangi a'zo roli"
             value={newMemberRole}
             onChange={(event) => setNewMemberRole(event.target.value as CustomerRole)}
             className="rounded-md border border-gray-300 px-2 py-2 text-sm"
@@ -251,6 +252,7 @@ export default function CustomerPage() {
               <span>{member.display_name}</span>
               <div className="flex items-center gap-2">
                 <select
+                  aria-label={`${member.display_name} roli`}
                   value={member.role}
                   onChange={(event) => handleChangeMemberRole(member, event.target.value as CustomerRole)}
                   className="rounded border border-gray-200 bg-gray-100 px-1 py-0.5 text-xs text-gray-600"
@@ -271,7 +273,7 @@ export default function CustomerPage() {
             </li>
           ))}
           {members !== null && members.length === 0 && (
-            <p className="text-sm text-gray-500">A&apos;zo yo&apos;q.</p>
+            <li className="text-sm text-gray-500">A&apos;zo yo&apos;q.</li>
           )}
         </ul>
       </section>
@@ -322,7 +324,7 @@ export default function CustomerPage() {
             </li>
           ))}
           {notifications !== null && notifications.length === 0 && (
-            <p className="text-sm text-gray-500">Bildirishnoma yo&apos;q.</p>
+            <li className="text-sm text-gray-500">Bildirishnoma yo&apos;q.</li>
           )}
         </ul>
       </section>
@@ -372,7 +374,7 @@ export default function CustomerPage() {
             </li>
           ))}
           {auditEvents !== null && auditEvents.length === 0 && (
-            <p className="text-sm text-gray-500">Audit yozuvi yo&apos;q.</p>
+            <li className="text-sm text-gray-500">Audit yozuvi yo&apos;q.</li>
           )}
         </ul>
       </section>

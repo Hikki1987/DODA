@@ -226,7 +226,7 @@ export default function WorkspacePage() {
             </li>
           ))}
           {tasks !== null && tasks.length === 0 && (
-            <p className="text-sm text-gray-500">Hali task yo&apos;q.</p>
+            <li className="text-sm text-gray-500">Hali task yo&apos;q.</li>
           )}
         </ul>
       </section>
@@ -247,7 +247,7 @@ export default function WorkspacePage() {
             </li>
           ))}
           {actions !== null && actions.length === 0 && (
-            <p className="text-sm text-gray-500">Hali action yo&apos;q.</p>
+            <li className="text-sm text-gray-500">Hali action yo&apos;q.</li>
           )}
         </ul>
       </section>
@@ -274,7 +274,7 @@ export default function WorkspacePage() {
             </li>
           ))}
           {notifications !== null && notifications.length === 0 && (
-            <p className="text-sm text-gray-500">Bildirishnoma yo&apos;q.</p>
+            <li className="text-sm text-gray-500">Bildirishnoma yo&apos;q.</li>
           )}
         </ul>
       </section>
@@ -327,7 +327,7 @@ export default function WorkspacePage() {
             </li>
           ))}
           {auditEvents !== null && auditEvents.length === 0 && (
-            <p className="text-sm text-gray-500">Audit yozuvi yo&apos;q.</p>
+            <li className="text-sm text-gray-500">Audit yozuvi yo&apos;q.</li>
           )}
         </ul>
       </section>
