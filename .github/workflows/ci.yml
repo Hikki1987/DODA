@@ -10,7 +10,11 @@ defaults:
     working-directory: backend
 
 env:
-  DODA_DATABASE_URL: postgresql+asyncpg://doda:doda@localhost:5432/doda
+  # Admin/bootstrap role — Alembic only (CREATE EXTENSION, arbitrary DDL).
+  DODA_MIGRATION_DATABASE_URL: postgresql+asyncpg://doda:doda@localhost:5432/doda
+  # App runtime — the unprivileged role (ADR-005). Provisioned by the
+  # "Create least-privilege app role" step below before anything reads it.
+  DODA_DATABASE_URL: postgresql+asyncpg://doda_app:doda_app@localhost:5432/doda
   DODA_REDIS_URL: redis://localhost:6379/0
 
 jobs:
@@ -93,7 +97,12 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: pip install -e ".[dev]"
-      - name: Apply migrations
+      - name: Apply migrations (as admin role)
         run: alembic upgrade head
-      - name: Run test suite
+      - name: Create least-privilege app role
+        # Service containers start before checkout, so they can't mount
+        # this repo file directly the way docker-compose's local postgres
+        # does — apply it explicitly instead, as the same admin role.
+        run: PGPASSWORD=doda psql -h localhost -U doda -d doda -f ../infra/postgres-init/01-create-app-role.sql
+      - name: Run test suite (as the unprivileged app role — proves RLS for real)
         run: pytest tests/ -v

@@ -246,6 +246,46 @@ tuzatishda topildi) — `test_audit_query_pagination.py` bilan yopildi.
 
 127 test, barchasi real Postgres'da.
 
+**Kritik xavfsizlik xatosi topildi va tuzatildi — ADR-005'ning "ikkinchi
+qatlami" haqiqatda ishlamas edi.** Yangi qurilgan CI birinchi marta chinakam
+"fresh" (bo'sh volume'li) Postgres konteynerida test suite'ni ishga
+tushirganda, `test_tenant_isolation.py` real cross-tenant data leak bilan
+qizardi: bitta customer boshqa customer'larning workspace'larini ko'rdi.
+Sabab — Postgres'ning rasmiy Docker image'i `POSTGRES_USER` orqali
+yaratilgan rolni har doim **superuser** qilib yaratadi (bu Postgres'ning
+o'z, o'zgarmas qoidasi), superuser esa `FORCE ROW LEVEL SECURITY`dan qat'i
+nazar RLS'ni har doim chetlab o'tadi. Ilova `docker-compose.yml`'dagi shu
+bootstrap rol (`doda`) bilan to'g'ridan-to'g'ri ulanar edi — demak har bir
+jadvalda `FORCE ROW LEVEL SECURITY` yoqilgan bo'lsa ham, bu 6-bo'limda
+"ikkinchi, mustaqil qatlam" deb hujjatlashtirilgan RLS himoyasi production
+konfiguratsiyasida (va har qanday yangi/fresh Postgres'da) haqiqatda **hech
+narsa qilmas edi** — birinchi qatlam (repository-darajasidagi customer_id
+filtri) yagona haqiqiy himoya bo'lib qolgan edi. Bu mahalliy dev muhitida
+hech qachon ko'rinmadi, chunki u yerdagi Postgres allaqachon boshqacha
+(superuser bo'lmagan) `doda` bilan oldindan sozlangan edi — demak avvalgi
+barcha "127 test real Postgres'da o'tdi" da'volari haqiqiy edi, lekin faqat
+noan'anaviy, allaqachon xavfsiz mahalliy muhit tufayli, CI/production'dagi
+haqiqiy konfiguratsiyaning o'zi tufayli emas.
+
+Tuzatish (ikkita rol, bitta haqiqat manbai — `infra/postgres-init/
+01-create-app-role.sql`): endi `doda` (bootstrap superuser) faqat Alembic
+migratsiyalari uchun (`DODA_MIGRATION_DATABASE_URL`) ishlatiladi — CREATE
+EXTENSION va DDL uchun superuser shart. Ilovaning o'zi endi ataylab
+huquqi cheklangan, superuser BO'LMAGAN `doda_app` rol orqali ulanadi
+(`DODA_DATABASE_URL`), `NOSUPERUSER NOBYPASSRLS` bilan yaratilgan va faqat
+kerakli jadvallarga SELECT/INSERT/UPDATE/DELETE huquqi berilgan (`ALTER
+DEFAULT PRIVILEGES` orqali kelajakdagi migratsiyalar yaratadigan jadvallar
+uchun ham avtomatik). `docker-compose.yml` bu skriptni `docker-entrypoint-
+initdb.d` orqali avtomatik bajaradi; CI'da esa alohida qadam sifatida
+`psql` orqali chaqiriladi (service konteynerlar checkout'dan oldin
+boshlangani uchun fayl mount qilib bo'lmaydi). `test_rls_coverage.py`ga
+`test_app_connects_as_a_role_that_cannot_bypass_row_level_security`
+qo'shildi — ilova ulanadigan rolning `rolsuper`/`rolbypassrls`
+bo'lmasligini real Postgres'da tekshiradi, shu butun xato sinfini endi CI
+har safar ushlaydi.
+
+129 test, barchasi real Postgres'da.
+
 Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
 — bu yerda FR-AUTH-001'ning haqiqiy OIDC oqimi qurilishi kerak (hozir
 `session_service.create_session` faqat dev/test seam) va bu tashqi OIDC

@@ -60,6 +60,29 @@ CI (`.github/workflows/ci.yml`): har push/PR'da lint+format+mypy, Alembic
 migratsiya round-trip (upgrade→downgrade→upgrade, real Postgres'da), va
 to'liq test suite (real Postgres+Redis'da) ishga tushadi.
 
+### Ikki xil DB roli — nega
+
+`docker compose up`, birinchi marta ishga tushganda, `infra/postgres-init/`
+skriptini avtomatik bajaradi va ikkinchi, huquqi cheklangan `doda_app`
+rolini yaratadi. `DODA_DATABASE_URL` (ilovaning o'zi ishlatadigan) shu
+rolga, `DODA_MIGRATION_DATABASE_URL` (faqat Alembic) esa bootstrap
+superuser'ga (`doda`) ishora qiladi — bittasi emas, ataylab ikkitasi.
+
+Sababi: Postgres'ning rasmiy Docker image'i `POSTGRES_USER` orqali
+yaratilgan rolni har doim **superuser** qilib yaratadi, superuser esa
+`FORCE ROW LEVEL SECURITY`dan qat'i nazar RLS'ni har doim chetlab o'tadi —
+bu Postgres'ning o'zining qat'iy qoidasi, sozlash masalasi emas. Agar ilova
+to'g'ridan-to'g'ri shu bootstrap rol bilan ulansa, ADR-005'dagi "ikkinchi
+qatlam" (RLS) haqiqatda hech narsa qilmaydi, garchi har bir jadvalda
+`FORCE ROW LEVEL SECURITY` yoqilgan bo'lsa ham. Bu aynan shunday sodir
+bo'lganini birinchi marta haqiqiy, yangi (fresh) Postgres konteynerida
+ishlagan CI o'zi topdi (`test_tenant_isolation.py` bitta tenant boshqa
+tenant'ning workspace'larini ko'rib qoldi) — mahalliy dev muhitida
+yashiringan edi, chunki u yerdagi Postgres allaqachon boshqacha (superuser
+bo'lmagan) `doda` bilan sozlangan edi. Tuzatish: `test_rls_coverage.py`ga
+ilovaning o'zi ulanadigan rol haqiqatda superuser/BYPASSRLS emasligini
+tekshiradigan test qo'shildi — shu sinf xatoni endi CI har safar ushlaydi.
+
 ## Struktura
 
 ```
@@ -70,6 +93,8 @@ backend/
     config.py, db.py, main.py
   migrations/       # Alembic
   tests/
+infra/
+  postgres-init/    # doda_app (huquqi cheklangan) rolini yaratuvchi bootstrap skript
 docs/
   DODA-TRD-v2.0.docx  # authoritative talab hujjati
 ```

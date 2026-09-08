@@ -77,3 +77,35 @@ async def test_known_exempt_tables_are_still_real_tables_not_stale_entries(db_av
     all_table_names = {table.name for table in Base.metadata.tables.values()}
     stale = KNOWN_RLS_EXEMPT_TABLES - all_table_names
     assert not stale, f"KNOWN_RLS_EXEMPT_TABLES references table(s) that no longer exist: {sorted(stale)}"
+
+
+async def test_app_connects_as_a_role_that_cannot_bypass_row_level_security(db_available: bool) -> None:
+    """FORCE ROW LEVEL SECURITY (checked above) is worthless if the role the
+    application actually connects as is a PostgreSQL superuser, or has been
+    granted BYPASSRLS directly — both unconditionally skip every RLS policy
+    regardless of FORCE. This is not hypothetical: the official postgres
+    Docker image always creates its POSTGRES_USER as a superuser, which is
+    exactly the role docker-compose.yml's app previously connected as. A
+    genuinely fresh Postgres container (first exercised by CI, never by the
+    long-lived local dev container) exposed real cross-tenant data leakage
+    in test_tenant_isolation.py before doda_app (infra/postgres-init) and
+    this test existed. See README.md's "Ikki xil DB roli" section.
+    """
+    async with async_session_factory() as session:
+        row = (
+            await session.execute(
+                text("select rolsuper, rolbypassrls from pg_roles where rolname = current_user")
+            )
+        ).one()
+
+    assert not row.rolsuper, (
+        "the app's DODA_DATABASE_URL connects as a PostgreSQL superuser — "
+        "superusers always bypass row security, so every FORCE ROW LEVEL "
+        "SECURITY table is silently unprotected. Point DODA_DATABASE_URL "
+        "at the unprivileged doda_app role instead (see infra/postgres-init)."
+    )
+    assert not row.rolbypassrls, (
+        "the app's DODA_DATABASE_URL connects as a role with the BYPASSRLS "
+        "attribute — remove it; the app role must be subject to RLS like "
+        "any ordinary tenant, not exempt from it."
+    )
