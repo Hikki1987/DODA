@@ -40,14 +40,20 @@ class WorkspaceContext:
 
 
 async def get_workspace_context(
-    session: AsyncSession, *, user_id: uuid.UUID, workspace_id: uuid.UUID
+    session: AsyncSession, *, user_id: uuid.UUID, workspace_id: uuid.UUID, allow_archived: bool = False
 ) -> WorkspaceContext:
     """NFR-ISO-002: never look up a workspace by id alone — always through
     the membership chain, so a user with no membership gets DENY, not a
     lookup of a workspace that happens to belong to someone else's customer.
+
+    `allow_archived` exists only for the restore flow (FR-WKS-006): a
+    workspace that's archived must otherwise be closed to retrieval and
+    action (fail-closed default), but *restoring* it necessarily requires
+    resolving context for that same archived workspace — see
+    api.dependencies.get_request_context_allow_archived, used nowhere else.
     """
     workspace = await session.get(Workspace, workspace_id)
-    if workspace is None or workspace.archived_at is not None:
+    if workspace is None or (workspace.archived_at is not None and not allow_archived):
         raise AuthorizationError(Decision.DENY, "workspace not found or archived")
 
     row = (
@@ -104,6 +110,19 @@ def authorize_create_task(context: WorkspaceContext) -> None:
     through by omission."""
     if context.role not in (WorkspaceRole.MEMBER, WorkspaceRole.WORKSPACE_ADMIN):
         raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not create tasks")
+
+
+def authorize_manage_workspace_members(context: WorkspaceContext) -> None:
+    """10.2 'Rol biriktirish' row: Member = Yo'q; WorkspaceAdmin = Workspace
+    ichida. (CustomerOwner also = Ha, but see roles.py's KNOWN LIMITATION —
+    customer-level role is not resolved at this API boundary yet.)"""
+    if context.role is not WorkspaceRole.WORKSPACE_ADMIN:
+        raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not manage workspace members")
+
+
+def authorize_archive_workspace(context: WorkspaceContext) -> None:
+    if context.role is not WorkspaceRole.WORKSPACE_ADMIN:
+        raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not archive this workspace")
 
 
 def authorize_task_mutation(context: WorkspaceContext, task: Task) -> None:

@@ -94,7 +94,24 @@ S1'da qarzda qolgan qism yopildi: Task domeni faqat model sifatida qolgan
 edi (application service va API yo'q edi). Endi `application/task_service.py`
 (FR-TASK-001/004/007: create, status transition, history) va
 `api/tasks.py` mavjud — xuddi shu authz zanjiridan foydalanadi (owner yoki
-workspace_admin state'ni o'zgartira oladi). 83 test (16 yangi).
+workspace_admin state'ni o'zgartira oladi).
+
+FR-WKS (customer/workspace boshqaruvi) ham endi to'liq: `customer_service.py`
+(Customer yaratish + a'zolik — "oxirgi Owner chiqarib/pasaytirib bo'lmaydi"
+invarianti bilan, FR-WKS-005) va `workspace_service.py` kengaytirildi
+(workspace a'zoligi qo'shish/rol o'zgartirish/chiqarish, arxivlash/tiklash —
+FR-WKS-003/005/006). Customer yaratish ataylab public API orqali ochilmagan
+— 2.3-bo'lim "self-serve public signup"ni v1 uchun OUT OF SCOPE deb
+belgilagan; bu faqat operator/test tooling uchun.
+
+94 test, barchasi real Postgres'da. Bu bosqichda 3 ta real xato topib
+tuzatildi: (1) audit hash-zanjiri concurrency fork'i (yuqorida), (2)
+`restore_workspace` endpointi arxivlangan workspace'ga kira olmasdi, chunki
+`get_workspace_context` arxivlangan workspace'ni har doim DENY qilardi —
+`allow_archived` parametri va alohida dependency bilan tuzatildi, (3)
+`create_customer_with_owner` o'zi ichida yangi tasodifiy `customer_id`
+generatsiya qilib, chaqiruvchi ochgan `tenant_scoped_session`ning ID'siga
+mos kelmasdi — RLS insert'ni rad etardi.
 
 Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
 — bu yerda FR-AUTH-001'ning haqiqiy OIDC oqimi qurilishi kerak (hozir
@@ -121,11 +138,15 @@ oldin hal qilinishi kerak.
   JWT/OIDC token emas (FR-AUTH-001 S3 ishi). Session jadvali va uning
   idle/absolute timeout, revoke mantig'i haqiqiy; faqat "session qanday
   tug'iladi" bosqichi hali stand-in.
-- R3 approver siyosati faqat `WorkspaceRole`ni tekshiradi (`member` /
-  `workspace_admin`); `CustomerRole.CUSTOMER_OWNER` ham 10.2 bo'yicha
-  approve qila olishi kerak, lekin bu customer-darajasidagi rolni ham
-  API chegarasida aniqlashni talab qiladi — qamrovga kiritilmagan
-  (`domain/security/roles.py` docstring'iga qarang).
+- R3 approver siyosati va workspace-a'zolik boshqaruvi faqat `WorkspaceRole`ni
+  tekshiradi (`member` / `workspace_admin`); `CustomerRole.CUSTOMER_OWNER`
+  ham 10.2 bo'yicha bu amallarni bajara olishi kerak, lekin bu
+  customer-darajasidagi rolni ham API chegarasida aniqlashni talab qiladi —
+  qamrovga kiritilmagan (`domain/security/roles.py` docstring'iga qarang).
+- "Customer'ga taklif qilish" (yangi foydalanuvchini customer'ga a'zo
+  qilish) uchun HTTP endpoint yo'q — `customer_service.invite_customer_member`
+  faqat application-layer funksiya. Buni ochish FR-NTF (bildirishnoma
+  yuborish) bilan tabiiy bog'liq, hozircha qamrovdan tashqarida.
 - `workspace_tenant_index` jadvali — RLS'ning "tuxum-tovuq" muammosini hal
   qilish uchun ataylab RLS'siz qoldirilgan bootstrap jadval (faqat
   workspace_id→customer_id xaritasi, kontent yo'q). Faqat

@@ -12,8 +12,10 @@ from fastapi.responses import JSONResponse
 
 from doda.application.action_service import ApprovalInvalidError
 from doda.application.authz_service import AuthorizationError
+from doda.application.customer_service import CustomerMembershipError
 from doda.application.session_service import SessionInvalidError
 from doda.application.task_service import InvalidTaskTransition
+from doda.application.workspace_service import WorkspaceMembershipError
 from doda.domain.action.state_machine import InvalidActionTransition
 from doda.domain.security.decisions import Decision
 
@@ -97,6 +99,30 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=_envelope(
                 code="APPROVAL_INVALID",
                 message="Approval qabul qilinmadi.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(WorkspaceMembershipError)
+    async def _workspace_membership_error(request: Request, exc: WorkspaceMembershipError) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content=_envelope(
+                code="MEMBERSHIP_INVALID",
+                message="A'zolik amali bajarilmadi.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(CustomerMembershipError)
+    async def _customer_membership_error(request: Request, exc: CustomerMembershipError) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content=_envelope(
+                code="LAST_OWNER_PROTECTED",
+                message="Oxirgi Customer Owner'ni chiqarib yoki lavozimini pasaytirib bo'lmaydi.",
                 trace_id=_trace_id(request),
                 retryable=False,
             ),

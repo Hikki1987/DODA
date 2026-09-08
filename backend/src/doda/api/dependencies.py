@@ -49,9 +49,8 @@ class RequestContext:
     db: AsyncSession
 
 
-async def get_request_context(
-    workspace_id: uuid.UUID = Path(...),
-    authorization: str | None = Header(default=None),
+async def _resolve_request_context(
+    *, workspace_id: uuid.UUID, authorization: str | None, allow_archived: bool
 ) -> AsyncGenerator[RequestContext, None]:
     session_id = _parse_bearer_session_id(authorization)
 
@@ -66,6 +65,29 @@ async def get_request_context(
 
     async with tenant_scoped_session(index_row.customer_id) as db:
         context = await get_workspace_context(
-            db, user_id=session_record.user_id, workspace_id=workspace_id
+            db, user_id=session_record.user_id, workspace_id=workspace_id, allow_archived=allow_archived
         )
         yield RequestContext(workspace=context, auth_strength=session_record.auth_strength, db=db)
+
+
+async def get_request_context(
+    workspace_id: uuid.UUID = Path(...),
+    authorization: str | None = Header(default=None),
+) -> AsyncGenerator[RequestContext, None]:
+    async for ctx in _resolve_request_context(
+        workspace_id=workspace_id, authorization=authorization, allow_archived=False
+    ):
+        yield ctx
+
+
+async def get_request_context_allow_archived(
+    workspace_id: uuid.UUID = Path(...),
+    authorization: str | None = Header(default=None),
+) -> AsyncGenerator[RequestContext, None]:
+    """Only for the workspace-restore endpoint (FR-WKS-006) — see
+    get_workspace_context's `allow_archived` docstring. Never use this for
+    any other route."""
+    async for ctx in _resolve_request_context(
+        workspace_id=workspace_id, authorization=authorization, allow_archived=True
+    ):
+        yield ctx
