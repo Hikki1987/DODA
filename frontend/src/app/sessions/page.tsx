@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ApiError, listMySessions, revokeSession, type SessionOut } from "@/lib/api";
+import { ApiError, getMyDataExport, listMySessions, revokeSession, type SessionOut } from "@/lib/api";
 import { useSession } from "@/lib/useSession";
 
 export default function SessionsPage() {
   const sessionId = useSession();
   const [sessions, setSessions] = useState<SessionOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const refresh = useCallback(() => {
     if (sessionId === null) return;
@@ -31,6 +32,25 @@ export default function SessionsPage() {
     }
   }
 
+  async function handleExportData() {
+    if (sessionId === null || exporting) return;
+    setExporting(true);
+    try {
+      const data = await getMyDataExport(sessionId);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `doda-export-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Ma'lumotlarni eksport qilib bo'lmadi.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   if (sessionId === null) return null;
 
   return (
@@ -48,6 +68,21 @@ export default function SessionsPage() {
       </p>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
+
+      <section className="rounded-md border border-gray-200 p-3">
+        <h2 className="text-sm font-semibold">Ma&apos;lumotlarimni eksport qilish</h2>
+        <p className="mt-1 text-xs text-gray-500">
+          A&apos;zo bo&apos;lgan har bir workspace&apos;dagi o&apos;zingizga tegishli task&apos;lar,
+          bildirishnomalar va audit yozuvlarini bitta JSON fayl sifatida yuklab olasiz (FR-CTL-002).
+        </p>
+        <button
+          onClick={handleExportData}
+          disabled={exporting}
+          className="mt-2 rounded-md bg-black px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+        >
+          {exporting ? "Tayyorlanmoqda..." : "Eksport qilish"}
+        </button>
+      </section>
 
       <ul className="space-y-2">
         {sessions?.map((session) => (

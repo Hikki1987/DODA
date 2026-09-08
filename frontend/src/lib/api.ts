@@ -82,6 +82,21 @@ export function listMyWorkspaces(sessionId: string): Promise<MyWorkspaceOut[]> {
   return apiFetch("/v1/me/workspaces", sessionId);
 }
 
+// ---- /v1/me/export ----
+
+export interface MyDataExportOut {
+  user_id: string;
+  display_name: string;
+  memberships: MyWorkspaceOut[];
+  tasks: TaskOut[];
+  notifications: NotificationOut[];
+  audit_events: AuditEventOut[];
+}
+
+export function getMyDataExport(sessionId: string): Promise<MyDataExportOut> {
+  return apiFetch("/v1/me/export", sessionId);
+}
+
 // ---- /v1/workspaces/{id}/tasks ----
 
 export type TaskStatus = "TODO" | "IN_PROGRESS" | "DONE" | "CANCELLED";

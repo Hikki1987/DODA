@@ -84,5 +84,20 @@ test("login, workspace, task, notification, action, audit flow", async ({ page }
     await expect(page.getByText("workspace.created.v1")).toBeVisible();
   });
 
+  await test.step("exporting my data on /sessions downloads a real file containing my own task", async () => {
+    await page.goto("/sessions");
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.click('button:has-text("Eksport qilish")'),
+    ]);
+    expect(download.suggestedFilename()).toMatch(/^doda-export-\d{4}-\d{2}-\d{2}\.json$/);
+    const exportedPath = await download.path();
+    const fs = await import("node:fs/promises");
+    const exported = JSON.parse(await fs.readFile(exportedPath!, "utf-8"));
+    // The task created earlier in this same test — proves the export is a
+    // real GET /v1/me/export round-trip, not a placeholder file.
+    expect(exported.tasks.some((t: { title: string }) => t.title === "E2E test task")).toBe(true);
+  });
+
   expect(consoleErrors, `unexpected browser console errors: ${consoleErrors.join("\n")}`).toEqual([]);
 });

@@ -1407,6 +1407,34 @@ archive, kill-switch, accessibility) birga qayta ishga tushirilib,
 regressiya yo'qligi (va yangi forma WCAG buzilishi keltirmasligi)
 tasdiqlandi.
 
+**Xuddi shu naqshning eng aniq nusxasi topildi: `GET /v1/me/export`
+(FR-CTL-002 ma'lumot eksporti — shu sessiyada oldinroq qurilgan) frontend'da
+UMUMAN hech qayerda chaqirilmasdi.** Backend'dagi barcha endpoint
+yo'llarini (`api/*.py`) frontend'ning `src/lib/api.ts`da haqiqatda
+chaqirilgan yo'llar bilan to'liq ro'yxat solishtirish orqali aniqlandi —
+`/v1/me/export` yagona "yozilgan, testlangan, lekin frontend'da nol
+ishlatilish" endpoint bo'lib chiqdi (boshqa nomzodlar — bitta action/task'ni
+ID bo'yicha o'qish, approval consume — allaqachon ataylab boshqa sabablarga
+ko'ra qoldirilgan edi, yuqoriga qarang).
+
+Tuzatish: `frontend/src/lib/api.ts`ga `MyDataExportOut`/`getMyDataExport`
+qo'shildi; `/sessions` sahifasiga (FR-CTL-002ning boshqa qismi — session
+revoke — allaqachon shu yerda, session-scoped, workspace/customer context
+kerak emas, xuddi backend endpointining o'zi kabi) "Ma'lumotlarimni eksport
+qilish" bo'limi qo'shildi — bosilganda haqiqiy JSON faylni brauzer orqali
+yuklab beradi (`Blob` + vaqtinchalik `<a download>`, real Next.js sahifasida
+— bu Artifact sandbox emas, yuklab olish cheklovi qo'llanilmaydi).
+
+`workspace.spec.ts`ga yangi qadam qo'shildi: shu testning o'zida oldinroq
+yaratilgan "E2E test task" haqiqatda yuklab olingan JSON faylning
+`tasks` massivida borligini tekshiradi (`page.waitForEvent("download")`
+orqali haqiqiy brauzer yuklab olish hodisasini ushlab, faylni o'qib) — bu
+faqat tugma bosilganini emas, `GET /v1/me/export`ning haqiqiy, to'liq
+round-trip natijasini isbotlaydi. Barcha 5 E2E spec (accessibility
+qamrovi bilan — yangi bo'lim WCAG buzilishi keltirmadi) qayta ishga
+tushirilib, regressiya yo'qligi tasdiqlandi. Backend o'zgarmadi, 183 test
+o'zgarishsiz.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,
