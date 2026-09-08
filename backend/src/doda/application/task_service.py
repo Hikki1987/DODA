@@ -13,6 +13,8 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from doda.application.notification_service import create_notification
+from doda.domain.notification.models import NotificationType
 from doda.domain.task.models import Task, TaskHistory, TaskStatus
 
 ALLOWED_TASK_TRANSITIONS: dict[TaskStatus, frozenset[TaskStatus]] = {
@@ -77,6 +79,21 @@ async def change_task_status(
         )
     )
     await session.flush()
+
+    if target is TaskStatus.DONE:
+        # FR-NTF-002: notify the owner, not the actor — meaningful when a
+        # workspace_admin closes someone else's task (authz_service allows
+        # that override; the owner still deserves to know).
+        await create_notification(
+            session,
+            customer_id=task.customer_id,
+            workspace_id=task.workspace_id,
+            recipient_id=task.owner_id,
+            notification_type=NotificationType.COMPLETED_TASK,
+            reference_type="task",
+            reference_id=task.id,
+            safe_metadata={"title": task.title},
+        )
     return task
 
 

@@ -1,0 +1,92 @@
+"""Notification delivery — FR-NTF-001/002/003. "Delivery" for an in-app
+notification is the INSERT itself — the recipient can query it
+immediately, there is no separate async delivery step the way there would
+be for an email/Telegram adapter (future work, FR-NTF-001). FR-NTF-001's
+"Bildirishnoma yetkazilishi audit qilinadi" is satisfied by writing an
+audit event in the same transaction as the notification row.
+"""
+
+import uuid
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from doda.application.audit_service import record_audit_event
+from doda.domain.base import utcnow
+from doda.domain.notification.models import Notification, NotificationType
+
+
+async def create_notification(
+    session: AsyncSession,
+    *,
+    customer_id: uuid.UUID,
+    recipient_id: str,
+    notification_type: NotificationType,
+    reference_type: str,
+    reference_id: uuid.UUID,
+    workspace_id: uuid.UUID | None = None,
+    safe_metadata: dict[str, Any] | None = None,
+) -> Notification:
+    notification = Notification(
+        customer_id=customer_id,
+        workspace_id=workspace_id,
+        recipient_id=recipient_id,
+        notification_type=notification_type,
+        reference_type=reference_type,
+        reference_id=reference_id,
+        safe_metadata=safe_metadata or {},
+    )
+    session.add(notification)
+    await session.flush()
+    await record_audit_event(
+        session,
+        customer_id=customer_id,
+        workspace_id=workspace_id,
+        trace_id=uuid.uuid4(),
+        actor_id="system:notifier",
+        event_type="notification.delivered.v1",
+        safe_metadata={
+            "notification_id": str(notification.id),
+            "recipient_id": recipient_id,
+            "notification_type": notification_type.value,
+            "reference_type": reference_type,
+            "reference_id": str(reference_id),
+        },
+    )
+    return notification
+
+
+async def list_notifications_for_user(
+    session: AsyncSession,
+    *,
+    customer_id: uuid.UUID,
+    recipient_id: str,
+    workspace_id: uuid.UUID | None = None,
+    unread_only: bool = False,
+    limit: int = 50,
+) -> list[Notification]:
+    """`workspace_id`, when given, matches that workspace OR customer-wide
+    notifications (workspace_id IS NULL, e.g. a customer-level
+    SECURITY_ALERT) — filtered in SQL, not after fetching, so `limit`
+    still caps the right query and a multi-workspace user's other
+    workspace's notifications can't crowd out this page's results."""
+    query = select(Notification).where(
+        Notification.customer_id == customer_id, Notification.recipient_id == recipient_id
+    )
+    if workspace_id is not None:
+        query = query.where(
+            (Notification.workspace_id == workspace_id) | (Notification.workspace_id.is_(None))
+        )
+    if unread_only:
+        query = query.where(Notification.read_at.is_(None))
+    query = query.order_by(Notification.created_at.desc()).limit(min(limit, 200))
+    result = await session.execute(query)
+    return list(result.scalars())
+
+
+async def mark_notification_read(session: AsyncSession, notification: Notification) -> Notification:
+    if notification.read_at is None:
+        notification.read_at = utcnow()
+        await session.flush()
+    return notification

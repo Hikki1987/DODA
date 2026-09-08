@@ -17,6 +17,7 @@ from doda.domain.action import models as action_models  # noqa: F401
 from doda.domain.action import approval as action_approval_models  # noqa: F401
 from doda.domain.outbox import models as outbox_models  # noqa: F401
 from doda.domain.security import kill_switch as security_kill_switch_models  # noqa: F401
+from doda.domain.notification import models as notification_models  # noqa: F401
 # Note: doda.domain.security.roles/decisions hold only enums, no ORM
 # models, so there is nothing to import from them for autogenerate.
 

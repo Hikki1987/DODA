@@ -138,7 +138,30 @@ qilinadi" mezoni ham qamrab olindi: har bir audit ko'rish so'rovi o'zi
 ham `audit.viewed.v1` yozuvi qoldiradi (kim, qaysi filtr, nechta natija —
 ko'rilgan yozuvlarning mazmuni emas).
 
-105 test, barchasi real Postgres'da.
+FR-NTF (in-app bildirishnoma) ham qurildi — faqat in-app qismi
+(FR-NTF-001: "email/Telegram keyingi adapter", hali qamrovda emas).
+`notification_service.py` va to'rtala majburiy tur (FR-NTF-002) haqiqiy
+trigger nuqtalaridan ishga tushadi, sun'iy yozilmagan:
+PENDING_APPROVAL/FAILED_ACTION — `action_service.apply_transition`ning
+o'zida (har qanday kod yo'li shu holatlarga olib borsa ham ishlaydi);
+COMPLETED_TASK — `task_service.change_task_status`da (task egasi
+bildirishnoma oladi, hatto workspace_admin uni yopgan bo'lsa ham);
+SECURITY_ALERT — kill switch ishga tushganda **workspace yoki customer'ning
+barcha a'zolariga** broadcast qilinadi (FR-NTF-004: "Security alert'ni
+o'chirib bo'lmaydi" ruhiga mos — hamma darhol xabardor bo'ladi).
+FR-NTF-003 ("sezgir kontent bo'lmaydi") schema darajasida ta'minlangan —
+`Notification`da erkin matn maydoni umuman yo'q, faqat reference +
+tor safe_metadata; test har bir tur uchun ruxsat etilgan kalitlar
+ro'yxatidan tashqariga chiqmasligini va action payload'i (masalan email
+manzili) sizib chiqmasligini tekshiradi.
+
+Testlashda 1 ta real xato topildi: bildirishnomalarni ro'yxatlash avval
+Python darajasida workspace bo'yicha filtrlanardi (DB'dan olingandan
+keyin) — bu ko'p workspace'ga a'zo foydalanuvchi uchun `limit` bilan
+noto'g'ri sahifalashga (haqiqiy natijalar yo'qolishiga) olib kelishi
+mumkin edi. SQL darajasidagi filtrga o'tkazib tuzatildi.
+
+111 test, barchasi real Postgres'da.
 
 Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
 — bu yerda FR-AUTH-001'ning haqiqiy OIDC oqimi qurilishi kerak (hozir
@@ -176,8 +199,18 @@ oldin hal qilinishi kerak.
   bo'lardi).
 - "Customer'ga taklif qilish" (yangi foydalanuvchini customer'ga a'zo
   qilish) uchun HTTP endpoint yo'q — `customer_service.invite_customer_member`
-  faqat application-layer funksiya. Buni ochish FR-NTF (bildirishnoma
-  yuborish) bilan tabiiy bog'liq, hozircha qamrovdan tashqarida.
+  faqat application-layer funksiya.
+- Bildirishnomalar workspace-scoped endpoint orqali ko'rinadi
+  (`/v1/workspaces/{id}/notifications`), chunki butun API shu naqshda
+  qurilgan. Haqiqiy "barcha workspace'lardagi bildirishnomalarim" inbox'i
+  session-scoped (workspace'siz) yangi endpoint talab qiladi —
+  qurilmagan.
+- FR-NTF-004 (foydalanuvchi bildirishnoma turlarini sozlashi, Should
+  darajali) qurilmagan — hozircha barcha bildirishnoma turlari doim
+  yetkaziladi (bu "Security alert o'chirib bo'lmaydi" qismini avtomatik
+  qanoatlantiradi, lekin boshqa uch turni o'chirish imkoniyati yo'q).
+- Email/Telegram adapter (FR-NTF-001'ning ikkinchi yarmi) qurilmagan —
+  tashqi provayder integratsiyasini talab qiladi.
 - `workspace_tenant_index` jadvali — RLS'ning "tuxum-tovuq" muammosini hal
   qilish uchun ataylab RLS'siz qoldirilgan bootstrap jadval (faqat
   workspace_id→customer_id xaritasi, kontent yo'q). Faqat

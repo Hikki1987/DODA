@@ -16,11 +16,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from doda.application.audit_service import record_audit_event
 from doda.application.hashing import hash_payload
 from doda.application.kill_switch_service import assert_not_killed
+from doda.application.notification_service import create_notification
 from doda.application.outbox_service import enqueue_outbox_message
 from doda.domain.action.approval import DEFAULT_APPROVAL_TTL, Approval, ApprovalStatus
 from doda.domain.action.models import AUTO_APPROVED_RISK_LEVELS, Action, ActionStatus, RiskLevel
 from doda.domain.action.state_machine import InvalidActionTransition, transition
 from doda.domain.base import utcnow
+from doda.domain.notification.models import NotificationType
 
 
 class ApprovalInvalidError(Exception):
@@ -118,6 +120,32 @@ async def apply_transition(
         event_type=f"action.{target.value.lower()}.v1",
         safe_metadata={"action_id": str(action.id), "from": previous.value, "to": target.value},
     )
+
+    # FR-NTF-002: two of the four required notification types are action
+    # transitions. Hooked here (not in validate_action) so any code path
+    # that drives an action to these states notifies, not just this one.
+    if target is ActionStatus.AWAITING_APPROVAL:
+        await create_notification(
+            session,
+            customer_id=action.customer_id,
+            workspace_id=action.workspace_id,
+            recipient_id=action.actor_id,
+            notification_type=NotificationType.PENDING_APPROVAL,
+            reference_type="action",
+            reference_id=action.id,
+            safe_metadata={"tool_name": action.tool_name, "risk_level": action.risk_level.value},
+        )
+    elif target is ActionStatus.FAILED:
+        await create_notification(
+            session,
+            customer_id=action.customer_id,
+            workspace_id=action.workspace_id,
+            recipient_id=action.actor_id,
+            notification_type=NotificationType.FAILED_ACTION,
+            reference_type="action",
+            reference_id=action.id,
+            safe_metadata={"tool_name": action.tool_name},
+        )
     return action
 
 
