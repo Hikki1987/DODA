@@ -10,14 +10,27 @@ function subscribe(): () => void {
   return () => {};
 }
 
-function getServerSnapshot(): string | null {
-  return null;
+// `undefined` — never a real getStoredSessionId() result — marks "not
+// resolved yet" (server render, and the first client render, which must
+// match it to avoid a hydration mismatch) as distinct from a *confirmed*
+// absent session (`null`, only ever produced by the real client snapshot).
+// The redirect effect below only ever fires on that confirmed `null`.
+//
+// This distinction is the fix for a real bug: a plain `getServerSnapshot
+// = () => null` (this hook's previous version) made the transient
+// first-render value indistinguishable from "no session" — on a hard
+// reload of an authenticated page, that transient `null` fired the
+// redirect to /login and navigated away before React's own hydration
+// correction (re-render with the real localStorage value) ever had a
+// chance to apply, bouncing an already-logged-in user. Reproduced with a
+// real `page.reload()` against a valid session (redirected to /login
+// before this fix, stayed put after) — see CLAUDE.md.
+function getServerSnapshot(): string | null | undefined {
+  return undefined;
 }
 
 /** Every authenticated page needs this same guard: no stored session id ->
- * back to /login. Returns null on the server and during the first client
- * render (matching, so no hydration mismatch), then the real value once
- * mounted — or triggers the redirect if there isn't one. */
+ * back to /login. */
 export function useSession(): string | null {
   const router = useRouter();
   const sessionId = useSyncExternalStore(subscribe, getStoredSessionId, getServerSnapshot);
@@ -28,5 +41,5 @@ export function useSession(): string | null {
     }
   }, [sessionId, router]);
 
-  return sessionId;
+  return sessionId ?? null;
 }

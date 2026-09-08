@@ -30,6 +30,18 @@ test("login, workspace, task, notification, action, audit flow", async ({ page }
     await page.waitForURL(`**/workspaces/${WORKSPACE_ID}`);
   });
 
+  await test.step("a hard reload does not bounce an authenticated user to /login", async () => {
+    // Regression test: useSession's first client render has to report
+    // sessionId as unresolved to match the server-rendered HTML, but an
+    // earlier version conflated that transient state with "definitely
+    // logged out" and redirected before the real localStorage value could
+    // ever be read — a real reload of any authenticated page bounced the
+    // user to /login even with a perfectly valid session. See useSession.ts.
+    await page.reload();
+    await page.waitForTimeout(1000);
+    expect(page.url()).toContain(`/workspaces/${WORKSPACE_ID}`);
+  });
+
   await test.step("seeded R3 action produced a PENDING_APPROVAL notification", async () => {
     await expect(page.getByText("PENDING_APPROVAL")).toBeVisible();
   });

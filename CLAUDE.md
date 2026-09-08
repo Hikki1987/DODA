@@ -710,6 +710,47 @@ so'rov esa 404 qaytargan. Bitta qatorli tuzatish (`/v1/healthz`), keyin
 E2E oqimi (seed → build → start → Playwright) yana boshidan, ikkinchi
 marta qo'lda takrorlanib, hali ham yashil ekani ko'rsatildi.
 
+**Yana bir haqiqiy xato topildi va tuzatildi — Product Owner uchun
+demo tayyorlash jarayonida.** Foydalanuvchiga real ishlab turgan dasturni
+ko'rsatish uchun brauzer orqali sahifalarni suratga olish paytida:
+authenticated sahifada haqiqiy brauzer reload (F5) qilinganda, foydalanuvchi
+haqiqiy, amaldagi session'ga ega bo'lsa ham, **`/login`ga qaytarib
+yuborilardi**. Sabab `useSession.ts`da: `getServerSnapshot` doim `null`
+qaytarardi, shuning uchun HAR bir hard-navigation'ning birinchi client
+render'ida `sessionId` vaqtincha `null` bo'lib ko'rinardi (server bilan
+mos kelishi uchun majburiy) — lekin shu bitta render'dagi `useEffect`
+aynan shu vaqtinchalik `null`ni "sessiya yo'q" deb qabul qilib,
+`router.replace("/login")`ni darhol chaqirardi, React o'zining haqiqiy
+localStorage qiymatiga tuzatish kiritishga ulgurmasdan turib. Bu S3
+frontend qurilgandan beri **har bir** authenticated sahifada mavjud bo'lgan
+haqiqiy production xato edi — F5 bosgan yoki to'g'ridan-to'g'ri havola
+ochgan har qanday haqiqiy foydalanuvchi kutilmaganda "chiqarib
+yuborilardi", garchi hech qachon avvalgi E2E testlarda ko'rinmagan edi
+(ular hech qachon `page.reload()`/hard-navigation qilmagan, faqat
+SPA-ichi client navigatsiyasidan foydalangan, u yerda bu race umuman
+yuzaga kelmaydi).
+
+Tuzatish: `getServerSnapshot` endi `null` o'rniga `undefined` qaytaradi —
+"hali aniqlanmagan" (server/birinchi render) holatini "sessiya yo'qligi
+aniq tasdiqlangan" (`null`, faqat haqiqiy `getStoredSessionId()`dan keladi)
+holatidan ajratib beradi; redirect effekti faqat aniq `null`da ishlaydi,
+`undefined`da hech qachon emas. Bu avvalgi tuzatishda (sessiya oxirida)
+qo'llanilgan `useEffect`+alohida `hasHydrated` state yondashuvidan farqli —
+o'sha yondashuv `react-hooks/set-state-in-effect` ESLint qoidasini
+buzardi (xuddi `useSession`ning birinchi versiyasini yozishda ham
+duch kelingan muammo), shuning uchun alohida state qo'shmasdan, faqat
+sentinel qiymat farqi orqali hal qilindi.
+
+Bu haqiqiy production xato ekanini isbotlash uchun (audit-zanjiri
+tuzatishidagi kabi) avval buzuq holatga qaytarib ko'rildi — haqiqiy
+`page.reload()` bilan `/login`ga qaytarilishi qayta tasdiqlandi — keyin
+tuzatilgan holat bilan qayta tekshirilib, endi joyida qolishi ko'rsatildi.
+Bu ikkalasi ham `next build && next start` (production build, `next dev`
+emas) ustida, real backend'ga qarshi qilindi. Yangi regressiya testi
+`frontend/e2e/workspace.spec.ts`ga qo'shildi ("a hard reload does not
+bounce an authenticated user to /login") — xuddi shu revert-test-restore
+usuli bilan CI'ning o'zi ham endi buni doimiy tekshiradi.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,
