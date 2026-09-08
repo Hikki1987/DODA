@@ -1242,6 +1242,44 @@ tasdiqlandi (barcha 4 spec, jami).
 
 181 test, barchasi real Postgres'da.
 
+**Ikkinchi `security-review` o'tkazildi — bu safar ce8d67d'dagi birinchisidan
+keyingi ~26 commit'ga qarshi (GET kashfiyot endpointlari, session/customer
+sahifalari, FR-CTL-002 eksport, workspace archive-listing, tracing/metrics,
+catch-all exception handler).** Jarayon bir xil: (1) haqiqiy zaifliklarni
+topish subagent'i, (2) topilgan nomzod uchun alohida false-positive
+filtrlash subagent'i, (3) faqat ishonch darajasi >=8 bo'lganlar rasmiy
+hisobotga kiritiladi. Bitta nomzod topildi — ishonch darajasi 7 (chegaradan
+past) — lekin filtrlash subagent'ining o'zi tasdiqlagan haqiqat sifat
+jihatidan chindan ham real edi, shuning uchun rasmiy hisobot chegarasidan
+qat'i nazar tuzatildi (skill'ning shovqin-filtri hisobot uchun, muhandislik
+qarori uchun emas):
+
+`workspace_service.list_my_workspaces` — `GET /v1/me/workspaces`ning o'zagi,
+login'dan keyin klient chaqiradigan BIRINCHI so'rov — ikkala filialida ham
+(CustomerOwner va oddiy a'zo) `customer_id` bo'yicha hech qanday aniq SQL
+predikat yo'q edi, faqat `tenant_scoped_session`ning RLS GUC'iga tayanardi.
+Bu 6.2-bo'limning o'z qoidasini ("Repository qatlamida `customer_id`'siz
+so'rov mavjud emas" — NFR-ISO-002) buzardi — va bu kodlar bazasida RLS'ning
+jimgina ishlamay qolishi (superuser bootstrap rol voqeasi, ADR-005) allaqachon
+haqiqatda sodir bo'lgan, shuning uchun bu faraziy emas. Har bir boshqa yangi
+ro'yxatlash funksiyasi (`list_archived_workspaces`, `list_workspace_members`,
+h.k.) aniq `customer_id`/`workspace_id` predikatiga ega, faqat shu funksiya
+istisno edi. Ikkala filialga ham aniq `customer_id == customer_id` predikati
+qo'shildi (`list_archived_workspaces`dagi bilan bir xil naqsh).
+
+**Halol eslatma**: bu tuzatish uchun RLS'ni haqiqatda chetlab o'tadigan
+regressiya testi yozilmadi — chunki buni isbotlash uchun test suite'ning
+o'zi `FORCE ROW LEVEL SECURITY`ni vaqtincha o'chirish uchun DDL huquqiga ega
+bo'lishi kerak edi, test suite esa ataylab `doda_app` (NOSUPERUSER, DDL
+huquqisiz) orqali ulanadi — bu ADR-005 tuzatishining o'zi talab qilgan,
+to'g'ri xavfsizlik holati, "testlash bo'shlig'i" emas. Mavjud
+`test_me_api.py` (5 test) tuzatishdan keyin ham o'zgarishsiz o'tdi —
+ikkinchi qatlam qo'shilishi birinchi qatlam (RLS) to'g'ri ishlayotganda
+xatti-harakatni o'zgartirmaydi, bu aynan kutilgan.
+
+181 test, barchasi real Postgres'da (xatti-harakat o'zgarmadi, faqat
+ikkinchi mudofaa qatlami qo'shildi).
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,

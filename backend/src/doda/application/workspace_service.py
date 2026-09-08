@@ -190,6 +190,17 @@ async def list_my_workspaces(user_id: uuid.UUID) -> list[MyWorkspaceEntry]:
     inherently spans multiple tenant contexts (the bootstrap index lookup,
     then one tenant_scoped_session per customer the user belongs to), the
     same shape api.dependencies._resolve_request_context already uses.
+
+    Both branches below carry an explicit customer_id predicate even
+    though tenant_scoped_session's RLS GUC already scopes them (6.2:
+    repository-layer customer_id filtering is the FIRST, independent
+    isolation layer, RLS the second — neither substitutes for the other,
+    and this codebase has already had RLS silently no-op in a fresh/
+    production environment once, see ADR-005). This is the first query
+    any client makes after login, with no prior authorized workspace_id
+    to have already narrowed the search — a security review flagged its
+    missing first-layer filter as the one query in this function without
+    one.
     """
     async with async_session_factory() as db:
         customer_ids = (
@@ -214,7 +225,11 @@ async def list_my_workspaces(user_id: uuid.UUID) -> list[MyWorkspaceEntry]:
                 # has WORKSPACE_ADMIN authority over every workspace under
                 # their customer, even with no WorkspaceMembership row at
                 # all — this listing must not silently omit those.
-                workspaces = await db.scalars(select(Workspace).where(Workspace.archived_at.is_(None)))
+                workspaces = await db.scalars(
+                    select(Workspace).where(
+                        Workspace.customer_id == customer_id, Workspace.archived_at.is_(None)
+                    )
+                )
                 entries.extend(
                     MyWorkspaceEntry(
                         customer_id=customer_id,
@@ -233,7 +248,11 @@ async def list_my_workspaces(user_id: uuid.UUID) -> list[MyWorkspaceEntry]:
                         CustomerMembership,
                         CustomerMembership.id == WorkspaceMembership.customer_membership_id,
                     )
-                    .where(CustomerMembership.user_id == user_id, Workspace.archived_at.is_(None))
+                    .where(
+                        CustomerMembership.customer_id == customer_id,
+                        CustomerMembership.user_id == user_id,
+                        Workspace.archived_at.is_(None),
+                    )
                 )
                 entries.extend(
                     MyWorkspaceEntry(
