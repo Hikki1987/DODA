@@ -8,12 +8,17 @@ import pytest
 
 from doda.application.customer_service import (
     CustomerMembershipError,
+    DuplicateMembershipError,
     change_customer_member_role,
     create_customer_with_owner,
     invite_customer_member,
     remove_customer_member,
 )
-from doda.application.workspace_service import add_workspace_member, create_workspace
+from doda.application.workspace_service import (
+    DuplicateWorkspaceMembershipError,
+    add_workspace_member,
+    create_workspace,
+)
 from doda.db import tenant_scoped_session
 from doda.domain.security.roles import CustomerRole
 from doda.domain.workspace.models import WorkspaceMembership
@@ -120,3 +125,72 @@ async def test_removing_customer_member_cascades_workspace_memberships(db_availa
 
         remaining = await session.get(WorkspaceMembership, workspace_membership.id)
         assert remaining is None
+
+
+async def test_cannot_invite_the_same_user_twice(db_available: bool) -> None:
+    """Data-integrity regression: customer_memberships had no unique
+    constraint on (customer_id, user_id), so nothing stopped a second
+    invite_customer_member call for the same user — e.g. a double-clicked
+    "Qo'shish" button on the customer page, which has no in-flight guard —
+    from creating a second, independent CustomerMembership row for the
+    same person (they'd then be listed twice by list_customer_members,
+    each row separately editable/removable)."""
+    customer_id = uuid.uuid4()
+    async with tenant_scoped_session(customer_id) as session:
+        customer, _owner = await create_customer_with_owner(
+            session,
+            customer_id=customer_id,
+            name="Acme",
+            owner_user_id=uuid.uuid4(),
+            actor_id="user:bootstrap",
+        )
+        member_user_id = uuid.uuid4()
+        await invite_customer_member(
+            session,
+            customer_id=customer.id,
+            user_id=member_user_id,
+            role=CustomerRole.MEMBER,
+            actor_id="user:bootstrap",
+        )
+        with pytest.raises(DuplicateMembershipError):
+            await invite_customer_member(
+                session,
+                customer_id=customer.id,
+                user_id=member_user_id,
+                role=CustomerRole.AUDITOR,
+                actor_id="user:bootstrap",
+            )
+
+
+async def test_cannot_add_the_same_workspace_member_twice(db_available: bool) -> None:
+    """Same regression as test_cannot_invite_the_same_user_twice, one level
+    down: workspace_memberships had no unique constraint on
+    (customer_membership_id, workspace_id) either."""
+    customer_id = uuid.uuid4()
+    async with tenant_scoped_session(customer_id) as session:
+        customer, _owner = await create_customer_with_owner(
+            session,
+            customer_id=customer_id,
+            name="Acme",
+            owner_user_id=uuid.uuid4(),
+            actor_id="user:bootstrap",
+        )
+        member = await invite_customer_member(
+            session,
+            customer_id=customer.id,
+            user_id=uuid.uuid4(),
+            role=CustomerRole.MEMBER,
+            actor_id="user:bootstrap",
+        )
+        workspace = await create_workspace(session, customer_id=customer.id, name="Main")
+        await add_workspace_member(
+            session, workspace=workspace, customer_membership=member, role="member", actor_id="user:bootstrap"
+        )
+        with pytest.raises(DuplicateWorkspaceMembershipError):
+            await add_workspace_member(
+                session,
+                workspace=workspace,
+                customer_membership=member,
+                role="workspace_admin",
+                actor_id="user:bootstrap",
+            )

@@ -52,6 +52,7 @@ export default function WorkspacePage() {
   const [auditEvents, setAuditEvents] = useState<AuditEventOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [creatingTask, setCreatingTask] = useState(false);
   const [openTaskHistory, setOpenTaskHistory] = useState<Record<string, TaskHistoryEntryOut[]>>({});
 
   const refresh = useCallback(() => {
@@ -72,13 +73,16 @@ export default function WorkspacePage() {
 
   async function handleCreateTask(event: FormEvent) {
     event.preventDefault();
-    if (sessionId === null || newTaskTitle.trim().length === 0) return;
+    if (sessionId === null || newTaskTitle.trim().length === 0 || creatingTask) return;
+    setCreatingTask(true);
     try {
       await createTask(sessionId, workspaceId, newTaskTitle.trim());
       setNewTaskTitle("");
       refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Task yaratib bo'lmadi.");
+    } finally {
+      setCreatingTask(false);
     }
   }
 
@@ -173,7 +177,7 @@ export default function WorkspacePage() {
           />
           <button
             type="submit"
-            disabled={newTaskTitle.trim().length === 0}
+            disabled={newTaskTitle.trim().length === 0 || creatingTask}
             className="rounded-md bg-black px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             Qo&apos;shish

@@ -9,6 +9,7 @@ import dataclasses
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.application.audit_service import record_audit_event
@@ -24,6 +25,15 @@ class WorkspaceMembershipError(Exception):
     """A well-formed request that violates a business rule (e.g. the target
     CustomerMembership belongs to a different customer). Distinct from
     AuthorizationError: this is not about the caller's permissions."""
+
+
+class DuplicateWorkspaceMembershipError(Exception):
+    """Raised by add_workspace_member when this CustomerMembership already
+    has a WorkspaceMembership row for this workspace — see
+    customer_service.DuplicateMembershipError's docstring for why this
+    needs its own race-safe check (no unique constraint otherwise stops a
+    double-clicked "Qo'shish" or two concurrent adds from creating two
+    independent membership rows for the same person)."""
 
 
 async def create_workspace(
@@ -65,8 +75,15 @@ async def add_workspace_member(
         workspace_id=workspace.id,
         role=role,
     )
-    session.add(membership)
-    await session.flush()
+    try:
+        async with session.begin_nested():
+            session.add(membership)
+            await session.flush()
+    except IntegrityError as exc:
+        raise DuplicateWorkspaceMembershipError(
+            "this customer membership already has a role in this workspace"
+        ) from exc
+
     await record_audit_event(
         session,
         customer_id=workspace.customer_id,

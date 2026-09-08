@@ -42,6 +42,8 @@ export default function CustomerPage() {
   const [members, setMembers] = useState<CustomerMemberOut[] | null>(null);
   const [newMemberUserId, setNewMemberUserId] = useState("");
   const [newMemberRole, setNewMemberRole] = useState<CustomerRole>("member");
+  const [engagingKillSwitch, setEngagingKillSwitch] = useState(false);
+  const [invitingMember, setInvitingMember] = useState(false);
   const [notifications, setNotifications] = useState<NotificationOut[] | null>(null);
   const [preferences, setPreferences] = useState<NotificationPreferenceOut[] | null>(null);
   const [auditEvents, setAuditEvents] = useState<AuditEventOut[] | null>(null);
@@ -70,13 +72,16 @@ export default function CustomerPage() {
 
   async function handleEngageKillSwitch(event: FormEvent) {
     event.preventDefault();
-    if (sessionId === null || killSwitchReason.trim().length === 0) return;
+    if (sessionId === null || killSwitchReason.trim().length === 0 || engagingKillSwitch) return;
+    setEngagingKillSwitch(true);
     try {
       await engageCustomerKillSwitch(sessionId, customerId, killSwitchReason.trim());
       setKillSwitchReason("");
       refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Kill switch'ni yoqib bo'lmadi.");
+    } finally {
+      setEngagingKillSwitch(false);
     }
   }
 
@@ -92,13 +97,16 @@ export default function CustomerPage() {
 
   async function handleInviteMember(event: FormEvent) {
     event.preventDefault();
-    if (sessionId === null || newMemberUserId.trim().length === 0) return;
+    if (sessionId === null || newMemberUserId.trim().length === 0 || invitingMember) return;
+    setInvitingMember(true);
     try {
       await inviteCustomerMember(sessionId, customerId, newMemberUserId.trim(), newMemberRole);
       setNewMemberUserId("");
       refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "A'zo qo'shib bo'lmadi.");
+    } finally {
+      setInvitingMember(false);
     }
   }
 
@@ -182,7 +190,7 @@ export default function CustomerPage() {
             />
             <button
               type="submit"
-              disabled={killSwitchReason.trim().length === 0}
+              disabled={killSwitchReason.trim().length === 0 || engagingKillSwitch}
               className="rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
               Yoqish
@@ -214,7 +222,7 @@ export default function CustomerPage() {
           </select>
           <button
             type="submit"
-            disabled={newMemberUserId.trim().length === 0}
+            disabled={newMemberUserId.trim().length === 0 || invitingMember}
             className="rounded-md bg-black px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             Qo&apos;shish

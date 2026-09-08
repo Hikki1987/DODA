@@ -13,6 +13,7 @@ import dataclasses
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.application.audit_service import record_audit_event
@@ -26,6 +27,17 @@ class CustomerMembershipError(Exception):
     """A well-formed request that violates a business rule — e.g. removing
     or demoting the last customer_owner (FR-WKS-005: "oxirgi Owner chiqarib
     bo'lmaydi"). Distinct from AuthorizationError: not about permissions."""
+
+
+class DuplicateMembershipError(Exception):
+    """Raised by invite_customer_member when the user already has a
+    CustomerMembership row for this customer. Without this check, two
+    rapid invite calls (a double-clicked "Qo'shish" button, or two admins
+    inviting the same person at once) would each insert their own
+    CustomerMembership row — customer_memberships has no unique constraint
+    on (customer_id, user_id), so nothing else stops it — leaving the same
+    person listed twice in list_customer_members, each row independently
+    editable/removable."""
 
 
 async def create_customer_with_owner(
@@ -76,15 +88,26 @@ async def invite_customer_member(
     session: AsyncSession, *, customer_id: uuid.UUID, user_id: uuid.UUID, role: CustomerRole, actor_id: str
 ) -> CustomerMembership:
     membership = CustomerMembership(customer_id=customer_id, user_id=user_id, role=role.value)
-    session.add(membership)
+    try:
+        async with session.begin_nested():
+            session.add(membership)
+            await session.flush()
+    except IntegrityError as exc:
+        # Matches action_service.propose_action's idempotency-key handling:
+        # the unique constraint on (customer_id, user_id) is the actual
+        # race-safe guard (two concurrent invites, or one double-clicked
+        # "Qo'shish"); this turns that into a clean, expected error instead
+        # of a raw 500 — unlike propose_action's replay semantics, a
+        # duplicate invite is a genuine "already a member" business error,
+        # not something to silently treat as the same request repeated.
+        raise DuplicateMembershipError("user is already a member of this customer") from exc
 
     existing_index_row = await session.get(
         UserCustomerIndex, {"user_id": user_id, "customer_id": customer_id}
     )
     if existing_index_row is None:
         session.add(UserCustomerIndex(user_id=user_id, customer_id=customer_id))
-
-    await session.flush()
+        await session.flush()
     await record_audit_event(
         session,
         customer_id=customer_id,

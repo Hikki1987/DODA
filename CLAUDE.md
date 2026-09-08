@@ -751,6 +751,50 @@ emas) ustida, real backend'ga qarshi qilindi. Yangi regressiya testi
 bounce an authenticated user to /login") — xuddi shu revert-test-restore
 usuli bilan CI'ning o'zi ham endi buni doimiy tekshiradi.
 
+**Ikkita real data-integrity xato topildi va tuzatildi — kod bazasini
+professional darajaga tayyorlash jarayonida, forma yuborish tugmalarini
+ko'rib chiqishda.** `customer_memberships`da `(customer_id, user_id)`
+bo'yicha, `workspace_memberships`da `(customer_membership_id,
+workspace_id)` bo'yicha HECH QANDAY unique constraint yo'q edi —
+`invite_customer_member`/`add_workspace_member` esa mavjudlikni oldindan
+tekshirmasdan to'g'ridan-to'g'ri yangi qator qo'shardi. Amalda bu real
+bo'shliq: customer sahifasidagi "Qo'shish" tugmasida (yoki boshqa hech
+qanday formada butun ilova bo'ylab) so'rov jarayonida tugmani
+o'chirib qo'yish yo'q edi — ikki marta tez ketma-ket bosilsa (yoki ikkita
+admin bir vaqtda bir xil odamni taklif qilsa), bitta odam uchun IKKITA
+mustaqil `CustomerMembership` qatori yaratilardi, `list_customer_members`
+esa uni ikki marta ko'rsatardi — har biri alohida rol/chiqarish bilan.
+
+Tuzatish 0010-migratsiyaning (`Action.idempotency_key` workspace bo'yicha
+qamrash) xuddi shu, allaqachon isbotlangan naqshini takrorlaydi: 0012-
+migratsiya ikkala jadvalga ham unique constraint qo'shdi (haqiqiy
+race-safe himoya — oldindan SELECT tekshiruvi emas, chunki ikkita bir
+vaqtdagi so'rov TOCTOU orqali baribir o'tib ketishi mumkin edi).
+`invite_customer_member`/`add_workspace_member`ning o'zi insert'ni
+`session.begin_nested()` (SAVEPOINT) ichiga oldi, natijadagi
+`IntegrityError`ni tutib, aniq `DuplicateMembershipError`/
+`DuplicateWorkspaceMembershipError`ga aylantiradi (`api/errors.py`da
+409 `ALREADY_MEMBER` javobiga mos keladi) — xom 500 o'rniga.
+
+Tuzatish haqiqiyligi audit-zanjiri uslubida isbotlandi: migratsiya 0011'ga
+qaytarilib (constraint olib tashlanib) va kod ham eski holatga qaytarilib,
+haqiqiy Postgres'ga qarshi qo'lda yozilgan repro skripti bitta foydalanuvchi
+uchun ikki marta `invite_customer_member` chaqirib, natijada **2 ta**
+mustaqil qator borligi tasdiqlandi — keyin ikkalasi ham tiklanib, xuddi
+shu chaqiruv endi aniq `DuplicateMembershipError` bilan rad etilishi
+ko'rsatildi. Ikkita yangi regressiya testi (`test_cannot_invite_the_same_
+user_twice`, `test_cannot_add_the_same_workspace_member_twice`)
+`test_customer_service.py`ga qo'shildi.
+
+Bundan tashqari, frontend'ning o'zida ham (backend himoyasi endi
+mavjud bo'lsa ham, halol ikki marta bosishda tushunarsiz xato ko'rsatish
+o'rniga jimgina e'tiborsiz qoldirish uchun) uchta forma — task yaratish,
+kill switch yoqish, a'zo taklif qilish — so'rov jarayonida submit
+tugmasini o'chirib qo'yadigan holatga o'tkazildi (`creatingTask`/
+`engagingKillSwitch`/`invitingMember` state'lari). 165 test, barchasi
+real Postgres'da; frontend E2E suite ham (workspace + customer specs)
+qayta o'tkazilib, regressiya yo'qligi tasdiqlandi.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,

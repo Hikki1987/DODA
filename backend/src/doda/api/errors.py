@@ -12,12 +12,12 @@ from fastapi.responses import JSONResponse
 
 from doda.application.action_service import ApprovalInvalidError
 from doda.application.authz_service import AuthorizationError
-from doda.application.customer_service import CustomerMembershipError
+from doda.application.customer_service import CustomerMembershipError, DuplicateMembershipError
 from doda.application.kill_switch_service import KillSwitchEngagedError
 from doda.application.notification_service import NotificationPreferenceError
 from doda.application.session_service import SessionInvalidError
 from doda.application.task_service import InvalidTaskTransition, TaskParentNotFoundError
-from doda.application.workspace_service import WorkspaceMembershipError
+from doda.application.workspace_service import DuplicateWorkspaceMembershipError, WorkspaceMembershipError
 from doda.domain.action.state_machine import InvalidActionTransition
 from doda.domain.security.decisions import Decision
 
@@ -137,6 +137,32 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=_envelope(
                 code="LAST_OWNER_PROTECTED",
                 message="Oxirgi Customer Owner'ni chiqarib yoki lavozimini pasaytirib bo'lmaydi.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(DuplicateMembershipError)
+    async def _duplicate_membership_error(request: Request, exc: DuplicateMembershipError) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content=_envelope(
+                code="ALREADY_MEMBER",
+                message="Bu foydalanuvchi allaqachon a'zo.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(DuplicateWorkspaceMembershipError)
+    async def _duplicate_workspace_membership_error(
+        request: Request, exc: DuplicateWorkspaceMembershipError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content=_envelope(
+                code="ALREADY_MEMBER",
+                message="Bu foydalanuvchi allaqachon shu workspace'ning a'zosi.",
                 trace_id=_trace_id(request),
                 retryable=False,
             ),
