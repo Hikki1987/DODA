@@ -17,7 +17,8 @@ transactional outbox (FR-ACT-008, ADR-003) — Redis Stream'ga relay bilan.
 
 Bosqich **S2** yakunlandi: 10-bo'limdagi authoritative authz zanjiri
 (Session → Workspace Membership → RBAC → Step-Up) va shu zanjir orqali
-himoyalangan HTTP API (`/v1/workspaces/{id}/actions`, `.../approvals/{id}/consume`).
+himoyalangan HTTP API (`/v1/workspaces/{id}/actions`, `.../approvals/{id}/consume`,
+`.../tasks`, `.../tasks/{id}/status`, `.../tasks/{id}/history`).
 
 
 ## Ishga tushirish (local dev)

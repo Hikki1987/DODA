@@ -90,10 +90,18 @@ bazasida haqiqatda mavjud va HTTP endpointlar shu zanjir orqali ochilgan
 qamrab olindi: R3 approval `AuthStrength.AAL2` talab qiladi, aks holda
 STEP_UP_REQUIRED qaytadi.
 
+S1'da qarzda qolgan qism yopildi: Task domeni faqat model sifatida qolgan
+edi (application service va API yo'q edi). Endi `application/task_service.py`
+(FR-TASK-001/004/007: create, status transition, history) va
+`api/tasks.py` mavjud — xuddi shu authz zanjiridan foydalanadi (owner yoki
+workspace_admin state'ni o'zgartira oladi). 83 test (16 yangi).
+
 Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
 — bu yerda FR-AUTH-001'ning haqiqiy OIDC oqimi qurilishi kerak (hozir
-`session_service.create_session` faqat dev/test seam). Yoki OD-002
-(connector tanlovi) S6'dan oldin hal qilinishi kerak.
+`session_service.create_session` faqat dev/test seam) va bu tashqi OIDC
+provayder ma'lumotlarini (client_id/secret, issuer URL) talab qiladi —
+Product Owner'dan kelishi kerak. Yoki OD-002 (connector tanlovi) S6'dan
+oldin hal qilinishi kerak.
 
 **Bilingan cheklovlar (keyingi ishlarda hisobga olinsin):**
 - Audit hash-zanjiri (`application/audit_service.py`) bir xil customer uchun
@@ -121,3 +129,8 @@ Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
   workspace_id→customer_id xaritasi, kontent yo'q). Faqat
   `workspace_service.create_workspace` orqali, Workspace bilan bitta
   tranzaksiyada yoziladi — hech qachon boshqa joydan yozilmasin.
+- Task uchun 4.2-bo'limdagidek rasmiy state machine jadvali TRD'da yo'q —
+  `task_service.ALLOWED_TASK_TRANSITIONS` faqat oldinga siljish/bekor
+  qilishni ruxsat beradi, orqaga qaytish (masalan DONE → IN_PROGRESS,
+  "qayta ochish") ataylab qo'llab-quvvatlanmaydi. Kerak bo'lsa bu change
+  request (QOIDA 2), bug fix emas.

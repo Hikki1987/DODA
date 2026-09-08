@@ -19,6 +19,7 @@ from doda.api.actions import router as actions_router
 from doda.api.errors import register_exception_handlers
 from doda.api.health import router as health_router
 from doda.api.middleware import TraceIdMiddleware
+from doda.api.tasks import router as tasks_router
 from doda.config import get_settings
 
 
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
     app.include_router(health_router, prefix="/v1")
     app.include_router(actions_router)
+    app.include_router(tasks_router)
     FastAPIInstrumentor.instrument_app(app)
     return app
 

@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from doda.application.action_service import ApprovalInvalidError
 from doda.application.authz_service import AuthorizationError
 from doda.application.session_service import SessionInvalidError
+from doda.application.task_service import InvalidTaskTransition
 from doda.domain.action.state_machine import InvalidActionTransition
 from doda.domain.security.decisions import Decision
 
@@ -72,6 +73,18 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=_envelope(
                 code="INVALID_STATE",
                 message="Action holati bu amalni qabul qilmaydi.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(InvalidTaskTransition)
+    async def _invalid_task_transition(request: Request, exc: InvalidTaskTransition) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content=_envelope(
+                code="INVALID_STATE",
+                message="Task holati bu amalni qabul qilmaydi.",
                 trace_id=_trace_id(request),
                 retryable=False,
             ),

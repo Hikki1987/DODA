@@ -19,6 +19,7 @@ from doda.domain.security.roles import (
     ROLES_THAT_MAY_PROPOSE_ACTIONS,
     WorkspaceRole,
 )
+from doda.domain.task.models import Task
 from doda.domain.workspace.models import Workspace, WorkspaceMembership
 
 
@@ -94,3 +95,22 @@ def authorize_consume_approval(
         raise AuthorizationError(
             Decision.STEP_UP_REQUIRED, "R3+ approval requires fresh MFA (FR-AUTH-004)"
         )
+
+
+def authorize_create_task(context: WorkspaceContext) -> None:
+    """10.2 'Chat va task' row: Member/WorkspaceAdmin/CustomerOwner = Ha.
+    Written as an explicit check (not a no-op) so a future third
+    WorkspaceRole with no task rights fails closed instead of slipping
+    through by omission."""
+    if context.role not in (WorkspaceRole.MEMBER, WorkspaceRole.WORKSPACE_ADMIN):
+        raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not create tasks")
+
+
+def authorize_task_mutation(context: WorkspaceContext, task: Task) -> None:
+    """FR-TASK-004: 'Task state faqat authorized actor tomonidan
+    o'zgaradi.' The TRD does not further specify who beyond the actor — a
+    workspace_admin override is the same pattern already used for R3
+    approvals (authorize_consume_approval) and equally defensible here."""
+    is_owner = task.owner_id == f"user:{context.user_id}"
+    if not is_owner and context.role is not WorkspaceRole.WORKSPACE_ADMIN:
+        raise AuthorizationError(Decision.DENY, "only the task owner or a workspace admin may change this task")
