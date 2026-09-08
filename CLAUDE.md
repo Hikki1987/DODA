@@ -306,6 +306,12 @@ faqat uni HTTP orqali ochadi, o'zgartirmaydi.
 
 134 test, barchasi real Postgres'da.
 
+FR-NTF'ning yana bir bilingan bo'shlig'i — customer-keng bildirishnoma
+inbox'i — ham yopildi (tafsilot pastdagi "Bilingan cheklovlar"da,
+customer-lararo global inbox'ning ataylab qurilmaganligi bilan birga).
+
+137 test, barchasi real Postgres'da.
+
 Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
 — bu yerda FR-AUTH-001'ning haqiqiy OIDC oqimi qurilishi kerak (hozir
 `session_service.create_session` faqat dev/test seam) va bu tashqi OIDC
@@ -346,11 +352,23 @@ oldin hal qilinishi kerak.
   qo'shildi — WorkspaceMembership qatori yo'q customer_owner haqiqatda
   boshqa a'zoning R3 action'ini real HTTP orqali tasdiqlay olishini
   tasdiqladi.
-- Bildirishnomalar workspace-scoped endpoint orqali ko'rinadi
-  (`/v1/workspaces/{id}/notifications`), chunki butun API shu naqshda
-  qurilgan. Haqiqiy "barcha workspace'lardagi bildirishnomalarim" inbox'i
-  session-scoped (workspace'siz) yangi endpoint talab qiladi —
-  qurilmagan.
+- ~~Bildirishnomalar faqat workspace-scoped endpoint orqali ko'rinadi~~ —
+  **qisman tuzatildi**: `/v1/customers/{id}/notifications` qo'shildi —
+  bitta customer ostidagi BARCHA workspace'lardagi bildirishnomalarni
+  bitta joydan ko'rsatadi (`list_notifications_for_user`ning o'zi allaqachon
+  `workspace_id=None` bilan chaqirilganda shuni qaytarardi — yetishmagani
+  faqat HTTP endpoint edi). Bu customer-scoped, "har doim faqat o'zimniki"
+  bo'lgani uchun audit viewer'dan farqli — hech qanday rol cheklovisiz,
+  customer a'zoligining o'zi yetarli. To'liq, chinakam CUSTOMER'LARARO
+  (bir nechta customer bo'ylab) global inbox ataylab qurilmadi:
+  `customer_memberships`ning o'zi RLS bilan `customer_id` bo'yicha
+  qamalgan (0001), shuning uchun "foydalanuvchi qaysi customer'larga
+  a'zo" degan savolning o'ziga customer_id'ni oldindan bilmasdan javob
+  berib bo'lmaydi — bu xuddi `workspace_tenant_index`ning o'zi hal qilgan
+  muammoning bir pog'ona yuqorisi. Buni hal qilish yangi, ataylab RLS'siz
+  bootstrap jadval talab qiladi — bu haqiqiy arxitektura qarori, oddiy
+  endpoint qo'shish emas, shuning uchun so'ralmagan holda amalga
+  oshirilmadi (QOIDA 2: change request).
 - FR-NTF-004 (foydalanuvchi bildirishnoma turlarini sozlashi, Should
   darajali) qurilmagan — hozircha barcha bildirishnoma turlari doim
   yetkaziladi (bu "Security alert o'chirib bo'lmaydi" qismini avtomatik
