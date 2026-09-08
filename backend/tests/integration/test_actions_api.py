@@ -67,6 +67,40 @@ async def test_low_risk_action_is_auto_ready_end_to_end(client: AsyncClient, db_
     assert body["approval"] is None
 
 
+async def test_action_trace_id_matches_the_http_requests_own_trace_id(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """NFR-OBS-001 ("100% action/approval trace korrelyatsiyasi"):
+    TraceIdMiddleware documents that a request's trace_id is meant to
+    double as the Action's own trace_id — this proves the endpoint
+    actually does that, both with a client-supplied X-Trace-Id and with
+    one minted server-side, rather than generating an unrelated uuid4()
+    that would silently decorrelate the HTTP-level trace from the domain
+    audit trail it triggers.
+    """
+    member = await seed_workspace_member()
+    client_trace_id = str(uuid.uuid4())
+
+    response = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/actions",
+        json={"tool_name": "knowledge.read", "risk_level": "R1", "payload": {"query": "hi"}},
+        headers={**_auth_headers(member.session_id, "e2e-trace-1"), "X-Trace-Id": client_trace_id},
+    )
+    assert response.status_code == 200
+    assert response.headers["X-Trace-Id"] == client_trace_id
+    assert response.json()["action"]["trace_id"] == client_trace_id
+
+    # No client-supplied header: the server-minted trace_id must still be
+    # the one that ends up on the Action, not a second, disconnected uuid4.
+    no_header_response = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/actions",
+        json={"tool_name": "knowledge.read", "risk_level": "R1", "payload": {"query": "hi"}},
+        headers=_auth_headers(member.session_id, "e2e-trace-2"),
+    )
+    assert no_header_response.status_code == 200
+    assert no_header_response.json()["action"]["trace_id"] == no_header_response.headers["X-Trace-Id"]
+
+
 async def test_duplicate_idempotency_key_returns_same_action(client: AsyncClient, db_available: bool) -> None:
     member = await seed_workspace_member()
     payload = {"tool_name": "knowledge.read", "risk_level": "R1", "payload": {"query": "hi"}}

@@ -6,7 +6,7 @@ rules and the master instruction.
 
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlalchemy import select
 
 from doda.api.dependencies import RequestContext, get_request_context
@@ -50,6 +50,7 @@ def _to_approval_out(approval: Approval) -> ApprovalOut:
 
 @router.post("/v1/workspaces/{workspace_id}/actions", response_model=SubmitActionResponse)
 async def propose_and_submit_action(
+    request: Request,
     body: ProposeActionRequest,
     idempotency_key: str = Header(..., alias="Idempotency-Key"),
     ctx: RequestContext = Depends(get_request_context),
@@ -61,7 +62,15 @@ async def propose_and_submit_action(
         ctx.db,
         customer_id=ctx.workspace.customer_id,
         workspace_id=ctx.workspace.workspace_id,
-        trace_id=uuid.uuid4(),
+        # TraceIdMiddleware already minted (or echoed) this request's
+        # trace_id specifically so it can double as an Action's trace_id
+        # (see middleware.py's docstring) — every audit event this action
+        # ever produces is correlated to it. Generating a fresh, unrelated
+        # uuid4() here (the previous behavior) silently broke that promise:
+        # the HTTP response's X-Trace-Id and the Action's own trace_id (and
+        # therefore every audit.*.v1 event about it) were two different,
+        # uncorrelated UUIDs.
+        trace_id=uuid.UUID(request.state.trace_id),
         actor_id=actor_id,
         tool_name=body.tool_name,
         risk_level=body.risk_level,

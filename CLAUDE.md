@@ -1121,6 +1121,37 @@ tuzatishning o'zidagi xato emas.
 
 175 test, barchasi real Postgres+Redis'da.
 
+**NFR-OBS-001'ning o'zagi — "100% action/approval trace korrelyatsiyasi" —
+haqiqatda 0% edi, garchi kod buni ataylab qurgandek ko'rinsa ham.**
+`api/middleware.py`ning `TraceIdMiddleware`si o'z docstring'ida aniq
+yozadi: har bir so'rov trace_id'si "shu Action'ning trace_id'i sifatida
+ham ishlatilishi mumkin bo'lishi uchun" ataylab UUID shaklida saqlanadi —
+bu HTTP so'rovi va uning natijasida yaratilgan domain audit trail'ini
+BITTA trace_id orqali bog'lash niyatini bildiradi. Lekin haqiqiy kodni
+tekshirsam, `api/actions.py`dagi `propose_and_submit_action` bu
+trace_id'dan umuman FOYDALANMAS EDI — `request`ni hatto qabul ham
+qilmasdan, `propose_action`ga har safar butunlay yangi, bog'liqsiz
+`uuid.uuid4()` uzatardi. Natija: javobning `X-Trace-Id` header'i va shu
+so'rov yaratgan Action'ning (demak uning barcha `action.*.v1` audit
+yozuvlarining) `trace_id`si — ikkita mutlaqo bog'liq bo'lmagan UUID edi.
+Amalda bu degani: production'da biror muammoni "shu so'rov qaysi
+Action'ni yaratdi" deb HTTP trace_id orqali qidirib topib bo'lmas edi —
+aynan NFR-OBS-001'ning o'z maqsadi buzilardi.
+
+Tuzatish: `propose_and_submit_action` endi `Request`ni qabul qiladi va
+`propose_action`ga `uuid.UUID(request.state.trace_id)`ni uzatadi —
+`TraceIdMiddleware` allaqachon minted (yoki client'ning `X-Trace-Id`
+header'idan aks ettirgan) qiymatning o'zi. Yangi test
+(`test_action_trace_id_matches_the_http_requests_own_trace_id`)
+ikkalasini ham tekshiradi: client `X-Trace-Id` bersa, Action'ning
+trace_id'i ANIQ o'sha qiymatga teng bo'lishi; hech qanday header
+berilmasa, javobning o'z `X-Trace-Id`si bilan Action'ning trace_id'i bir
+xil bo'lishi. Bu Chat/Knowledge (2-bosqich) qurilganda ham naqshni
+to'g'ri o'rnatib qo'yadi — kelajakdagi har qanday yangi "action yarat"
+yo'li shu naqshni takrorlashi kerak, yangisini o'ylab topmasdan.
+
+176 test, barchasi real Postgres+Redis'da.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,
