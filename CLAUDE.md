@@ -1280,6 +1280,58 @@ xatti-harakatni o'zgartirmaydi, bu aynan kutilgan.
 181 test, barchasi real Postgres'da (xatti-harakat o'zgarmadi, faqat
 ikkinchi mudofaa qatlami qo'shildi).
 
+**NFR-PERF-001 ("P95 API read <500ms, Load test, Prometheus histogram")
+birinchi marta haqiqatda o'lchandi — bu talab CI'da tekshirilmaydi
+(NFR-SEC-003ning SLA qismi kabi: umumiy CI runner'lardagi vaqt shovqini
+qat'iy latency assertion'ini yo qat'iyatsiz-foydasiz, yoki shovqinli/
+beqaror qiladi), lekin hech qachon hech kim tomonidan real o'lchanmagan
+ham edi.** `backend/scripts/load_test_api.py` — `verify_audit_chain_job.py`
+bilan bir xil turkumdagi mustaqil skript (real, ishga tushirilgan
+backend'ga qarshi, real Postgres bilan, real `httpx` orqali; sintetik
+emas) — bir nechta asosiy o'qish endpointini (`/v1/me/workspaces`,
+workspace tasks/actions/notifications/audit) bir vaqtda 20 ta parallel
+so'rov bilan (200 tadan) chaqiradi va P95'ni hisoblaydi.
+
+Birinchi ishga tushirishda haqiqiy, takrorlanuvchi topilma chiqdi: audit
+ko'rish endpointlari (`GET .../audit`, ikkalasi ham — workspace va
+customer darajasida) izchil ravishda 500ms P95 chegarasidan oshadi
+(bir necha marta qayta ishga tushirilganda ham: 483-548ms P95),
+boshqa barcha endpoint esa (ba'zan sandbox muhitining o'zi tufayli
+shovqinli, lekin izchil emas) odatda chegaradan pastda qoladi. Sabab
+aniq: audit ko'rish "faqat o'qish" emas — FR-AUD-002'ning o'z talabi
+bo'yicha har bir ko'rish o'zi ham `audit.viewed.v1` yozuvi hosil qiladi
+(`record_audit_event` orqali), bu esa FR-AUD-004'ning concurrency-xavfsiz
+hash-zanjiri uchun har bir customer'ning `audit_chain_tips` qatorini
+`SELECT ... FOR UPDATE` bilan qulflaydi. Natijada: bitta customer'ning
+audit'ini bir vaqtda ko'rayotgan HAR BIR so'rov shu bitta qulf uchun
+navbatga turadi — "o'qish" endpointi aslida bitta customer bo'yicha
+serializatsiya qiladigan yozuvga aylanadi.
+
+Bu **tuzatilmadi** — sababi aniq: qulfni olib tashlash yoki yumshatish
+aynan shu sessiyada avvalroq topilgan va tuzatilgan audit-zanjiri fork
+xatosini (concurrent yozuvlar bitta prev_hash'ga to'qnashishi) qayta
+tiklaydi. Bu "tezlik vs to'liq tekshiriladigan audit trail" o'rtasidagi
+ataylab qilingan arxitektura almashinuvi, tasodifiy xato emas — chinakam
+tuzatish (masalan, o'z-audit yozuvini so'rov yo'lidan ajratib, outbox
+orqali asinxron qilish) transaction-ichida-atomik kafolatni yo'qotadi va
+alohida, ehtiyotkorlik bilan o'ylab chiqilishi kerak bo'lgan arxitektura
+qarori — shu sababli hozircha faqat aniq, o'lchangan bo'shliq sifatida
+qayd etildi (pastga qarang), tasodifiy/o'ylanmagan tuzatish qilinmadi.
+
+Bu jarayonda bitta yolg'on izni ham tekshirib chiqdim: dastlab
+`/v1/me/workspaces`ning o'zi ham bir marta 495-630ms P95 bilan
+"FAIL" ko'rsatdi, DB connection pool hajmini oshirish (`pool_size=20,
+max_overflow=20`) sinovdan o'tkazildi — lekin qayta-qayta ishga
+tushirishda bu o'zgarish natijani izchil yaxshilamadi (ba'zida yomonroq
+ham chiqdi), bu esa muammoning pool hajmi emas, sandbox muhitining o'z
+shovqini ekanini ko'rsatdi. Shuning uchun bu o'zgarish tasdiqlanmagan
+gipoteza sifatida qaytarib tashlandi ("isbotlamasdan taxmin qilma"
+tamoyiliga ko'ra) — faqat audit endpointining izchil, takrorlanuvchi
+sekinligi haqiqiy topilma sifatida qoldirildi.
+
+181 test, barchasi real Postgres'da (kod o'zgarmadi — faqat yangi
+o'lchov skripti qo'shildi).
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,
@@ -1360,6 +1412,16 @@ issuer URL) talab qiladi, Product Owner'dan kelishi kerak. Yoki OD-002
   qarang). Ma'lumot hajmi kattalashsa (Knowledge/RAG fayllari, chat
   transkriptlari qo'shilgandan keyin) real job-queue infratuzilmasi kerak
   bo'ladi — bugungi kunda buni qurish spekulyativ bo'lar edi.
+- **NFR-PERF-001 audit ko'rish endpointlarida buzilgan** (`GET .../audit`,
+  workspace va customer darajasida) — real yuklama testida (yuqoriga
+  qarang, `backend/scripts/load_test_api.py`) izchil ravishda P95 500ms
+  chegarasidan oshadi, chunki har bir ko'rish o'zi ham audit yozuvi
+  hosil qiladi va bu customer bo'yicha bitta hash-zanjiri qulfini
+  (`audit_chain_tips`) egallaydi — bir vaqtda ko'proq odam audit'ni
+  ko'rsa, ular shu bitta qulf uchun navbatga turadi. Ataylab tuzatilmadi:
+  qulfni yumshatish audit-zanjiri fork xatosini (yuqorida tuzatilgan)
+  qayta ochadi; haqiqiy tuzatish (masalan, o'z-audit yozuvini so'rov
+  yo'lidan asinxron ajratish) alohida arxitektura qarori talab qiladi.
 - `risk_level` (Action propose qilishda) to'liq caller-supplied — `tool_name`
   qanday risk darajasiga loyiqligini aniqlaydigan server-side siyosat hali
   yo'q (9.1'ning "risk-based routing"i risk_level QIYMATIGA ishonadi, uni
