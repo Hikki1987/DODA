@@ -286,6 +286,26 @@ har safar ushlaydi.
 
 129 test, barchasi real Postgres'da.
 
+FR-WKS-005'ning bilingan bo'shlig'i yopildi: "Customer'ga taklif qilish"
+(yangi foydalanuvchini customer'ga a'zo qilish, rolini o'zgartirish,
+chiqarish) ilgari faqat `customer_service.invite_customer_member`/
+`change_customer_member_role`/`remove_customer_member` sifatida
+application-layer funksiya edi — hech qanday HTTP endpoint yo'q edi
+(workspace-darajasida bunday API allaqachon bor edi, `api/
+workspace_admin.py`, lekin customer-darajasida yo'q edi). Endi
+`api/customer_admin.py` orqali `POST/PATCH/DELETE /v1/customers/{id}/
+members` mavjud, xuddi shu authz zanjiridan (`get_customer_request_context`)
+foydalanadi va yangi `authorize_manage_customer_members` (10.2: faqat
+CustomerOwner) bilan himoyalangan. Taklif qilinayotgan `user_id` haqiqiy
+Identity User ekanini tekshiradi (aks holda hech kimga tegishli bo'lmagan
+osilib qolgan a'zolik yaratilishining oldi olinadi) — `api/workspace_
+admin.py`ning o'z inputi uchun qilgan xuddi shunday tekshiruvi bilan bir
+xil naqsh. "Oxirgi Owner"ni pasaytirib/chiqarib bo'lmaslik invarianti
+(FR-WKS-005) allaqachon `customer_service`da bor edi — bu yangi qatlam
+faqat uni HTTP orqali ochadi, o'zgartirmaydi.
+
+134 test, barchasi real Postgres'da.
+
 Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
 — bu yerda FR-AUTH-001'ning haqiqiy OIDC oqimi qurilishi kerak (hozir
 `session_service.create_session` faqat dev/test seam) va bu tashqi OIDC
@@ -326,9 +346,6 @@ oldin hal qilinishi kerak.
   qo'shildi — WorkspaceMembership qatori yo'q customer_owner haqiqatda
   boshqa a'zoning R3 action'ini real HTTP orqali tasdiqlay olishini
   tasdiqladi.
-- "Customer'ga taklif qilish" (yangi foydalanuvchini customer'ga a'zo
-  qilish) uchun HTTP endpoint yo'q — `customer_service.invite_customer_member`
-  faqat application-layer funksiya.
 - Bildirishnomalar workspace-scoped endpoint orqali ko'rinadi
   (`/v1/workspaces/{id}/notifications`), chunki butun API shu naqshda
   qurilgan. Haqiqiy "barcha workspace'lardagi bildirishnomalarim" inbox'i

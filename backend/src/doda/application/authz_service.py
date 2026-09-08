@@ -209,6 +209,15 @@ async def get_customer_context(
     return CustomerContext(customer_id=customer_id, user_id=user_id, role=CustomerRole(membership.role))
 
 
+def authorize_manage_customer_members(context: CustomerContext) -> None:
+    """10.2 'Rol biriktirish' row, customer scope: only CustomerOwner may
+    invite, re-role, or remove a customer member — the same authority
+    level that already governs workspace-level membership management
+    (authorize_manage_workspace_members), one tier up."""
+    if context.role is not CustomerRole.CUSTOMER_OWNER:
+        raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not manage customer members")
+
+
 def authorize_engage_customer_kill_switch(context: CustomerContext) -> None:
     """10.2 'Kill switch' row: CustomerOwner = Customer scope."""
     if context.role is not CustomerRole.CUSTOMER_OWNER:

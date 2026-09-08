@@ -22,7 +22,9 @@ himoyalangan HTTP API (`/v1/workspaces/{id}/actions`, `.../approvals/{id}/consum
 `.../members`, `.../archive`, `.../restore`, `.../kill-switch/engage`,
 `.../kill-switch/disengage`, `.../audit`, `.../notifications`,
 `/v1/sessions`, va customer-darajasida `/v1/customers/{id}/kill-switch/...`,
-`/v1/customers/{id}/audit`). Audit hash-zanjiri endi concurrent yozuvlarda
+`/v1/customers/{id}/audit`, `/v1/customers/{id}/members` (invite/rol
+o'zgartirish/chiqarish, faqat CustomerOwner — FR-WKS-005). Audit
+hash-zanjiri endi concurrent yozuvlarda
 ham xavfsiz (FR-AUD-004, per-customer lock); sessiya faollik-belgisi
 (FR-AUTH-006 idle timeout) endi haqiqatda saqlanadi (avval jimgina
 saqlanmasdi — tuzatildi).
