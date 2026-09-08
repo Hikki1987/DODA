@@ -165,3 +165,24 @@ async def test_cannot_demote_the_last_owner_over_http(client: AsyncClient, db_av
     )
     assert response.status_code == 409
     assert response.json()["code"] == "LAST_OWNER_PROTECTED"
+
+
+async def test_list_customer_members_shows_owner_and_invited_member(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """There was no way to see the current roster at all before this —
+    invite/change-role/remove all existed, but nothing to list who's
+    actually in the customer."""
+    customer_id, _owner_id, owner_session_id = await _seed_customer_with_owner()
+    member_user_id, _member_session_id = await _add_plain_member(customer_id)
+
+    response = await client.get(
+        f"/v1/customers/{customer_id}/members", headers=_auth_headers(owner_session_id)
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 2
+
+    by_user_id = {entry["user_id"]: entry for entry in body}
+    assert by_user_id[str(member_user_id)]["role"] == "member"
+    assert all(entry["display_name"] for entry in body)

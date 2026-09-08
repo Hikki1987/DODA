@@ -15,6 +15,7 @@ from doda.api.dependencies import (
 from doda.api.workspace_admin_schemas import (
     AddWorkspaceMemberRequest,
     ChangeWorkspaceMemberRoleRequest,
+    WorkspaceMemberOut,
     WorkspaceMembershipOut,
     WorkspaceOut,
 )
@@ -23,6 +24,7 @@ from doda.application.workspace_service import (
     add_workspace_member,
     archive_workspace,
     change_workspace_member_role,
+    list_workspace_members,
     remove_workspace_member,
     restore_workspace,
 )
@@ -77,6 +79,23 @@ async def add_member(
         actor_id=f"user:{ctx.workspace.user_id}",
     )
     return _to_membership_out(membership)
+
+
+@router.get("/v1/workspaces/{workspace_id}/members", response_model=list[WorkspaceMemberOut])
+async def list_members(ctx: RequestContext = Depends(get_request_context)) -> list[WorkspaceMemberOut]:
+    """No role check beyond workspace membership: seeing who is on your own
+    team is a lower bar than managing them (authorize_manage_workspace_members
+    gates add/change-role/remove, not this)."""
+    entries = await list_workspace_members(ctx.db, workspace_id=ctx.workspace.workspace_id)
+    return [
+        WorkspaceMemberOut(
+            membership_id=entry.membership_id,
+            user_id=entry.user_id,
+            display_name=entry.display_name,
+            role=entry.role,
+        )
+        for entry in entries
+    ]
 
 
 async def _get_workspace_membership(ctx: RequestContext, membership_id: uuid.UUID) -> WorkspaceMembership:

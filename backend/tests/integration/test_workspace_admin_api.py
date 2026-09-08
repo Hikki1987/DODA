@@ -5,9 +5,11 @@ import uuid
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from doda.application.customer_service import invite_customer_member
+from doda.application.customer_service import create_customer_with_owner, invite_customer_member
+from doda.application.session_service import create_session
+from doda.application.workspace_service import add_workspace_member, create_workspace
 from doda.db import tenant_scoped_session
-from doda.domain.identity.models import AuthStrength
+from doda.domain.identity.models import AuthStrength, User
 from doda.domain.security.roles import CustomerRole
 from doda.main import app
 from tests.integration.conftest import seed_workspace_member
@@ -174,3 +176,54 @@ async def test_customer_owner_can_archive_and_manage_members_without_workspace_a
     )
     assert archive_response.status_code == 200
     assert archive_response.json()["archived_at"] is not None
+
+
+async def test_list_workspace_members_shows_explicit_member_and_bare_customer_owner(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """There was no way to see the current roster at all before this — add/
+    change-role/remove all existed, but nothing to list who's actually in
+    the workspace. Also proves the CustomerOwner special case: an owner
+    with no explicit WorkspaceMembership row must still show up (they have
+    full authority over the workspace regardless — see
+    authz_service.get_workspace_context)."""
+    owner_user_id = uuid.uuid4()
+    member_user_id = uuid.uuid4()
+    customer_id = uuid.uuid4()
+    async with tenant_scoped_session(customer_id) as session:
+        session.add(User(id=owner_user_id, oidc_subject_hash=str(uuid.uuid4()), display_name="Owner"))
+        session.add(User(id=member_user_id, oidc_subject_hash=str(uuid.uuid4()), display_name="Member"))
+        await session.flush()
+
+        await create_customer_with_owner(
+            session, customer_id=customer_id, name="Acme", owner_user_id=owner_user_id, actor_id="user:setup"
+        )
+        member_membership = await invite_customer_member(
+            session,
+            customer_id=customer_id,
+            user_id=member_user_id,
+            role=CustomerRole.MEMBER,
+            actor_id="user:setup",
+        )
+        workspace = await create_workspace(session, customer_id=customer_id, name="Main")
+        await add_workspace_member(
+            session,
+            workspace=workspace,
+            customer_membership=member_membership,
+            role="member",
+            actor_id="user:setup",
+        )
+        owner_session = await create_session(session, user_id=owner_user_id, auth_strength=AuthStrength.AAL1)
+
+    response = await client.get(
+        f"/v1/workspaces/{workspace.id}/members", headers=_auth_headers(owner_session.id)
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 2
+
+    by_name = {entry["display_name"]: entry for entry in body}
+    assert by_name["Owner"]["role"] == "workspace_admin"
+    assert by_name["Owner"]["membership_id"] is None  # implicit — no real row
+    assert by_name["Member"]["role"] == "member"
+    assert by_name["Member"]["membership_id"] is not None

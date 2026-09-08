@@ -9,6 +9,7 @@ fixture, never by an anonymous HTTP caller. Membership management below
 in-scope action and does get an API (api/workspace_admin.py).
 """
 
+import dataclasses
 import uuid
 
 from sqlalchemy import select
@@ -16,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.application.audit_service import record_audit_event
 from doda.domain.customer.models import Customer, CustomerMembership, UserCustomerIndex
+from doda.domain.identity.models import User
 from doda.domain.security.roles import CustomerRole
 from doda.domain.workspace.models import WorkspaceMembership
 
@@ -171,3 +173,34 @@ async def remove_customer_member(
         if index_row is not None:
             await session.delete(index_row)
             await session.flush()
+
+
+@dataclasses.dataclass(frozen=True)
+class CustomerMemberEntry:
+    membership_id: uuid.UUID
+    user_id: uuid.UUID
+    display_name: str
+    role: str
+
+
+async def list_customer_members(
+    session: AsyncSession, *, customer_id: uuid.UUID
+) -> list[CustomerMemberEntry]:
+    """There was no way to see who is actually in a customer at all before
+    this — invite/change-role/remove all existed, but nothing to list the
+    current roster, the same class of gap closed for workspace members
+    (workspace_service.list_workspace_members) and elsewhere in this API."""
+    rows = await session.execute(
+        select(CustomerMembership, User.display_name)
+        .join(User, User.id == CustomerMembership.user_id)
+        .where(CustomerMembership.customer_id == customer_id)
+    )
+    return [
+        CustomerMemberEntry(
+            membership_id=membership.id,
+            user_id=membership.user_id,
+            display_name=display_name,
+            role=membership.role,
+        )
+        for membership, display_name in rows
+    ]

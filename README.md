@@ -33,7 +33,10 @@ birinchi endpoint, foydalanuvchi a'zo bo'lgan barcha customer/workspace'larni
 qaytaradi (avval bunday "kashfiyot" endpointi umuman yo'q edi). `GET
 /v1/workspaces/{id}/tasks` va `.../actions` (ro'yxatlash, `?status=` filtri
 bilan) ham qo'shildi — avval faqat yaratish va ID bo'yicha o'qish bor edi.
-Audit hash-zanjiri endi concurrent yozuvlarda
+`GET /v1/workspaces/{id}/members` va `GET /v1/customers/{id}/members`
+(joriy a'zolar ro'yxati — display_name bilan; avval faqat qo'shish/
+o'zgartirish/chiqarish bor edi, ko'rish yo'q edi). Audit hash-zanjiri endi
+concurrent yozuvlarda
 ham xavfsiz (FR-AUD-004, per-customer lock); sessiya faollik-belgisi
 (FR-AUTH-006 idle timeout) endi haqiqatda saqlanadi (avval jimgina
 saqlanmasdi — tuzatildi).

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from doda.api.customer_admin_schemas import (
     ChangeCustomerMemberRoleRequest,
+    CustomerMemberOut,
     CustomerMembershipOut,
     InviteCustomerMemberRequest,
 )
@@ -19,6 +20,7 @@ from doda.application.authz_service import authorize_manage_customer_members
 from doda.application.customer_service import (
     change_customer_member_role,
     invite_customer_member,
+    list_customer_members,
     remove_customer_member,
 )
 from doda.domain.customer.models import CustomerMembership
@@ -59,6 +61,25 @@ async def invite_member(
         actor_id=f"user:{ctx.customer.user_id}",
     )
     return _to_membership_out(membership)
+
+
+@router.get("/v1/customers/{customer_id}/members", response_model=list[CustomerMemberOut])
+async def list_members(
+    ctx: CustomerRequestContext = Depends(get_customer_request_context),
+) -> list[CustomerMemberOut]:
+    """No role check beyond customer membership: seeing who is in your own
+    org is a lower bar than managing them (authorize_manage_customer_members
+    gates invite/change-role/remove, not this)."""
+    entries = await list_customer_members(ctx.db, customer_id=ctx.customer.customer_id)
+    return [
+        CustomerMemberOut(
+            membership_id=entry.membership_id,
+            user_id=entry.user_id,
+            display_name=entry.display_name,
+            role=entry.role,
+        )
+        for entry in entries
+    ]
 
 
 async def _get_customer_membership(

@@ -19,3 +19,10 @@ class CustomerMembershipOut(BaseModel):
     customer_id: uuid.UUID
     user_id: uuid.UUID
     role: str
+
+
+class CustomerMemberOut(BaseModel):
+    membership_id: uuid.UUID
+    user_id: uuid.UUID
+    display_name: str
+    role: str

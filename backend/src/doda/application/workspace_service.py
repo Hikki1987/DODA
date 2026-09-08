@@ -15,6 +15,7 @@ from doda.application.audit_service import record_audit_event
 from doda.db import async_session_factory, tenant_scoped_session
 from doda.domain.base import utcnow
 from doda.domain.customer.models import Customer, CustomerMembership, UserCustomerIndex
+from doda.domain.identity.models import User
 from doda.domain.security.roles import CustomerRole
 from doda.domain.workspace.models import Workspace, WorkspaceMembership, WorkspaceTenantIndex
 
@@ -227,4 +228,62 @@ async def list_my_workspaces(user_id: uuid.UUID) -> list[MyWorkspaceEntry]:
                     )
                     for workspace, workspace_role in rows
                 )
+    return entries
+
+
+@dataclasses.dataclass(frozen=True)
+class WorkspaceMemberEntry:
+    membership_id: uuid.UUID | None
+    """None for a CustomerOwner shown here on implicit authority alone —
+    see the docstring below. There is no WorkspaceMembership row to
+    PATCH/DELETE in that case; the roster still must show them, or a
+    workspace_admin managing "who's on my team" would get a materially
+    wrong answer, the same reasoning as list_my_workspaces's CustomerOwner
+    special case."""
+    user_id: uuid.UUID
+    display_name: str
+    role: str
+
+
+async def list_workspace_members(
+    session: AsyncSession, *, workspace_id: uuid.UUID
+) -> list[WorkspaceMemberEntry]:
+    """There was no way to see who is actually in a workspace at all before
+    this — add/change-role/remove all existed, but nothing to list the
+    current roster, the same class of gap GET /v1/me/workspaces and the
+    task/action list endpoints already closed elsewhere."""
+    rows = await session.execute(
+        select(WorkspaceMembership, CustomerMembership.user_id, User.display_name)
+        .join(CustomerMembership, CustomerMembership.id == WorkspaceMembership.customer_membership_id)
+        .join(User, User.id == CustomerMembership.user_id)
+        .where(WorkspaceMembership.workspace_id == workspace_id)
+    )
+    entries = [
+        WorkspaceMemberEntry(
+            membership_id=membership.id, user_id=user_id, display_name=display_name, role=membership.role
+        )
+        for membership, user_id, display_name in rows
+    ]
+    explicit_user_ids = {entry.user_id for entry in entries}
+
+    workspace = await session.get(Workspace, workspace_id)
+    assert workspace is not None
+    owners = await session.execute(
+        select(CustomerMembership.user_id, User.display_name)
+        .join(User, User.id == CustomerMembership.user_id)
+        .where(
+            CustomerMembership.customer_id == workspace.customer_id,
+            CustomerMembership.role == CustomerRole.CUSTOMER_OWNER.value,
+        )
+    )
+    for owner_user_id, owner_display_name in owners:
+        if owner_user_id not in explicit_user_ids:
+            entries.append(
+                WorkspaceMemberEntry(
+                    membership_id=None,
+                    user_id=owner_user_id,
+                    display_name=owner_display_name,
+                    role="workspace_admin",
+                )
+            )
     return entries

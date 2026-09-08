@@ -22,6 +22,13 @@ class WorkspaceMembershipOut(BaseModel):
     role: str
 
 
+class WorkspaceMemberOut(BaseModel):
+    membership_id: uuid.UUID | None
+    user_id: uuid.UUID
+    display_name: str
+    role: str
+
+
 class WorkspaceOut(BaseModel):
     id: uuid.UUID
     customer_id: uuid.UUID

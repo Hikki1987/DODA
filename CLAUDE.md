@@ -419,6 +419,24 @@ uchun ham).
 
 156 test, barchasi real Postgres'da.
 
+Xuddi shu "kashfiyot bo'shlig'i" naqshi yana ikki joyda topildi: workspace
+va customer a'zolarini QO'SHISH/ROLINI O'ZGARTIRISH/CHIQARISH mumkin edi,
+lekin joriy ro'yxatni (kim allaqachon a'zo) ko'RISH uchun endpoint yo'q
+edi — a'zolarni boshqaradigan har qanday UI ekrani uchun asosiy bo'shliq.
+`GET /v1/workspaces/{id}/members` va `GET /v1/customers/{id}/members`
+qo'shildi. Ikkalasi ham `user_id` va `display_name`ni (Identity `User`
+bilan join orqali) qaytaradi — aks holda ro'yxat faqat ma'nosiz UUID'lar
+bo'lib qolardi. Workspace-darajasidagi versiya `list_my_workspaces`dagi
+CustomerOwner alohida holatini ham to'g'ri hisobga oladi: hech qanday
+WorkspaceMembership qatori bo'lmasa ham, CustomerOwner ro'yxatda
+`membership_id: null`, `role: "workspace_admin"` bilan ko'rinadi — aks
+holda workspace_admin "mening jamoamda kim bor" deb so'raganida chalg'ituvchi,
+noto'liq javob olardi. Ikkalasida ham qo'shimcha rol tekshiruvi yo'q —
+a'zolikning o'zi yetarli (boshqarish `authorize_manage_*_members`ga
+bog'liq, ko'rish emas). 2 ta yangi test.
+
+158 test, barchasi real Postgres'da.
+
 Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
 — bu yerda FR-AUTH-001'ning haqiqiy OIDC oqimi qurilishi kerak (hozir
 `session_service.create_session` faqat dev/test seam) va bu tashqi OIDC
