@@ -104,10 +104,12 @@ Product Owner'dan kelishi kerak. Yoki OD-002 (connector tanlovi) S6'dan
 oldin hal qilinishi kerak.
 
 **Bilingan cheklovlar (keyingi ishlarda hisobga olinsin):**
-- Audit hash-zanjiri (`application/audit_service.py`) bir xil customer uchun
-  concurrent yozuvlarda xavfsiz emas — chain fork bo'lishi mumkin. Production
-  uchun per-customer chain-tip qatorini `SELECT ... FOR UPDATE` bilan
-  lock qilish kerak.
+- ~~Audit hash-zanjiri concurrent yozuvlarda xavfsiz emas~~ — **tuzatildi**:
+  `audit_chain_tips` (0005-migratsiya) har customer uchun `SELECT ... FOR
+  UPDATE` bilan lock qilinadigan tip qatori qo'shdi. Eski (buzuq) versiyaga
+  qaytarib, `test_audit_chain_concurrency.py` 3 martalik urinishda ham
+  aynan shu xatoni (11/12 yozuv bitta prev_hash'ga fork bo'lishi) ushlashi
+  tasdiqlandi — keyin tuzatilgan versiya bilan qayta tekshirildi.
 - Outbox relay hozircha connector'siz — faqat Redis Stream'ga yetkazishni
   isbotlaydi. Haqiqiy tashqi effekt (S7, birinchi konnektor) connector'ning
   o'zi ham idempotent bo'lishini talab qiladi.

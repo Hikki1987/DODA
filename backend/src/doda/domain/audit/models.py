@@ -33,3 +33,18 @@ class AuditEvent(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     safe_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
     prev_hash: Mapped[str | None] = mapped_column(String(64), default=None)
     hash: Mapped[str] = mapped_column(String(64))
+
+
+class AuditChainTip(Base):
+    """Serialization point for the per-customer hash chain (FR-AUD-004).
+    doda.application.audit_service.record_audit_event locks this single row
+    (SELECT ... FOR UPDATE) before computing the next hash, so two
+    concurrent writers for the same customer cannot both read the same
+    prev_hash and fork the chain. One row per customer, lazily created via
+    upsert on first use — never read or written anywhere else.
+    """
+
+    __tablename__ = "audit_chain_tips"
+
+    customer_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    tip_hash: Mapped[str | None] = mapped_column(String(64), default=None)
