@@ -185,7 +185,29 @@ o'zgarishni vaqtincha qaytarib, yangi regressiya testi (`test_sessions_api.py`)
 buzuq holatda aniq muvaffaqiyatsiz bo'lishini, keyin tuzatilgan holatda
 o'tishini tasdiqladim.
 
-116 test, barchasi real Postgres'da.
+**CustomerRole.CUSTOMER_OWNER bo'shlig'i yopildi** — bir necha marta
+"bilingan cheklov" sifatida qayd etilgan haqiqiy avtorizatsiya kamchiligi.
+Yechim `get_workspace_context`ning o'zida: agar foydalanuvchi shu
+workspace'ning customer'ida `customer_owner` bo'lsa, u hech qanday
+`WorkspaceMembership` qatoriga ega bo'lmasa ham `WorkspaceRole.WORKSPACE_ADMIN`
+sifatida rezolyutsiya qilinadi (10.2: CustomerOwner WorkspaceAdmin bilan
+bir yoki undan yuqori huquqqa ega har bir qatorda). Bu bitta joyda hal
+qilingani uchun barcha WORKSPACE_ADMIN tekshiruvchi funksiyalar
+(`authorize_consume_approval`, `authorize_manage_workspace_members`,
+`authorize_archive_workspace`, `authorize_create_task`,
+`authorize_task_mutation`, hatto workspace kill switch) avtomatik to'g'ri
+ishlaydi — alohida-alohida tuzatish shart bo'lmadi.
+
+**Ishlash jarayonida ikki bosqichli tuzatish kerak bo'ldi** — bu ham
+professional jarayon namunasi: birinchi urinishda har bir
+`authorize_*` funksiyaga alohida `_is_customer_owner` fallback qo'shdim
+(async qilib), lekin HTTP darajasidagi test buni **403 bilan rad etdi** —
+sababi, `get_request_context`ning o'zi CustomerOwner uchun
+`WorkspaceMembership` qatori topa olmay, avtorizatsiya funksiyasiga
+yetib bormasdanoq DENY qilib qo'yardi. Shundan keyin to'g'ri yechimni —
+bitta markazlashtirilgan tuzatishni — topdim va qo'lladim.
+
+122 test, barchasi real Postgres'da.
 
 Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
 — bu yerda FR-AUTH-001'ning haqiqiy OIDC oqimi qurilishi kerak (hozir
@@ -212,15 +234,13 @@ oldin hal qilinishi kerak.
   JWT/OIDC token emas (FR-AUTH-001 S3 ishi). Session jadvali va uning
   idle/absolute timeout, revoke mantig'i haqiqiy; faqat "session qanday
   tug'iladi" bosqichi hali stand-in.
-- R3 approver siyosati va workspace-a'zolik boshqaruvi faqat `WorkspaceRole`ni
-  tekshiradi (`member` / `workspace_admin`); `CustomerRole.CUSTOMER_OWNER`
-  ham 10.2 bo'yicha bu amallarni bajara olishi kerak. `CustomerContext` /
-  `get_customer_request_context` (`api/dependencies.py`) endi ikkita joyda
-  ishlatilmoqda (kill switch, audit viewer) va customer-darajasidagi rolni
-  to'g'ri aniqlaydi — bu boshqa joylardagi shu cheklovni yopish uchun ham
-  qayta ishlatilishi mumkin, lekin R3 approval va workspace-a'zolik
-  boshqaruvi ataylab o'zgartirilmadi (bu alohida, so'ralmagan o'zgarish
-  bo'lardi).
+- ~~R3 approval va workspace-a'zolik boshqaruvi faqat WorkspaceRole'ni
+  tekshiradi~~ — **tuzatildi**: `get_workspace_context` endi CustomerOwner'ni
+  WORKSPACE_ADMIN sifatida rezolyutsiya qiladi (yuqoriga qarang).
+  `CustomerContext` / `get_customer_request_context` (`api/dependencies.py`)
+  hamon alohida, faqat customer-scoped endpointlar (kill switch, audit
+  viewer) uchun ishlatiladi — bu ikkalasi konseptual jihatdan farqli
+  (customer-scoped amal vs workspace-scoped amalda CustomerOwner huquqi).
 - "Customer'ga taklif qilish" (yangi foydalanuvchini customer'ga a'zo
   qilish) uchun HTTP endpoint yo'q — `customer_service.invite_customer_member`
   faqat application-layer funksiya.

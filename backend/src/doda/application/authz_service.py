@@ -40,6 +40,15 @@ class WorkspaceContext:
     role: WorkspaceRole
 
 
+async def _is_customer_owner(session: AsyncSession, *, user_id: uuid.UUID, customer_id: uuid.UUID) -> bool:
+    role = await session.scalar(
+        select(CustomerMembership.role).where(
+            CustomerMembership.customer_id == customer_id, CustomerMembership.user_id == user_id
+        )
+    )
+    return role == CustomerRole.CUSTOMER_OWNER.value
+
+
 async def get_workspace_context(
     session: AsyncSession, *, user_id: uuid.UUID, workspace_id: uuid.UUID, allow_archived: bool = False
 ) -> WorkspaceContext:
@@ -52,10 +61,27 @@ async def get_workspace_context(
     action (fail-closed default), but *restoring* it necessarily requires
     resolving context for that same archived workspace — see
     api.dependencies.get_request_context_allow_archived, used nowhere else.
+
+    A CustomerRole.CUSTOMER_OWNER resolves here as WorkspaceRole.WORKSPACE_ADMIN
+    for ANY workspace under their customer, even with no WorkspaceMembership
+    row at all — 10.2 grants CustomerOwner the same or greater authority
+    than WorkspaceAdmin on every row that has a WorkspaceAdmin column
+    (role assignment, R3 approval, etc). Checked first and unconditionally
+    (not merely as a fallback after membership lookup fails): a customer
+    owner's authority does not depend on whether someone also happened to
+    add them as a plain "member" of this particular workspace.
     """
     workspace = await session.get(Workspace, workspace_id)
     if workspace is None or (workspace.archived_at is not None and not allow_archived):
         raise AuthorizationError(Decision.DENY, "workspace not found or archived")
+
+    if await _is_customer_owner(session, user_id=user_id, customer_id=workspace.customer_id):
+        return WorkspaceContext(
+            customer_id=workspace.customer_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            role=WorkspaceRole.WORKSPACE_ADMIN,
+        )
 
     row = (
         await session.execute(
@@ -92,7 +118,10 @@ def authorize_consume_approval(
 ) -> None:
     """9.1: R3's approver is 'the user themself' under fresh MFA; a
     WorkspaceRole.WORKSPACE_ADMIN may additionally approve someone else's
-    action. Auditor can never approve, full stop.
+    action (10.2: 'R3 action bajarish' is 'Approval bilan' for
+    Member/WorkspaceAdmin/CustomerOwner alike — a CustomerOwner already
+    resolves as WORKSPACE_ADMIN here, see get_workspace_context). Auditor
+    can never approve, full stop.
     """
     is_self_approval = action.actor_id == f"user:{context.user_id}"
     if not is_self_approval and context.role not in ROLES_THAT_MAY_APPROVE_ANOTHER_ACTORS_ACTION:
@@ -115,8 +144,8 @@ def authorize_create_task(context: WorkspaceContext) -> None:
 
 def authorize_manage_workspace_members(context: WorkspaceContext) -> None:
     """10.2 'Rol biriktirish' row: Member = Yo'q; WorkspaceAdmin = Workspace
-    ichida. (CustomerOwner also = Ha, but see roles.py's KNOWN LIMITATION —
-    customer-level role is not resolved at this API boundary yet.)"""
+    ichida; CustomerOwner = Ha (resolves as WORKSPACE_ADMIN — see
+    get_workspace_context)."""
     if context.role is not WorkspaceRole.WORKSPACE_ADMIN:
         raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not manage workspace members")
 
@@ -129,7 +158,8 @@ def authorize_archive_workspace(context: WorkspaceContext) -> None:
 def authorize_task_mutation(context: WorkspaceContext, task: Task) -> None:
     """FR-TASK-004: 'Task state faqat authorized actor tomonidan
     o'zgaradi.' The TRD does not further specify who beyond the actor — a
-    workspace_admin override is the same pattern already used for R3
+    workspace_admin override (also reachable by a CustomerOwner, who
+    resolves as WORKSPACE_ADMIN) is the same pattern already used for R3
     approvals (authorize_consume_approval) and equally defensible here."""
     is_owner = task.owner_id == f"user:{context.user_id}"
     if not is_owner and context.role is not WorkspaceRole.WORKSPACE_ADMIN:
@@ -137,7 +167,11 @@ def authorize_task_mutation(context: WorkspaceContext, task: Task) -> None:
 
 
 def authorize_engage_workspace_kill_switch(context: WorkspaceContext) -> None:
-    """10.2 'Kill switch' row: WorkspaceAdmin = Workspace scope."""
+    """10.2 'Kill switch' row: WorkspaceAdmin = Workspace scope. A
+    CustomerOwner also passes (resolves as WORKSPACE_ADMIN) — harmless and
+    arguably correct: they already have strictly greater power via the
+    dedicated customer-scope kill switch, which would take this workspace
+    down too."""
     if context.role is not WorkspaceRole.WORKSPACE_ADMIN:
         raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not operate the workspace kill switch")
 

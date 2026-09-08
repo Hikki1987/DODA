@@ -5,7 +5,9 @@ import pytest
 from doda.application.authz_service import (
     AuthorizationError,
     WorkspaceContext,
+    authorize_archive_workspace,
     authorize_consume_approval,
+    authorize_manage_workspace_members,
     authorize_propose_action,
 )
 from doda.domain.action.models import Action, ActionStatus, RiskLevel
@@ -79,3 +81,17 @@ def test_plain_member_may_not_approve_someone_elses_action() -> None:
     with pytest.raises(AuthorizationError) as exc_info:
         authorize_consume_approval(other_member_context, action, auth_strength=AuthStrength.AAL2)
     assert exc_info.value.decision is Decision.DENY
+
+
+def test_workspace_admin_may_manage_members_and_archive() -> None:
+    context = _context(WorkspaceRole.WORKSPACE_ADMIN)
+    authorize_manage_workspace_members(context)  # must not raise
+    authorize_archive_workspace(context)  # must not raise
+
+
+def test_plain_member_may_not_manage_members_or_archive() -> None:
+    context = _context(WorkspaceRole.MEMBER)
+    with pytest.raises(AuthorizationError):
+        authorize_manage_workspace_members(context)
+    with pytest.raises(AuthorizationError):
+        authorize_archive_workspace(context)

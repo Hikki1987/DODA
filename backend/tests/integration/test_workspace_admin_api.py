@@ -139,3 +139,43 @@ async def test_plain_member_cannot_archive_workspace(client: AsyncClient, db_ava
     )
     assert response.status_code == 403
     assert response.json()["code"] == "DENY"
+
+
+async def test_customer_owner_can_archive_and_manage_members_without_workspace_admin_role(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """The CustomerRole.CUSTOMER_OWNER fix, exercised over real HTTP: a
+    customer_owner with NO WorkspaceMembership at all in this workspace
+    must still be able to manage members and archive it (10.2: CustomerOwner
+    = 'Ha' for role assignment, and the same pattern for workspace
+    lifecycle) — previously only WorkspaceRole.WORKSPACE_ADMIN passed."""
+    from doda.application.customer_service import create_customer_with_owner
+    from doda.application.session_service import create_session
+    from doda.application.workspace_service import create_workspace
+    from doda.domain.identity.models import User
+
+    owner_user_id = uuid.uuid4()
+    customer_id = uuid.uuid4()
+    async with tenant_scoped_session(customer_id) as session:
+        session.add(User(id=owner_user_id, oidc_subject_hash=str(uuid.uuid4()), display_name="Owner"))
+        await session.flush()
+        await create_customer_with_owner(
+            session, customer_id=customer_id, name="Acme", owner_user_id=owner_user_id, actor_id="user:setup"
+        )
+        workspace = await create_workspace(session, customer_id=customer_id, name="Main")
+        owner_session = await create_session(session, user_id=owner_user_id, auth_strength=AuthStrength.AAL1)
+
+    candidate_id = await _invite_bare_customer_member(customer_id)
+
+    add_response = await client.post(
+        f"/v1/workspaces/{workspace.id}/members",
+        json={"customer_membership_id": str(candidate_id), "role": "member"},
+        headers=_auth_headers(owner_session.id),
+    )
+    assert add_response.status_code == 200
+
+    archive_response = await client.post(
+        f"/v1/workspaces/{workspace.id}/archive", headers=_auth_headers(owner_session.id)
+    )
+    assert archive_response.status_code == 200
+    assert archive_response.json()["archived_at"] is not None

@@ -3,11 +3,14 @@
 kept separate from Identity/Customer/Workspace because it encodes policy
 (who may do what), not an aggregate.
 
-KNOWN LIMITATION: only WorkspaceRole is checked for the R3 approval flow
-below (doda.application.authz_service). CustomerRole.CUSTOMER_OWNER should
-also be able to approve per 10.2, but that requires resolving customer-level
-role alongside workspace-level role at the API boundary, which is deferred
-to keep this slice's scope tight — see CLAUDE.md known limitations.
+CustomerRole.CUSTOMER_OWNER resolves as WorkspaceRole.WORKSPACE_ADMIN for
+any workspace under their customer — see
+authz_service.get_workspace_context — because 10.2 grants CustomerOwner
+the same or greater authority than WorkspaceAdmin on every row that has a
+WorkspaceAdmin column (role assignment, R3 approval, workspace lifecycle).
+This is resolved once, at context-construction time, rather than
+re-checked in every authorize_* function, so a CustomerOwner need not hold
+any WorkspaceMembership row at all to have this authority.
 
 Also excludes Service Actor and Platform Owner: neither has an HTTP-facing
 use case yet (Service Actor never approves per 2.2's invariant; Platform
@@ -38,5 +41,7 @@ ROLES_THAT_MAY_PROPOSE_ACTIONS = frozenset({WorkspaceRole.MEMBER, WorkspaceRole.
 # under fresh MFA) — enforced separately as an actor-identity check, not a
 # role check, in doda.application.authz_service.authorize_consume_approval.
 # A WorkspaceRole.WORKSPACE_ADMIN may additionally approve someone else's
-# R3 action (a supervisor override); Auditor never can.
+# R3 action (a supervisor override) — and so may a CustomerRole.CUSTOMER_OWNER,
+# since they resolve as WORKSPACE_ADMIN here (see this module's docstring);
+# Auditor never can.
 ROLES_THAT_MAY_APPROVE_ANOTHER_ACTORS_ACTION = frozenset({WorkspaceRole.WORKSPACE_ADMIN})
