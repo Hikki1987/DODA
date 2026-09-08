@@ -35,6 +35,21 @@ async def assert_not_killed(
         raise KillSwitchEngagedError("workspace")
 
 
+async def get_workspace_kill_switch_status(
+    session: AsyncSession, *, workspace_id: uuid.UUID
+) -> WorkspaceKillSwitch | None:
+    """There was no way to check whether the switch is currently engaged
+    without either engaging it yourself or waiting for propose_action to
+    fail — no read path existed at all. None means disengaged."""
+    return await session.get(WorkspaceKillSwitch, workspace_id)
+
+
+async def get_customer_kill_switch_status(
+    session: AsyncSession, *, customer_id: uuid.UUID
+) -> CustomerKillSwitch | None:
+    return await session.get(CustomerKillSwitch, customer_id)
+
+
 async def engage_workspace_kill_switch(
     session: AsyncSession, *, workspace_id: uuid.UUID, customer_id: uuid.UUID, actor_id: str, reason: str
 ) -> WorkspaceKillSwitch:

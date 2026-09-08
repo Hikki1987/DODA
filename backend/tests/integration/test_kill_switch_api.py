@@ -202,3 +202,76 @@ async def test_plain_member_cannot_engage_customer_kill_switch(
     )
     assert response.status_code == 403
     assert response.json()["code"] == "DENY"
+
+
+async def test_workspace_kill_switch_status_reflects_engage_and_disengage(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """There was no way to check whether the switch is engaged without
+    either engaging it yourself or having an action proposal fail — no
+    read path existed at all before this GET endpoint."""
+    admin = await seed_workspace_member(workspace_role="workspace_admin")
+
+    before = await client.get(
+        f"/v1/workspaces/{admin.workspace_id}/kill-switch", headers=_auth_headers(admin.session_id)
+    )
+    assert before.status_code == 200
+    assert before.json()["engaged"] is False
+
+    await client.post(
+        f"/v1/workspaces/{admin.workspace_id}/kill-switch/engage",
+        json={"reason": "status check drill"},
+        headers=_auth_headers(admin.session_id),
+    )
+
+    during = await client.get(
+        f"/v1/workspaces/{admin.workspace_id}/kill-switch", headers=_auth_headers(admin.session_id)
+    )
+    assert during.status_code == 200
+    body = during.json()
+    assert body["engaged"] is True
+    assert body["reason"] == "status check drill"
+    assert body["engaged_by"] == f"user:{admin.user_id}"
+    assert body["engaged_at"] is not None
+
+    await client.post(
+        f"/v1/workspaces/{admin.workspace_id}/kill-switch/disengage", headers=_auth_headers(admin.session_id)
+    )
+
+    after = await client.get(
+        f"/v1/workspaces/{admin.workspace_id}/kill-switch", headers=_auth_headers(admin.session_id)
+    )
+    assert after.json()["engaged"] is False
+
+
+async def test_customer_kill_switch_status_reflects_engage_and_disengage(
+    client: AsyncClient, db_available: bool
+) -> None:
+    owner_user_id = uuid.uuid4()
+    customer_id = uuid.uuid4()
+    async with tenant_scoped_session(customer_id) as session:
+        session.add(User(id=owner_user_id, oidc_subject_hash=str(uuid.uuid4()), display_name="Owner"))
+        await session.flush()
+        await create_customer_with_owner(
+            session, customer_id=customer_id, name="Acme", owner_user_id=owner_user_id, actor_id="user:setup"
+        )
+        owner_session = await create_session(session, user_id=owner_user_id, auth_strength=AuthStrength.AAL1)
+
+    before = await client.get(
+        f"/v1/customers/{customer_id}/kill-switch", headers=_auth_headers(owner_session.id)
+    )
+    assert before.status_code == 200
+    assert before.json()["engaged"] is False
+
+    await client.post(
+        f"/v1/customers/{customer_id}/kill-switch/engage",
+        json={"reason": "customer status check"},
+        headers=_auth_headers(owner_session.id),
+    )
+
+    during = await client.get(
+        f"/v1/customers/{customer_id}/kill-switch", headers=_auth_headers(owner_session.id)
+    )
+    assert during.status_code == 200
+    assert during.json()["engaged"] is True
+    assert during.json()["reason"] == "customer status check"

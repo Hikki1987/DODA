@@ -437,6 +437,18 @@ bog'liq, ko'rish emas). 2 ta yangi test.
 
 158 test, barchasi real Postgres'da.
 
+Yana bitta xuddi shu naqshdagi bo'shliq: kill switch'ni engage/disengage
+qilish mumkin edi, lekin u HOZIR yoqilganmi yoki yo'qmi bilish uchun
+endpoint yo'q edi — buni bilishning yagona yo'li uni o'zing engage qilish
+(holatni o'zgartirib) yoki action taklif qilib, bloklanishini kutish edi.
+`GET /v1/workspaces/{id}/kill-switch` va `GET /v1/customers/{id}/kill-switch`
+qo'shildi — `engaged` bilan birga, yoqilgan bo'lsa `reason`/`engaged_at`/
+`engaged_by`ni ham qaytaradi. Workspace a'zoligi/customer a'zoligi yetarli
+(qo'shimcha rol tekshiruvi yo'q) — yangi action'lar bloklanishini bilish
+sezgir ma'lumot emas.
+
+160 test, barchasi real Postgres'da.
+
 Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
 — bu yerda FR-AUTH-001'ning haqiqiy OIDC oqimi qurilishi kerak (hozir
 `session_service.create_session` faqat dev/test seam) va bu tashqi OIDC

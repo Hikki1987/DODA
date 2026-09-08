@@ -21,9 +21,39 @@ from doda.application.kill_switch_service import (
     disengage_workspace_kill_switch,
     engage_customer_kill_switch,
     engage_workspace_kill_switch,
+    get_customer_kill_switch_status,
+    get_workspace_kill_switch_status,
 )
 
 router = APIRouter(tags=["kill-switch"])
+
+
+@router.get("/v1/workspaces/{workspace_id}/kill-switch", response_model=KillSwitchStatusOut)
+async def get_workspace_kill_switch(
+    ctx: RequestContext = Depends(get_request_context),
+) -> KillSwitchStatusOut:
+    """No role gate beyond workspace membership: knowing whether new
+    actions will be blocked is not privileged information, and there was
+    previously no way to find out without either engaging it yourself or
+    having a propose_action call fail."""
+    switch = await get_workspace_kill_switch_status(ctx.db, workspace_id=ctx.workspace.workspace_id)
+    if switch is None:
+        return KillSwitchStatusOut(engaged=False)
+    return KillSwitchStatusOut(
+        engaged=True, reason=switch.reason, engaged_at=switch.engaged_at, engaged_by=switch.engaged_by
+    )
+
+
+@router.get("/v1/customers/{customer_id}/kill-switch", response_model=KillSwitchStatusOut)
+async def get_customer_kill_switch(
+    ctx: CustomerRequestContext = Depends(get_customer_request_context),
+) -> KillSwitchStatusOut:
+    switch = await get_customer_kill_switch_status(ctx.db, customer_id=ctx.customer.customer_id)
+    if switch is None:
+        return KillSwitchStatusOut(engaged=False)
+    return KillSwitchStatusOut(
+        engaged=True, reason=switch.reason, engaged_at=switch.engaged_at, engaged_by=switch.engaged_by
+    )
 
 
 @router.post("/v1/workspaces/{workspace_id}/kill-switch/engage", response_model=KillSwitchStatusOut)
