@@ -59,6 +59,11 @@ async def _resolve_request_context(
     async with async_session_factory() as base_session:
         session_record = await resolve_session(base_session, session_id)
         index_row = await base_session.get(WorkspaceTenantIndex, workspace_id)
+        # resolve_session's last_seen_at touch (FR-AUTH-006 idle timeout
+        # reset) must actually persist — a bare `async with
+        # async_session_factory()` block with no commit silently ROLLS BACK
+        # on close (verified: this was a real bug, not a hypothetical one).
+        await base_session.commit()
 
     if index_row is None:
         # Same DENY as "membership not found" — see get_workspace_context's
@@ -113,7 +118,29 @@ async def get_customer_request_context(
 
     async with async_session_factory() as base_session:
         session_record = await resolve_session(base_session, session_id)
+        await base_session.commit()  # see get_request_context's identical comment
 
     async with tenant_scoped_session(customer_id) as db:
         context = await get_customer_context(db, user_id=session_record.user_id, customer_id=customer_id)
         yield CustomerRequestContext(customer=context, db=db)
+
+
+@dataclasses.dataclass(frozen=True)
+class CurrentIdentity:
+    user_id: uuid.UUID
+    session_id: uuid.UUID
+    auth_strength: AuthStrength
+
+
+async def get_current_identity(authorization: str | None = Header(default=None)) -> CurrentIdentity:
+    """Not workspace- or customer-scoped — "who am I", for session
+    self-service (FR-CTL-001/002). Identity has no RLS of its own (0001:
+    it's global, a user joins tenants via CustomerMembership), so this
+    needs no tenant_scoped_session at all, just a plain one."""
+    session_id = _parse_bearer_session_id(authorization)
+    async with async_session_factory() as db:
+        session_record = await resolve_session(db, session_id)
+        await db.commit()  # see get_request_context's identical comment
+        return CurrentIdentity(
+            user_id=session_record.user_id, session_id=session_id, auth_strength=session_record.auth_strength
+        )

@@ -64,6 +64,24 @@ async def resolve_session(session: AsyncSession, session_id: uuid.UUID) -> Sessi
     return record
 
 
+async def list_active_sessions_for_user(session: AsyncSession, user_id: uuid.UUID) -> list[Session]:
+    """FR-CTL-001: 'Faol sessiya... ko'rinishi.' Same liveness definition as
+    resolve_session (not revoked, not past absolute expiry, not idle-timed-
+    out) but read-only — listing must never itself touch last_seen_at, or
+    just looking at your session list would silently keep every one of them
+    alive forever."""
+    now = utcnow()
+    result = await session.execute(
+        select(Session).where(
+            Session.user_id == user_id,
+            Session.revoked_at.is_(None),
+            Session.expires_at > now,
+            Session.last_seen_at > now - IDLE_TIMEOUT,
+        ).order_by(Session.last_seen_at.desc())
+    )
+    return list(result.scalars())
+
+
 async def revoke_session(session: AsyncSession, session_id: uuid.UUID) -> None:
     """FR-AUTH-005: remote revoke. Idempotent — revoking twice is a no-op,
     not an error, since the caller's goal ("this session must not work") is

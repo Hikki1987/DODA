@@ -20,10 +20,12 @@ Bosqich **S2** yakunlandi: 10-bo'limdagi authoritative authz zanjiri
 himoyalangan HTTP API (`/v1/workspaces/{id}/actions`, `.../approvals/{id}/consume`,
 `.../tasks`, `.../tasks/{id}/status`, `.../tasks/{id}/history`,
 `.../members`, `.../archive`, `.../restore`, `.../kill-switch/engage`,
-`.../kill-switch/disengage`, `.../audit`, `.../notifications`, va
-customer-darajasida `/v1/customers/{id}/kill-switch/...`,
+`.../kill-switch/disengage`, `.../audit`, `.../notifications`,
+`/v1/sessions`, va customer-darajasida `/v1/customers/{id}/kill-switch/...`,
 `/v1/customers/{id}/audit`). Audit hash-zanjiri endi concurrent yozuvlarda
-ham xavfsiz (FR-AUD-004, per-customer lock).
+ham xavfsiz (FR-AUD-004, per-customer lock); sessiya faollik-belgisi
+(FR-AUTH-006 idle timeout) endi haqiqatda saqlanadi (avval jimgina
+saqlanmasdi — tuzatildi).
 
 
 ## Ishga tushirish (local dev)

@@ -161,7 +161,31 @@ keyin) — bu ko'p workspace'ga a'zo foydalanuvchi uchun `limit` bilan
 noto'g'ri sahifalashga (haqiqiy natijalar yo'qolishiga) olib kelishi
 mumkin edi. SQL darajasidagi filtrga o'tkazib tuzatildi.
 
-111 test, barchasi real Postgres'da.
+FR-CTL-001/002ning session qismi ham qurildi: `/v1/sessions` (faol
+sessiyalarni ko'rish, joriysi `is_current` bilan belgilangan) va
+`DELETE /v1/sessions/{id}` (o'zining boshqa qurilmadagi sessiyasini
+uzoqdan revoke qilish). "Ulangan ilova" va "memory" qismlari hali
+qamrovda emas — ular mos ravishda konnektor (OD-002) va xotira
+tizimi (2-bosqich, hali qurilmagan) ni talab qiladi.
+
+**Muhim: shu ishda butun API bo'ylab ta'sir qilgan real xato topildi va
+tuzatildi.** `api/dependencies.py`dagi uchta joyda (`get_request_context`,
+`get_customer_request_context`, yangi `get_current_identity`) sessiyani
+tasdiqlash qadami `resolve_session`ni yalang'och
+`async with async_session_factory() as session:` bloki ichida chaqirardi
+— `session.begin()`siz. Tajriba orqali tasdiqlandi: bunday blok chiqishda
+commit qilinmagan tranzaksiyani **jimgina rollback qiladi**. Demak
+`resolve_session`ning `last_seen_at` yangilanishi (FR-AUTH-006 idle
+timeout'ni faollik asosida qayta tiklash mexanizmi) hech qachon
+saqlanmagan — bu S2'dan beri qurilgan **barcha** endpoint orqali
+ta'sirlangan (chunki hammasi shu uchta dependency funksiyadan birini
+ishlatadi). Har bir joyga aniq `commit()` qo'shib tuzatdim. Tuzatish
+haqiqiyligini isbotlash uchun (audit-zanjiri tuzatishida qilingandek)
+o'zgarishni vaqtincha qaytarib, yangi regressiya testi (`test_sessions_api.py`)
+buzuq holatda aniq muvaffaqiyatsiz bo'lishini, keyin tuzatilgan holatda
+o'tishini tasdiqladim.
+
+116 test, barchasi real Postgres'da.
 
 Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
 — bu yerda FR-AUTH-001'ning haqiqiy OIDC oqimi qurilishi kerak (hozir
