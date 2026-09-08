@@ -872,6 +872,45 @@ bosilganda haqiqiy `audit.chain_verified.v1` yozuvi hosil bo'lishi va
 
 169 test, barchasi real Postgres'da.
 
+**NFR-SEC-002/003ning CI qismi qurildi** — "Secret scan CI'da" va
+"Dependency audit" ikkalasi ham TRD'da MVP darajasidagi Must talab sifatida
+yozilgan edi, lekin CI'da hech qanday bunday tekshiruv yo'q edi. Yangi
+`security-scan` job (`.github/workflows/ci.yml`) uchta narsani tekshiradi:
+(1) `gitleaks` (pinned binary, v8.21.2 — `gitleaks/gitleaks-action`ning
+o'zi emas, chunki u GitHub Organization repo'lari uchun litsenziya kaliti
+talab qiladi, CLI'ning o'zi esa sof MIT va kalit talab qilmaydi) butun repo
+tarixini secret'larga tekshiradi; (2) `pip-audit` backend dependency'larini
+CVE'larga tekshiradi; (3) `npm audit --audit-level=high` frontend
+dependency'larini tekshiradi. Uchalasi ham hozircha toza (0 ta topilma) —
+mahalliy real ishga tushirib tasdiqlandi, sintetik emas.
+
+Buni qurishda ikkita narsa aniqlandi: (1) `pip-audit` boshida 7 ta zaiflikni
+topdi — lekin bular loyihaning o'z dependency'lari emas, balki venv'dagi
+eskirgan `pip`ning o'zida (versiya 24.0); `pip install --upgrade pip`ni
+audit'dan oldin qo'shish bilan tuzatildi (haqiqiy tuzatish, suppress emas).
+(2) Gitleaks qadamini birinchi yozishda workflow'ning global `defaults.run.
+working-directory: backend`ini hisobga olmagan edim — agar step o'z
+`working-directory: .`ini aniq belgilamasa, u indamay faqat `backend/`ni
+skanerlaydi, `frontend/`, `.github/`, va root darajadagi fayllarni umuman
+ko'rmaydi (va bu holatda ham "0 topilma" qaytargani uchun xato sezilmay
+qolishi mumkin edi — "yashil" bo'lardi, lekin noto'g'ri sababdan). Qo'lda
+haqiqiy `gitleaks` binary'sini yuklab, aynan shu repo tarixiga qarshi
+ishga tushirib tasdiqlandi (`working-directory` tuzatilgandan keyin ham,
+oldin ham "no leaks found" — repo'da haqiqatda hech narsa yo'qligi
+tasdiqlandi, lekin tuzatish CI'ning to'g'ri joyni tekshirishini
+kafolatlaydi).
+
+`.github/dependabot.yml` ham qo'shildi (pip/backend, npm/frontend,
+github-actions/root, haftalik) — NFR-SEC-003'ning "high <=7 kun ichida"
+qismini CI o'zi o'lchay olmaydi (bu muddat kuzatish infratuzilmasi talab
+qiladi, hozircha yo'q), lekin Dependabot yangilanishlarni PR sifatida
+avtomatik taklif qilib, bu muddatni real qiladigan jarayonni ta'minlaydi —
+qat'iy SLA hali odam/jarayon zimmasida qoladi, bu CLAUDE.md'da halol
+belgilab qo'yildi (yolg'on "avtomatik enforce qilinadi" da'vosi emas).
+
+169 test, barchasi real Postgres'da (CI job qo'shildi, mavjud test
+suite'ga o'zgarish yo'q).
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,

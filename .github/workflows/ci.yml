@@ -70,6 +70,51 @@ jobs:
       - name: TypeScript
         run: npx tsc --noEmit
 
+  security-scan:
+    name: Secret scan + dependency audit (NFR-SEC-002/003)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Gitleaks secret scan
+        # Pinned binary release rather than gitleaks/gitleaks-action, which
+        # gates on a license key for GitHub Organization-owned repos — the
+        # CLI itself is plain MIT-licensed and needs no key. Verified
+        # locally against this exact repo history before pinning: v8.21.2
+        # finds 0 leaks.
+        #
+        # working-directory: . — the workflow's default working-directory
+        # is "backend" (see `defaults` above); this step must run from the
+        # repo root or it would only ever scan backend/, silently missing
+        # frontend/, .github/, and every root-level file.
+        working-directory: .
+        run: |
+          curl -sSL -o /tmp/gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz
+          tar xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          /tmp/gitleaks detect --source . --no-banner --verbose
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: pip-audit (backend dependency CVEs)
+        run: pip-audit
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: npm audit (frontend dependency CVEs, high + critical)
+        working-directory: frontend
+        # moderate/low findings are tracked via Dependabot, not a CI gate —
+        # matches NFR-SEC-003's "Critical CVE 0; high <=7 kun ichida", which
+        # only names critical/high as build-blocking.
+        run: npm audit --audit-level=high
+
   migrations:
     name: Migration round-trip (upgrade / downgrade / upgrade)
     runs-on: ubuntu-latest
