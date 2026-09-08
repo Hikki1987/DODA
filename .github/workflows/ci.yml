@@ -174,10 +174,12 @@ jobs:
       - name: Create least-privilege app role
         run: PGPASSWORD=doda psql -h localhost -U doda -d doda -f ../infra/postgres-init/01-create-app-role.sql
       - name: Start backend
+        # health_router is mounted with prefix="/v1" (see main.py) — the
+        # real path is /v1/healthz, not /healthz.
         run: |
           nohup uvicorn doda.main:app --port 8000 > /tmp/backend.log 2>&1 &
           for _ in $(seq 1 30); do
-            curl -sf http://localhost:8000/healthz > /dev/null && exit 0
+            curl -sf http://localhost:8000/v1/healthz > /dev/null && exit 0
             sleep 1
           done
           echo "backend never became healthy" && cat /tmp/backend.log && exit 1

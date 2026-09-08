@@ -694,6 +694,22 @@ hech qachon ko'rinmagan edi, chunki ular eski `page.waitForSelector("text=
 yangi, qat'iyroq `getByText().toBeVisible()` shakli buni haqiqatda
 ushladi. `{ exact: true }` bilan tuzatildi.
 
+**Yangi `e2e` CI job birinchi marta ishga tushganda haqiqatda qizardi —
+xuddi shu, sessiya davomida bir necha marta takrorlangan dars: "mahalliy
+qo'lda tekshirish CI'ning o'zi emas".** Sabab oddiy va aniq edi: backend
+health-check qadami `GET /healthz`ni kutgan edi, lekin `main.py`
+`health_router`ni `prefix="/v1"` bilan ro'yxatdan o'tkazadi — haqiqiy
+yo'l `/v1/healthz`. Bu mahalliy hech qachon ko'rinmagan edi, chunki
+mening barcha oldingi qo'lda tekshiruvlarim serverning tayyorligini
+`curl .../docs` orqali kutgan edi (`/healthz`ning o'zi hech qachon
+haqiqiy so'rov bilan chaqirilmagan edi) — CI skriptini yozishda esa
+to'g'ri yo'lni tekshirmasdan `/healthz` deb taxmin qildim. Job logi buni
+aynan ko'rsatdi: backend to'g'ri ishga tushgan, `/healthz`ga har bir
+so'rov esa 404 qaytargan. Bitta qatorli tuzatish (`/v1/healthz`), keyin
+`curl -s .../v1/healthz` bilan mahalliy alohida tasdiqlandi va butun
+E2E oqimi (seed → build → start → Playwright) yana boshidan, ikkinchi
+marta qo'lda takrorlanib, hali ham yashil ekani ko'rsatildi.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,
