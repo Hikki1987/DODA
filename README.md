@@ -79,6 +79,12 @@ FR-WKS-003, allaqachon qurilgan/testlangan). Yangi a'zo qo'shish
 qo'shilmadi (tafsilot `frontend/README.md`da — `customer_membership_id`
 tanlash uchun customer_id kerak, workspace sahifasida yo'q).
 
+Yangi `/customers/[id]` sahifasi qo'shildi — `/workspaces` ro'yxatidagi
+customer nomiga bosilganda ochiladi. Bu workspace_id o'rniga customer_id
+talab qiladigan hamma narsani (audit, bildirishnoma sozlamalari, customer
+darajasidagi kill switch, va — workspace-darajasidan farqli — a'zo
+**qo'shish** ham) bir joyga jamladi (tafsilot `frontend/README.md`da).
+
 Task ro'yxatidagi har bir qatorga "Tarix" tugmasi qo'shildi —
 `GET .../tasks/{id}/history` (FR-TASK-007) endi frontend'da ham ko'rinadi,
 bosilganda status o'tishlarini (`from → to`, kim, qachon) ko'rsatadi.
@@ -95,9 +101,12 @@ seed qilingan R3 action bilan Playwright orqali browser'da — action
 "send_email / risk: R3 / AWAITING_APPROVAL", audit'da
 "workspace.created.v1", va ikkita sessiyadan birini uzoqdan yopib
 (server tomonda `GET /v1/sessions` orqali haqiqatda yo'qolgani `curl`
-bilan alohida tasdiqlangan) faqat joriysi qolishi, va real ikkinchi
+bilan alohida tasdiqlangan) faqat joriysi qolishi, real ikkinchi
 a'zoni workspace'ga qo'shib, uni workspace_admin'ga ko'tarib, keyin
-chiqarib — barchasi ekranda to'g'ri ko'rinishi tasdiqlandi, konsol
+chiqarib, va yangi `/customers/[id]` sahifasida real a'zo qo'shib/rolini
+o'zgartirib/chiqarib, bildirishnoma sozlamasini o'chirib/yoqib, kill
+switch'ni yoqib/o'chirib, hammasi audit'da to'g'ri ko'rinishini
+tasdiqlab — barchasi ekranda to'g'ri ko'rinishi tasdiqlandi, konsol
 xatosiz.
 
 ## Ishga tushirish (local dev)

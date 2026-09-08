@@ -596,6 +596,47 @@ qurilgan/testlangan edi — men faqat frontend'ga ulab qo'ydim, yangi
 invariant qo'shish minimal-diff doirasidan tashqarida (agar kerak bo'lsa,
 bu alohida change request).
 
+**Yangi `/customers/[id]` sahifasi qo'shildi — customer_id talab qilgani
+uchun oldingi beshta commit'da ataylab qoldirilgan hamma narsa endi bir
+joyda.** `/workspaces` ro'yxatidagi har bir qatorga customer nomi endi
+alohida havola (`/customers/{customer_id}`) — `listMyWorkspaces`ning
+o'zi customer_id/customer_name'ni allaqachon qaytargani uchun bu yangi
+"kashfiyot" endpointi talab qilmadi, faqat mavjud ma'lumotdan foydalanish
+edi. Sahifa quyidagilarni ochadi, hammasi allaqachon qurilgan/testlangan:
+
+- **Kill switch** (FR-CTL-003, `.../kill-switch/engage|disengage`) —
+  workspace sahifasidagi banner'dan farqli, bu yerda haqiqatda
+  yoqish (sabab bilan)/o'chirish mumkin, faqat ko'rish emas.
+- **A'zolar** (FR-WKS-005, `POST/PATCH/DELETE .../members`) — ro'yxat,
+  rol almashtirish, chiqarish, VA **yangi a'zo qo'shish**. Bu oxirgisi
+  workspace-darajasida ataylab qilinmagan edi (`customer_membership_id`
+  kerak edi), lekin customer-darajasidagi `POST .../members`
+  `user_id`ni to'g'ridan-to'g'ri qabul qiladi — xuddi shu customer_id
+  cheklovi bu yerda umuman yo'q, chunki sahifaning o'zi allaqachon
+  customer_id ustida turibdi. User ID hamon xom UUID input — foydalanuvchi
+  qidirish/tanlash endpointi TRD'da yo'q.
+- **Bildirishnoma sozlamalari** (FR-NTF-004, `GET/PUT
+  .../notification-preferences[/{type}]`) — 3 turni yoqish/o'chirish.
+  SECURITY_ALERT uchun tugma yo'q (backend uni hech qachon o'chirishga
+  ruxsat bermaydi — `notification_service.set_notification_preference`),
+  UI ham shunga mos "doim yoqilgan" deb ko'rsatadi, xato ko'rsatishga
+  urinish o'rniga.
+- **Bildirishnomalar** (`GET .../notifications`, workspace filtri yo'q) —
+  shu customer ostidagi BARCHA workspace'lardagi bildirishnomalar bitta
+  ro'yxatda.
+- **Audit** (FR-AUD-002, `GET .../audit`) — customer-darajasida, workspace
+  sahifasidagi audit'dan farqli (u faqat bitta workspace uchun edi).
+
+Rol asosidagi UI-gating yo'q — boshqa sahifalar bilan bir xil naqsh:
+tugma har doim ko'rsatiladi, ruxsat yo'q bo'lsa backend 403 qaytaradi.
+Real backend'ga qarshi (163 test) va Playwright orqali brauzer'da to'liq
+tasdiqlandi: haqiqiy ikkinchi User yaratib customer'ga auditor sifatida
+taklif qilish → member'ga tushirish → chiqarish (uchtasi ham audit'da
+mos `customer.member_invited/role_changed/removed.v1` yozuvlari bilan
+ko'rinishi tekshirildi), FAILED_ACTION sozlamasini o'chirib/yoqib
+qaytarish, SECURITY_ALERT'da tugma yo'qligi, va kill switch'ni haqiqatan
+yoqib/o'chirish — barchasi konsol xatosiz.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,

@@ -65,11 +65,44 @@ AWAITING_APPROVAL action'ni shu ekrandan tasdiqlab bo'lmaydi; buning uchun
 propose+approve bitta oqim ichida (bir xil sahifa yuklanishida) qurilishi
 kerak — bu alohida ish, chunki u ham propose formasini talab qiladi.
 
-A'zolar bo'limidagi "yangi a'zo qo'shish" ham ataylab yo'q: `POST
-.../members` `customer_membership_id`ni talab qiladi (user_id emas) —
-buni tanlash uchun avval customer'ning a'zolari ro'yxati kerak bo'ladi,
-bu esa customer_id talab qiladi (workspace sahifasida yo'q — xuddi
-customer-darajasidagi audit qurilmagan sababi bilan bir xil). Rol
+Workspace a'zolar bo'limidagi "yangi a'zo qo'shish" ham ataylab yo'q:
+`POST .../members` `customer_membership_id`ni talab qiladi (user_id emas)
+— buni tanlash uchun avval customer'ning a'zolari ro'yxati kerak bo'ladi,
+bu esa customer_id talab qiladi (workspace sahifasida yo'q). Rol
 almashtirish va chiqarish esa allaqachon ro'yxatlangan a'zoning
 `membership_id`sidan foydalanadi, shuning uchun bu cheklovga duch
 kelmaydi.
+
+## `/customers/[id]` — customer-darajasidagi sahifa
+
+Workspace'lar ro'yxatidagi customer nomiga bosilganda ochiladi
+(`/workspaces` sahifasidagi har bir qatorda). Workspace sahifasi
+customer_id'ni bilmagani uchun ilgari qurib bo'lmagan customer-darajasidagi
+hamma narsa endi shu yerda:
+
+- **Kill switch**: holat + yoqish (sabab bilan)/o'chirish tugmalari
+  (FR-CTL-003, `.../kill-switch/engage|disengage`) — workspace sahifasidagi
+  banner'dan farqli, bu yerda haqiqatda ishlatish mumkin.
+- **A'zolar**: ro'yxat + **yangi a'zo qo'shish** (User ID + rol), rol
+  almashtirish, chiqarish (FR-WKS-005, `POST/PATCH/DELETE .../members`).
+  Workspace-darajasidan farqli, bu yerda "qo'shish" mumkin — customer-level
+  `POST` `user_id`ni to'g'ridan-to'g'ri qabul qiladi
+  (`customer_membership_id` emas), shuning uchun oldindan boshqa ro'yxat
+  kerak emas. User ID hamon xom UUID sifatida kiritiladi — foydalanuvchi
+  qidirish/tanlash endpointi hali yo'q.
+- **Bildirishnoma sozlamalari**: 4 turdan 3 tasini yoqish/o'chirish
+  (FR-NTF-004). SECURITY_ALERT uchun tugma yo'q — backend uni hech qachon
+  o'chirishga ruxsat bermaydi (`NotificationPreferenceError`), shuning
+  uchun UI ham "doim yoqilgan" deb ko'rsatadi, urinib xato ko'rsatish
+  o'rniga.
+- **Bildirishnomalar**: shu customer ostidagi BARCHA workspace'lardagi
+  bildirishnomalar bitta ro'yxatda (`GET .../notifications`,
+  `workspace_id` filtri yo'q).
+- **Audit**: customer-darajasidagi audit (`GET .../audit`, FR-AUD-002) —
+  CustomerOwner/Auditor uchun butun customer, workspace sahifasidagi
+  audit esa faqat o'sha bitta workspace uchun edi.
+
+Rol asosidagi tugmalarni (masalan faqat CustomerOwner qila oladigan
+amallar) client tomonda yashirish yo'q — boshqa sahifalar bilan bir xil
+naqsh: tugma har doim ko'rsatiladi, ruxsat yo'q bo'lsa backend 403
+qaytaradi va xato xabari ko'rsatiladi.

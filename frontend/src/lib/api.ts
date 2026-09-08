@@ -262,3 +262,129 @@ export interface AuditEventOut {
 export function listWorkspaceAudit(sessionId: string, workspaceId: string): Promise<AuditEventOut[]> {
   return apiFetch(`/v1/workspaces/${workspaceId}/audit`, sessionId);
 }
+
+// ---- /v1/customers/{id}/audit ----
+
+export function listCustomerAudit(sessionId: string, customerId: string): Promise<AuditEventOut[]> {
+  return apiFetch(`/v1/customers/${customerId}/audit`, sessionId);
+}
+
+// ---- /v1/customers/{id}/kill-switch ----
+
+export function getCustomerKillSwitch(sessionId: string, customerId: string): Promise<KillSwitchStatusOut> {
+  return apiFetch(`/v1/customers/${customerId}/kill-switch`, sessionId);
+}
+
+export function engageCustomerKillSwitch(
+  sessionId: string,
+  customerId: string,
+  reason: string,
+): Promise<KillSwitchStatusOut> {
+  return apiFetch(`/v1/customers/${customerId}/kill-switch/engage`, sessionId, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function disengageCustomerKillSwitch(
+  sessionId: string,
+  customerId: string,
+): Promise<KillSwitchStatusOut> {
+  return apiFetch(`/v1/customers/${customerId}/kill-switch/disengage`, sessionId, { method: "POST" });
+}
+
+// ---- /v1/customers/{id}/members ----
+
+export type CustomerRole = "customer_owner" | "member" | "auditor";
+
+export interface CustomerMemberOut {
+  membership_id: string;
+  user_id: string;
+  display_name: string;
+  role: string;
+}
+
+export function listCustomerMembers(sessionId: string, customerId: string): Promise<CustomerMemberOut[]> {
+  return apiFetch(`/v1/customers/${customerId}/members`, sessionId);
+}
+
+export function inviteCustomerMember(
+  sessionId: string,
+  customerId: string,
+  userId: string,
+  role: CustomerRole,
+): Promise<unknown> {
+  return apiFetch(`/v1/customers/${customerId}/members`, sessionId, {
+    method: "POST",
+    body: JSON.stringify({ user_id: userId, role }),
+  });
+}
+
+export function changeCustomerMemberRole(
+  sessionId: string,
+  customerId: string,
+  membershipId: string,
+  role: CustomerRole,
+): Promise<unknown> {
+  return apiFetch(`/v1/customers/${customerId}/members/${membershipId}`, sessionId, {
+    method: "PATCH",
+    body: JSON.stringify({ role }),
+  });
+}
+
+export function removeCustomerMember(
+  sessionId: string,
+  customerId: string,
+  membershipId: string,
+): Promise<void> {
+  return apiFetch(`/v1/customers/${customerId}/members/${membershipId}`, sessionId, {
+    method: "DELETE",
+  });
+}
+
+// ---- /v1/customers/{id}/notifications ----
+
+export function listCustomerNotifications(
+  sessionId: string,
+  customerId: string,
+): Promise<NotificationOut[]> {
+  return apiFetch(`/v1/customers/${customerId}/notifications`, sessionId);
+}
+
+export function markCustomerNotificationRead(
+  sessionId: string,
+  customerId: string,
+  notificationId: string,
+): Promise<NotificationOut> {
+  return apiFetch(`/v1/customers/${customerId}/notifications/${notificationId}/read`, sessionId, {
+    method: "POST",
+  });
+}
+
+// ---- /v1/customers/{id}/notification-preferences ----
+
+export type NotificationType = "PENDING_APPROVAL" | "FAILED_ACTION" | "COMPLETED_TASK" | "SECURITY_ALERT";
+
+export interface NotificationPreferenceOut {
+  notification_type: NotificationType;
+  enabled: boolean;
+}
+
+export function listNotificationPreferences(
+  sessionId: string,
+  customerId: string,
+): Promise<NotificationPreferenceOut[]> {
+  return apiFetch(`/v1/customers/${customerId}/notification-preferences`, sessionId);
+}
+
+export function setNotificationPreference(
+  sessionId: string,
+  customerId: string,
+  notificationType: NotificationType,
+  enabled: boolean,
+): Promise<NotificationPreferenceOut> {
+  return apiFetch(`/v1/customers/${customerId}/notification-preferences/${notificationType}`, sessionId, {
+    method: "PUT",
+    body: JSON.stringify({ enabled }),
+  });
+}

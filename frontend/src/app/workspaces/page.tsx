@@ -49,17 +49,22 @@ export default function WorkspacesPage() {
 
       <ul className="space-y-2">
         {workspaces?.map((workspace) => (
-          <li key={workspace.workspace_id}>
-            <Link
-              href={`/workspaces/${workspace.workspace_id}`}
-              className="flex items-center justify-between rounded-md border border-gray-200 px-4 py-3 hover:border-black"
-            >
-              <div>
-                <div className="font-medium">{workspace.workspace_name}</div>
-                <div className="text-sm text-gray-500">{workspace.customer_name}</div>
-              </div>
-              <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-600">{workspace.role}</span>
+          <li
+            key={workspace.workspace_id}
+            className="flex items-center justify-between rounded-md border border-gray-200 px-4 py-3 hover:border-black"
+          >
+            <Link href={`/workspaces/${workspace.workspace_id}`} className="flex-1">
+              <div className="font-medium">{workspace.workspace_name}</div>
             </Link>
+            <div className="flex flex-1 items-center justify-end gap-3">
+              <Link
+                href={`/customers/${workspace.customer_id}`}
+                className="text-sm text-gray-500 hover:text-black hover:underline"
+              >
+                {workspace.customer_name}
+              </Link>
+              <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-600">{workspace.role}</span>
+            </div>
           </li>
         ))}
       </ul>
