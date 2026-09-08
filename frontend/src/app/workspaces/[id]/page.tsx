@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import {
   ApiError,
   changeTaskStatus,
+  changeWorkspaceMemberRole,
   createTask,
   getTaskHistory,
   getWorkspaceKillSwitch,
@@ -15,6 +16,7 @@ import {
   listWorkspaceAudit,
   listWorkspaceMembers,
   markNotificationRead,
+  removeWorkspaceMember,
   type ActionOut,
   type AuditEventOut,
   type KillSwitchStatusOut,
@@ -23,12 +25,18 @@ import {
   type TaskOut,
   type TaskStatus,
   type WorkspaceMemberOut,
+  type WorkspaceRole,
 } from "@/lib/api";
 import { useSession } from "@/lib/useSession";
 
 const NEXT_STATUS: Partial<Record<TaskStatus, TaskStatus>> = {
   TODO: "IN_PROGRESS",
   IN_PROGRESS: "DONE",
+};
+
+const OTHER_ROLE: Record<WorkspaceRole, WorkspaceRole> = {
+  member: "workspace_admin",
+  workspace_admin: "member",
 };
 
 export default function WorkspacePage() {
@@ -101,6 +109,31 @@ export default function WorkspacePage() {
       setOpenTaskHistory((prev) => ({ ...prev, [task.id]: history }));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Tarixni yuklab bo'lmadi.");
+    }
+  }
+
+  async function handleToggleMemberRole(member: WorkspaceMemberOut) {
+    if (sessionId === null || member.membership_id === null) return;
+    try {
+      await changeWorkspaceMemberRole(
+        sessionId,
+        workspaceId,
+        member.membership_id,
+        OTHER_ROLE[member.role as WorkspaceRole],
+      );
+      refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Rolni o'zgartirib bo'lmadi.");
+    }
+  }
+
+  async function handleRemoveMember(member: WorkspaceMemberOut) {
+    if (sessionId === null || member.membership_id === null) return;
+    try {
+      await removeWorkspaceMember(sessionId, workspaceId, member.membership_id);
+      refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "A'zoni chiqarib bo'lmadi.");
     }
   }
 
@@ -251,7 +284,25 @@ export default function WorkspacePage() {
               className="flex items-center justify-between text-sm"
             >
               <span>{member.display_name}</span>
-              <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{member.role}</span>
+              <div className="flex items-center gap-2">
+                <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{member.role}</span>
+                {member.membership_id !== null && (
+                  <>
+                    <button
+                      onClick={() => handleToggleMemberRole(member)}
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      {OTHER_ROLE[member.role as WorkspaceRole]} qilish
+                    </button>
+                    <button
+                      onClick={() => handleRemoveMember(member)}
+                      className="text-xs text-red-600 hover:underline"
+                    >
+                      Chiqarish
+                    </button>
+                  </>
+                )}
+              </div>
             </li>
           ))}
         </ul>

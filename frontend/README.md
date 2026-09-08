@@ -39,9 +39,10 @@ workspace ichida: kill-switch holati, task'lar (ro'yxat/yaratish/holat
 o'zgartirish/"Tarix" tugmasi bilan status o'tishlari tarixi —
 `GET .../tasks/{id}/history`, FR-TASK-007), action'lar (ro'yxat —
 tool_name/risk_level/status, faqat o'qish uchun), bildirishnomalar
-(ro'yxat/o'qildi belgilash), a'zolar
-ro'yxati, audit (`GET /v1/workspaces/{id}/audit` — event_type/actor/vaqt,
-faqat o'qish, FR-AUD-002). `/sessions` (workspace'lar sahifasidagi
+(ro'yxat/o'qildi belgilash), a'zolar (ro'yxat + mavjud a'zoning rolini
+almashtirish/chiqarish, FR-WKS-003 — yangi a'zo qo'shish bu yerda yo'q,
+pastga qarang), audit (`GET /v1/workspaces/{id}/audit` —
+event_type/actor/vaqt, faqat o'qish, FR-AUD-002). `/sessions` (workspace'lar sahifasidagi
 "Sessiyalar" havolasi) — foydalanuvchi darajasida, workspace'ga bog'liq
 emas: barcha faol sessiyalarni (joriysi belgilangan holda) ko'rsatadi va
 boshqa qurilmadagi sessiyani uzoqdan yopish imkonini beradi (FR-CTL-001/002,
@@ -63,3 +64,12 @@ endpoint'ida) qayta ko'rsatilmaydi — bu ataylab shunday (backend
 AWAITING_APPROVAL action'ni shu ekrandan tasdiqlab bo'lmaydi; buning uchun
 propose+approve bitta oqim ichida (bir xil sahifa yuklanishida) qurilishi
 kerak — bu alohida ish, chunki u ham propose formasini talab qiladi.
+
+A'zolar bo'limidagi "yangi a'zo qo'shish" ham ataylab yo'q: `POST
+.../members` `customer_membership_id`ni talab qiladi (user_id emas) —
+buni tanlash uchun avval customer'ning a'zolari ro'yxati kerak bo'ladi,
+bu esa customer_id talab qiladi (workspace sahifasida yo'q — xuddi
+customer-darajasidagi audit qurilmagan sababi bilan bir xil). Rol
+almashtirish va chiqarish esa allaqachon ro'yxatlangan a'zoning
+`membership_id`sidan foydalanadi, shuning uchun bu cheklovga duch
+kelmaydi.

@@ -220,6 +220,30 @@ export function listWorkspaceMembers(sessionId: string, workspaceId: string): Pr
   return apiFetch(`/v1/workspaces/${workspaceId}/members`, sessionId);
 }
 
+export type WorkspaceRole = "workspace_admin" | "member";
+
+export function changeWorkspaceMemberRole(
+  sessionId: string,
+  workspaceId: string,
+  membershipId: string,
+  role: WorkspaceRole,
+): Promise<unknown> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/members/${membershipId}`, sessionId, {
+    method: "PATCH",
+    body: JSON.stringify({ role }),
+  });
+}
+
+export function removeWorkspaceMember(
+  sessionId: string,
+  workspaceId: string,
+  membershipId: string,
+): Promise<void> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/members/${membershipId}`, sessionId, {
+    method: "DELETE",
+  });
+}
+
 // ---- /v1/workspaces/{id}/audit ----
 
 export interface AuditEventOut {

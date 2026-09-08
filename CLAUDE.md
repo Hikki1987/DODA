@@ -570,6 +570,32 @@ UI-only emasligi — `curl -H "Authorization: Bearer <joriy>"
 /v1/sessions` orqali serverning o'zi ham endi faqat bitta sessiya
 qaytarishi — alohida tasdiqlandi.
 
+Beshinchi: a'zolar bo'limiga mavjud a'zoning rolini almashtirish
+(`PATCH .../members/{membership_id}`) va chiqarish (`DELETE
+.../members/{membership_id}`) tugmalari qo'shildi — FR-WKS-003, S2'dayoq
+qurilgan/testlangan, lekin faqat ro'yxatlash bor edi. Yangi a'zo qo'shish
+(`POST .../members`) ataylab qo'shilmadi: u `customer_membership_id`ni
+talab qiladi (user_id emas), buni tanlash uchun avval "shu customer'ning
+a'zolari kim" degan ro'yxat kerak (`GET /v1/customers/{id}/members`) —
+bu esa yana customer_id talab qiladi, xuddi customer-darajasidagi audit/
+notification-preferences qurilmagan sababi bilan bir xil (workspace
+sahifasi customer_id'ni bilmaydi). Rol almashtirish/chiqarish esa
+allaqachon `listWorkspaceMembers`dan kelgan `membership_id`dan
+foydalanadi, shuning uchun bu cheklovga duch kelmadi.
+
+**Eslatma (bug emas, kuzatuv)**: workspace-darajasida "oxirgi
+workspace_admin'ni chiqarib/pasaytirib bo'lmaydi" degan invariant yo'q
+(customer-darajasidagi "oxirgi Owner" invarianti FR-WKS-005'da bor, lekin
+workspace_service.change_workspace_member_role/remove_workspace_member'da
+yo'q) — nazariy jihatdan bitta workspace_admin o'zini-o'zi member'ga
+tushirib yoki chiqarib qo'yishi mumkin. Amalda bu kam xavfli: CustomerOwner
+har doim WORKSPACE_ADMIN sifatida rezolyutsiya qilinadi (WorkspaceMembership
+qatori bo'lmasa ham, yuqoriga qarang), shuning uchun customer'ning o'zi
+hech qachon boshqaruvsiz qolmaydi. Bu endpoint'larning o'zi allaqachon
+qurilgan/testlangan edi — men faqat frontend'ga ulab qo'ydim, yangi
+invariant qo'shish minimal-diff doirasidan tashqarida (agar kerak bo'lsa,
+bu alohida change request).
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,

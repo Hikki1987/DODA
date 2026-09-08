@@ -72,6 +72,13 @@ Xuddi shu naqshda audit ko'rinishi ham qo'shildi (`GET
 frontend'da ko'rinmas edi): workspace sahifasiga event_type/actor/vaqt
 ro'yxati.
 
+A'zolar ro'yxatiga mavjud a'zoning rolini almashtirish (member ↔
+workspace_admin) va uni workspace'dan chiqarish tugmalari qo'shildi
+(`PATCH`/`DELETE /v1/workspaces/{id}/members/{membership_id}` —
+FR-WKS-003, allaqachon qurilgan/testlangan). Yangi a'zo qo'shish
+qo'shilmadi (tafsilot `frontend/README.md`da — `customer_membership_id`
+tanlash uchun customer_id kerak, workspace sahifasida yo'q).
+
 Task ro'yxatidagi har bir qatorga "Tarix" tugmasi qo'shildi —
 `GET .../tasks/{id}/history` (FR-TASK-007) endi frontend'da ham ko'rinadi,
 bosilganda status o'tishlarini (`from → to`, kim, qachon) ko'rsatadi.
@@ -88,8 +95,10 @@ seed qilingan R3 action bilan Playwright orqali browser'da — action
 "send_email / risk: R3 / AWAITING_APPROVAL", audit'da
 "workspace.created.v1", va ikkita sessiyadan birini uzoqdan yopib
 (server tomonda `GET /v1/sessions` orqali haqiqatda yo'qolgani `curl`
-bilan alohida tasdiqlangan) faqat joriysi qolishi ekranda to'g'ri
-ko'rinishi tasdiqlandi, konsol xatosiz.
+bilan alohida tasdiqlangan) faqat joriysi qolishi, va real ikkinchi
+a'zoni workspace'ga qo'shib, uni workspace_admin'ga ko'tarib, keyin
+chiqarib — barchasi ekranda to'g'ri ko'rinishi tasdiqlandi, konsol
+xatosiz.
 
 ## Ishga tushirish (local dev)
 
