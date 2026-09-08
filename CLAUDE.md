@@ -1332,6 +1332,32 @@ sekinligi haqiqiy topilma sifatida qoldirildi.
 181 test, barchasi real Postgres'da (kod o'zgarmadi — faqat yangi
 o'lchov skripti qo'shildi).
 
+**NFR-SCL-001ning o'z tekshiruv usuli ("Ikki instansda test") outbox
+relay worker'iga qarshi birinchi marta haqiqatda qo'llanildi — va
+`outbox_relay.py`ning o'z docstring'idagi da'vo ("FOR UPDATE SKIP LOCKED
+lets multiple relay workers run concurrently without double-processing a
+row") hech qachon haqiqiy concurrent worker'lar bilan tekshirilmagan
+edi.** `test_two_concurrent_relay_workers_never_double_publish_the_same_
+message` — 10 ta kutilayotgan outbox xabari yaratib, ikkita `relay_once`
+chaqiruvini `asyncio.gather` orqali HAQIQIY concurrent qilib ishga
+tushiradi (ketma-ket emas — har bir chaqiruvning o'z DB round-trip'lari
+ikkinchisiga haqiqiy interleave imkoniyati beradi) va har bir xabar
+ikkalasi orasida ANIQ bir marta (ikki marta emas, nol marta emas)
+yetkazilishini tekshiradi.
+
+Testning o'zi ma'noli ekanini isbotlash uchun (audit-zanjiri uslubidagi
+revert-test-restore) `with_for_update(skip_locked=True)`ni vaqtincha
+olib tashladim — test darhol, aniq kutilgan tarzda muvaffaqiyatsiz
+bo'ldi (`assert 20 == 10`, ya'ni har ikkala worker ham barcha 10 ta
+xabarni mustaqil ravishda oldi va IKKI MARTA nashr qildi) — bu haqiqiy
+double-publish xatosi, sintetik emas. Keyin himoya qaytarilib, test
+qaytadan yashil ekani tasdiqlandi. Demak: worker'ning o'zi haqiqatda
+gorizontal miqyoslanadigan (ikkita nusxasi bir vaqtda ishga tushirilsa
+ham xavfsiz) ekani endi CI tomonidan doimiy tekshiriladi, faqat
+docstring'dagi da'vo emas.
+
+182 test, barchasi real Postgres+Redis'da.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,

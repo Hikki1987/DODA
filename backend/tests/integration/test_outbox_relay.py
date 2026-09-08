@@ -70,6 +70,54 @@ async def test_relay_publishes_ready_action_to_its_event_stream(
     assert payload["action_id"] == str(action.id)
 
 
+async def test_two_concurrent_relay_workers_never_double_publish_the_same_message(
+    db_available: bool, redis_client: Redis
+) -> None:
+    """NFR-SCL-001 ("Horizontal API va worker; stateless handler") names
+    'ikki instansda test' as its own verification method — never actually
+    run against this worker. The relay's docstring claims `FOR UPDATE
+    SKIP LOCKED` "lets multiple relay workers run concurrently without
+    double-processing a row", but nothing had ever exercised two relay
+    workers racing for the same pending rows; this proves the claim
+    rather than trusting the comment. Ten pending messages, two
+    concurrent `relay_once` calls (a real asyncio.gather, not sequential
+    awaits — each call's own DB round-trips give the other a genuine
+    chance to interleave) — every message must be delivered exactly
+    once between them, never twice, never zero times.
+    """
+    customer_id = uuid.uuid4()
+    action_ids = []
+    async with tenant_scoped_session(customer_id) as session:
+        for i in range(10):
+            action, _ = await propose_action(
+                session,
+                customer_id=customer_id,
+                workspace_id=uuid.uuid4(),
+                trace_id=uuid.uuid4(),
+                actor_id="user:alice",
+                tool_name="knowledge.read",
+                risk_level=RiskLevel.R1,
+                payload={"query": f"report {i}"},
+                idempotency_key=f"idem-concurrent-relay-{i}",
+            )
+            await validate_action(session, action, actor_id="user:alice")
+            action_ids.append(action.id)
+
+    counts = await asyncio.gather(
+        relay_once(redis_client, batch_size=10), relay_once(redis_client, batch_size=10)
+    )
+    assert sum(counts) == 10  # every message delivered, by exactly one of the two workers
+
+    stream = "doda:outbox:action.ready.v1"
+    entries = await redis_client.xrange(stream)
+    delivered_ids = [
+        fields["aggregate_id"]
+        for _entry_id, fields in entries
+        if fields["aggregate_id"] in {str(a) for a in action_ids}
+    ]
+    assert sorted(delivered_ids) == sorted(str(a) for a in action_ids)  # no duplicates, none missing
+
+
 async def test_run_forever_delivers_then_stops_promptly_on_stop_event(
     db_available: bool, redis_client: Redis
 ) -> None:
