@@ -16,15 +16,21 @@ from doda.api.customer_admin_schemas import (
     InviteCustomerMemberRequest,
 )
 from doda.api.dependencies import CustomerRequestContext, get_customer_request_context
-from doda.application.authz_service import authorize_manage_customer_members
+from doda.api.workspace_admin_schemas import WorkspaceOut
+from doda.application.authz_service import (
+    authorize_manage_customer_members,
+    authorize_view_archived_workspaces,
+)
 from doda.application.customer_service import (
     change_customer_member_role,
     invite_customer_member,
     list_customer_members,
     remove_customer_member,
 )
+from doda.application.workspace_service import list_archived_workspaces
 from doda.domain.customer.models import CustomerMembership
 from doda.domain.identity.models import User
+from doda.domain.workspace.models import Workspace
 
 router = APIRouter(tags=["customer-admin"])
 
@@ -112,3 +118,28 @@ async def remove_member(
     authorize_manage_customer_members(ctx.customer)
     membership = await _get_customer_membership(ctx, membership_id)
     await remove_customer_member(ctx.db, membership, actor_id=f"user:{ctx.customer.user_id}")
+
+
+def _to_workspace_out(workspace: Workspace) -> WorkspaceOut:
+    return WorkspaceOut(
+        id=workspace.id,
+        customer_id=workspace.customer_id,
+        name=workspace.name,
+        archived_at=workspace.archived_at,
+    )
+
+
+@router.get("/v1/customers/{customer_id}/workspaces/archived", response_model=list[WorkspaceOut])
+async def list_archived(
+    ctx: CustomerRequestContext = Depends(get_customer_request_context),
+) -> list[WorkspaceOut]:
+    """FR-WKS-006's missing half: archive/restore both already existed, but
+    an archived workspace's id was otherwise undiscoverable through any API
+    once GET /v1/me/workspaces stopped listing it (see CLAUDE.md's
+    "Bilingan cheklovlar" — a UI "Arxivlash" button led to a real dead end).
+    CustomerOwner-only (authorize_view_archived_workspaces) — restoring a
+    single already-known workspace stays workspace_admin-scoped and
+    unaffected by this."""
+    authorize_view_archived_workspaces(ctx.customer)
+    workspaces = await list_archived_workspaces(ctx.db, customer_id=ctx.customer.customer_id)
+    return [_to_workspace_out(workspace) for workspace in workspaces]

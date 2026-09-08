@@ -379,6 +379,27 @@ export function markCustomerNotificationRead(
   });
 }
 
+// ---- /v1/customers/{id}/workspaces/archived, /v1/workspaces/{id}/restore ----
+
+export interface WorkspaceOut {
+  id: string;
+  customer_id: string;
+  name: string;
+  archived_at: string | null;
+}
+
+export function listArchivedWorkspaces(sessionId: string, customerId: string): Promise<WorkspaceOut[]> {
+  return apiFetch(`/v1/customers/${customerId}/workspaces/archived`, sessionId);
+}
+
+export function archiveWorkspace(sessionId: string, workspaceId: string): Promise<WorkspaceOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/archive`, sessionId, { method: "POST" });
+}
+
+export function restoreWorkspace(sessionId: string, workspaceId: string): Promise<WorkspaceOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/restore`, sessionId, { method: "POST" });
+}
+
 // ---- /v1/customers/{id}/notification-preferences ----
 
 export type NotificationType = "PENDING_APPROVAL" | "FAILED_ACTION" | "COMPLETED_TASK" | "SECURITY_ALERT";

@@ -245,6 +245,7 @@ jobs:
           python scripts/seed_e2e_demo.py --prefix E2E_ >> "$GITHUB_ENV"
           python scripts/seed_e2e_demo.py --prefix E2E_CUSTOMER_ >> "$GITHUB_ENV"
           python scripts/seed_e2e_demo.py --prefix E2E_A11Y_ >> "$GITHUB_ENV"
+          python scripts/seed_e2e_demo.py --prefix E2E_ARCHIVE_ >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"

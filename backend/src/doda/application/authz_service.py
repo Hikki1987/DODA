@@ -233,3 +233,15 @@ def authorize_view_customer_audit(context: CustomerContext) -> None:
     endpoint (api/audit.py's other route), not this customer-wide one."""
     if context.role not in (CustomerRole.CUSTOMER_OWNER, CustomerRole.AUDITOR):
         raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not view customer-wide audit")
+
+
+def authorize_view_archived_workspaces(context: CustomerContext) -> None:
+    """No 10.2 row names this directly (archived-workspace visibility isn't
+    one of the matrix's listed actions), so this follows the same
+    restrictiveness as the other customer-wide, no-existing-row precedents
+    here (kill switch, audit): CustomerOwner only. A plain member archiving
+    their own workspace has no comparable "see everything archived under
+    this customer" need — restore itself (FR-WKS-006) still only requires
+    workspace_admin on that one workspace, unaffected by this."""
+    if context.role is not CustomerRole.CUSTOMER_OWNER:
+        raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not view archived workspaces")

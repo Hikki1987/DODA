@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   ApiError,
+  archiveWorkspace,
   changeTaskStatus,
   changeWorkspaceMemberRole,
   createTask,
@@ -43,6 +44,7 @@ export default function WorkspacePage() {
   const params = useParams<{ id: string }>();
   const workspaceId = params.id;
   const sessionId = useSession();
+  const router = useRouter();
 
   const [killSwitch, setKillSwitch] = useState<KillSwitchStatusOut | null>(null);
   const [tasks, setTasks] = useState<TaskOut[] | null>(null);
@@ -53,6 +55,7 @@ export default function WorkspacePage() {
   const [error, setError] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [creatingTask, setCreatingTask] = useState(false);
+  const [archivingWorkspace, setArchivingWorkspace] = useState(false);
   const [openTaskHistory, setOpenTaskHistory] = useState<Record<string, TaskHistoryEntryOut[]>>({});
 
   const refresh = useCallback(() => {
@@ -147,14 +150,40 @@ export default function WorkspacePage() {
     refresh();
   }
 
+  async function handleArchiveWorkspace() {
+    if (sessionId === null || archivingWorkspace) return;
+    // Archiving removes this workspace from GET /v1/me/workspaces and this
+    // page immediately denies access to it (get_workspace_context) — the
+    // only way back is the customer page's "Arxivlangan workspace'lar"
+    // list, so this needs an explicit, unmissable confirmation up front.
+    if (!window.confirm("Bu workspace'ni arxivlashni tasdiqlaysizmi? Uni faqat customer sahifasidan tiklash mumkin bo'ladi.")) {
+      return;
+    }
+    setArchivingWorkspace(true);
+    try {
+      await archiveWorkspace(sessionId, workspaceId);
+      router.replace("/workspaces");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Workspace'ni arxivlab bo'lmadi.");
+      setArchivingWorkspace(false);
+    }
+  }
+
   if (sessionId === null) return null;
 
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 space-y-8 p-6">
-      <div>
+      <div className="flex items-center justify-between">
         <Link href="/workspaces" className="text-sm text-gray-500 hover:text-black">
           &larr; Workspace&apos;lar
         </Link>
+        <button
+          onClick={handleArchiveWorkspace}
+          disabled={archivingWorkspace}
+          className="text-xs text-red-600 hover:underline disabled:opacity-50"
+        >
+          Workspace&apos;ni arxivlash
+        </button>
       </div>
 
       {killSwitch?.engaged && (

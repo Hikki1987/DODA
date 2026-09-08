@@ -248,6 +248,22 @@ async def list_my_workspaces(user_id: uuid.UUID) -> list[MyWorkspaceEntry]:
     return entries
 
 
+async def list_archived_workspaces(session: AsyncSession, *, customer_id: uuid.UUID) -> list[Workspace]:
+    """The gap CLAUDE.md's "Bilingan cheklovlar" flagged: archive/restore
+    (FR-WKS-006) already existed, but nothing let a client discover a
+    workspace's id once GET /v1/me/workspaces stopped surfacing it
+    (list_my_workspaces filters archived_at IS NULL unconditionally) — a
+    workspace archived through the UI had no UI path back. This is the
+    missing "which workspace ids are archived" lookup; restore_workspace
+    itself is unchanged."""
+    rows = await session.scalars(
+        select(Workspace)
+        .where(Workspace.customer_id == customer_id, Workspace.archived_at.is_not(None))
+        .order_by(Workspace.archived_at.desc())
+    )
+    return list(rows)
+
+
 @dataclasses.dataclass(frozen=True)
 class WorkspaceMemberEntry:
     membership_id: uuid.UUID | None

@@ -10,6 +10,7 @@ import {
   engageCustomerKillSwitch,
   getCustomerKillSwitch,
   inviteCustomerMember,
+  listArchivedWorkspaces,
   listCustomerAudit,
   listCustomerMembers,
   listCustomerNotifications,
@@ -17,6 +18,7 @@ import {
   listNotificationPreferences,
   markCustomerNotificationRead,
   removeCustomerMember,
+  restoreWorkspace,
   setNotificationPreference,
   verifyCustomerAuditChain,
   type AuditChainVerificationOut,
@@ -27,6 +29,7 @@ import {
   type NotificationOut,
   type NotificationPreferenceOut,
   type NotificationType,
+  type WorkspaceOut,
 } from "@/lib/api";
 import { useSession } from "@/lib/useSession";
 
@@ -51,6 +54,8 @@ export default function CustomerPage() {
   const [auditEvents, setAuditEvents] = useState<AuditEventOut[] | null>(null);
   const [chainVerification, setChainVerification] = useState<AuditChainVerificationOut | null>(null);
   const [verifyingChain, setVerifyingChain] = useState(false);
+  const [archivedWorkspaces, setArchivedWorkspaces] = useState<WorkspaceOut[] | null>(null);
+  const [restoringWorkspaceId, setRestoringWorkspaceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
@@ -68,6 +73,10 @@ export default function CustomerPage() {
     listCustomerNotifications(sessionId, customerId).then(setNotifications).catch(() => {});
     listNotificationPreferences(sessionId, customerId).then(setPreferences).catch(() => {});
     listCustomerAudit(sessionId, customerId).then(setAuditEvents).catch(() => {});
+    // CustomerOwner-only (authorize_view_archived_workspaces) — a plain
+    // member/auditor gets 403 here, so this fails silently like the other
+    // optional sections above rather than surfacing a spurious error.
+    listArchivedWorkspaces(sessionId, customerId).then(setArchivedWorkspaces).catch(() => {});
   }, [sessionId, customerId]);
 
   useEffect(() => {
@@ -131,6 +140,19 @@ export default function CustomerPage() {
       refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "A'zoni chiqarib bo'lmadi.");
+    }
+  }
+
+  async function handleRestoreWorkspace(workspace: WorkspaceOut) {
+    if (sessionId === null || restoringWorkspaceId !== null) return;
+    setRestoringWorkspaceId(workspace.id);
+    try {
+      await restoreWorkspace(sessionId, workspace.id);
+      refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Workspace'ni tiklab bo'lmadi.");
+    } finally {
+      setRestoringWorkspaceId(null);
     }
   }
 
@@ -277,6 +299,26 @@ export default function CustomerPage() {
           )}
         </ul>
       </section>
+
+      {archivedWorkspaces !== null && archivedWorkspaces.length > 0 && (
+        <section>
+          <h2 className="mb-3 text-lg font-semibold">Arxivlangan workspace&apos;lar</h2>
+          <ul className="space-y-1">
+            {archivedWorkspaces.map((workspace) => (
+              <li key={workspace.id} className="flex items-center justify-between text-sm">
+                <span className="text-gray-500">{workspace.name}</span>
+                <button
+                  onClick={() => handleRestoreWorkspace(workspace)}
+                  disabled={restoringWorkspaceId === workspace.id}
+                  className="text-xs text-blue-600 hover:underline disabled:opacity-50"
+                >
+                  Tiklash
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section>
         <h2 className="mb-3 text-lg font-semibold">Bildirishnoma sozlamalari</h2>

@@ -15,6 +15,7 @@ from sqlalchemy import select
 
 from doda.application.customer_service import create_customer_with_owner, invite_customer_member
 from doda.application.session_service import create_session
+from doda.application.workspace_service import archive_workspace, create_workspace
 from doda.db import tenant_scoped_session
 from doda.domain.customer.models import CustomerMembership
 from doda.domain.identity.models import AuthStrength, User
@@ -186,3 +187,55 @@ async def test_list_customer_members_shows_owner_and_invited_member(
     by_user_id = {entry["user_id"]: entry for entry in body}
     assert by_user_id[str(member_user_id)]["role"] == "member"
     assert all(entry["display_name"] for entry in body)
+
+
+async def test_customer_owner_sees_archived_workspaces_but_not_active_ones(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """The gap CLAUDE.md flagged: FR-WKS-006 archive/restore already worked,
+    but nothing let a client discover an archived workspace's id once
+    GET /v1/me/workspaces stopped listing it — a real UI dead end."""
+    customer_id, _owner_id, owner_session_id = await _seed_customer_with_owner()
+
+    async with tenant_scoped_session(customer_id) as session:
+        active = await create_workspace(session, customer_id=customer_id, name="Active")
+        archived = await create_workspace(session, customer_id=customer_id, name="Old")
+        await archive_workspace(session, archived, actor_id="user:setup")
+
+    response = await client.get(
+        f"/v1/customers/{customer_id}/workspaces/archived", headers=_auth_headers(owner_session_id)
+    )
+    assert response.status_code == 200
+    body = response.json()
+    workspace_ids = {entry["id"] for entry in body}
+    assert workspace_ids == {str(archived.id)}
+    assert str(active.id) not in workspace_ids
+    assert body[0]["archived_at"] is not None
+
+
+async def test_plain_member_cannot_list_archived_workspaces(client: AsyncClient, db_available: bool) -> None:
+    customer_id, _owner_id, _owner_session_id = await _seed_customer_with_owner()
+    _member_user_id, member_session_id = await _add_plain_member(customer_id)
+
+    response = await client.get(
+        f"/v1/customers/{customer_id}/workspaces/archived", headers=_auth_headers(member_session_id)
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "DENY"
+
+
+async def test_archived_workspace_listing_never_leaks_another_customers_workspaces(
+    client: AsyncClient, db_available: bool
+) -> None:
+    customer_a_id, _owner_a_id, owner_a_session_id = await _seed_customer_with_owner()
+    customer_b_id, _owner_b_id, _owner_b_session_id = await _seed_customer_with_owner()
+
+    async with tenant_scoped_session(customer_b_id) as session:
+        other_archived = await create_workspace(session, customer_id=customer_b_id, name="Other's")
+        await archive_workspace(session, other_archived, actor_id="user:setup")
+
+    response = await client.get(
+        f"/v1/customers/{customer_a_id}/workspaces/archived", headers=_auth_headers(owner_a_session_id)
+    )
+    assert response.status_code == 200
+    assert response.json() == []
