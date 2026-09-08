@@ -125,15 +125,27 @@ qurilmagan — bu Platform Owner + R5 dual-control infratuzilmasini talab
 qiladi (FR-ADM, hali yo'q); 10.2 jadvalining o'zida ham "global" ustuni
 yo'q, faqat workspace/customer bor.
 
-99 test, barchasi real Postgres'da.
+FR-AUD-002 (audit viewer) ham qurildi, 10.2 permission-matritsasining
+"Audit ko'rish" qatoriga aynan mos ikkita endpoint bilan:
+`/v1/workspaces/{id}/audit` (Member = "o'z amallarini", WorkspaceAdmin =
+butun workspace) va `/v1/customers/{id}/audit` (CustomerOwner/Auditor =
+butun customer — Auditor'ning kill switch kabi yozuv amallariga kira
+olmasligi ham alohida testda tasdiqlangan). Buning uchun `AuditEvent`ga
+`workspace_id` ustuni qo'shildi (0007-migratsiya, nullable — customer-only
+hodisalar uchun) — avval bu JSON ichida ko'milgan bo'lib, WorkspaceAdmin
+filtri uchun indekslanadigan, to'g'ri ustun yo'q edi. "Eksport audit
+qilinadi" mezoni ham qamrab olindi: har bir audit ko'rish so'rovi o'zi
+ham `audit.viewed.v1` yozuvi qoldiradi (kim, qaysi filtr, nechta natija —
+ko'rilgan yozuvlarning mazmuni emas).
+
+105 test, barchasi real Postgres'da.
 
 Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
 — bu yerda FR-AUTH-001'ning haqiqiy OIDC oqimi qurilishi kerak (hozir
 `session_service.create_session` faqat dev/test seam) va bu tashqi OIDC
 provayder ma'lumotlarini (client_id/secret, issuer URL) talab qiladi —
 Product Owner'dan kelishi kerak. Yoki OD-002 (connector tanlovi) S6'dan
-oldin hal qilinishi kerak. Yoki FR-AUD-002 (audit viewer API) — tashqi
-bog'liqliksiz keyingi tabiiy qadam.
+oldin hal qilinishi kerak.
 
 **Bilingan cheklovlar (keyingi ishlarda hisobga olinsin):**
 - ~~Audit hash-zanjiri concurrent yozuvlarda xavfsiz emas~~ — **tuzatildi**:
@@ -155,12 +167,13 @@ bog'liqliksiz keyingi tabiiy qadam.
   tug'iladi" bosqichi hali stand-in.
 - R3 approver siyosati va workspace-a'zolik boshqaruvi faqat `WorkspaceRole`ni
   tekshiradi (`member` / `workspace_admin`); `CustomerRole.CUSTOMER_OWNER`
-  ham 10.2 bo'yicha bu amallarni bajara olishi kerak. Kill switch uchun
-  qurilgan `CustomerContext` / `get_customer_request_context`
-  (`api/dependencies.py`) endi customer-darajasidagi rolni aniqlay oladi —
-  bu boshqa joylardagi shu cheklovni yopish uchun qayta ishlatilishi mumkin,
-  lekin hozircha faqat kill switch shu yo'ldan foydalanadi; qolganlari
-  ataylab o'zgartirilmadi (bu alohida, so'ralmagan o'zgarish bo'lardi).
+  ham 10.2 bo'yicha bu amallarni bajara olishi kerak. `CustomerContext` /
+  `get_customer_request_context` (`api/dependencies.py`) endi ikkita joyda
+  ishlatilmoqda (kill switch, audit viewer) va customer-darajasidagi rolni
+  to'g'ri aniqlaydi — bu boshqa joylardagi shu cheklovni yopish uchun ham
+  qayta ishlatilishi mumkin, lekin R3 approval va workspace-a'zolik
+  boshqaruvi ataylab o'zgartirilmadi (bu alohida, so'ralmagan o'zgarish
+  bo'lardi).
 - "Customer'ga taklif qilish" (yangi foydalanuvchini customer'ga a'zo
   qilish) uchun HTTP endpoint yo'q — `customer_service.invite_customer_member`
   faqat application-layer funksiya. Buni ochish FR-NTF (bildirishnoma

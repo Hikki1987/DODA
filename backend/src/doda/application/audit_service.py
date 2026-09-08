@@ -30,6 +30,7 @@ async def record_audit_event(
     trace_id: uuid.UUID,
     actor_id: str,
     event_type: str,
+    workspace_id: uuid.UUID | None = None,
     safe_metadata: dict[str, Any] | None = None,
 ) -> AuditEvent:
     safe_metadata = safe_metadata or {}
@@ -48,6 +49,7 @@ async def record_audit_event(
     digest = hash_payload(
         {
             "customer_id": str(customer_id),
+            "workspace_id": str(workspace_id) if workspace_id else None,
             "trace_id": str(trace_id),
             "actor_id": actor_id,
             "event_type": event_type,
@@ -58,6 +60,7 @@ async def record_audit_event(
     )
     event = AuditEvent(
         customer_id=customer_id,
+        workspace_id=workspace_id,
         trace_id=trace_id,
         actor_id=actor_id,
         event_type=event_type,

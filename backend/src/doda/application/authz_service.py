@@ -177,3 +177,12 @@ def authorize_engage_customer_kill_switch(context: CustomerContext) -> None:
     """10.2 'Kill switch' row: CustomerOwner = Customer scope."""
     if context.role is not CustomerRole.CUSTOMER_OWNER:
         raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not operate the customer kill switch")
+
+
+def authorize_view_customer_audit(context: CustomerContext) -> None:
+    """10.2 'Audit ko'rish' row: CustomerOwner = 'Customer bo'yicha';
+    Auditor = 'Faqat o'qish, to'liq'. A plain Member's access is
+    'O'z amallarini' (their own actions) — that is the workspace-scoped
+    endpoint (api/audit.py's other route), not this customer-wide one."""
+    if context.role not in (CustomerRole.CUSTOMER_OWNER, CustomerRole.AUDITOR):
+        raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not view customer-wide audit")

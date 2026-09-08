@@ -31,6 +31,7 @@ async def create_workspace(
     await record_audit_event(
         session,
         customer_id=customer_id,
+        workspace_id=workspace.id,
         trace_id=uuid.uuid4(),
         actor_id=actor_id,
         event_type="workspace.created.v1",
@@ -64,6 +65,7 @@ async def add_workspace_member(
     await record_audit_event(
         session,
         customer_id=workspace.customer_id,
+        workspace_id=workspace.id,
         trace_id=uuid.uuid4(),
         actor_id=actor_id,
         event_type="workspace.member_added.v1",
@@ -85,6 +87,7 @@ async def change_workspace_member_role(
     await record_audit_event(
         session,
         customer_id=membership.customer_id,
+        workspace_id=membership.workspace_id,
         trace_id=uuid.uuid4(),
         actor_id=actor_id,
         event_type="workspace.member_role_changed.v1",
@@ -103,6 +106,7 @@ async def remove_workspace_member(
     await record_audit_event(
         session,
         customer_id=membership.customer_id,
+        workspace_id=membership.workspace_id,
         trace_id=uuid.uuid4(),
         actor_id=actor_id,
         event_type="workspace.member_removed.v1",
@@ -121,6 +125,7 @@ async def archive_workspace(session: AsyncSession, workspace: Workspace, *, acto
     await record_audit_event(
         session,
         customer_id=workspace.customer_id,
+        workspace_id=workspace.id,
         trace_id=uuid.uuid4(),
         actor_id=actor_id,
         event_type="workspace.archived.v1",
@@ -135,6 +140,7 @@ async def restore_workspace(session: AsyncSession, workspace: Workspace, *, acto
     await record_audit_event(
         session,
         customer_id=workspace.customer_id,
+        workspace_id=workspace.id,
         trace_id=uuid.uuid4(),
         actor_id=actor_id,
         event_type="workspace.restored.v1",

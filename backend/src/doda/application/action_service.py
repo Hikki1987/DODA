@@ -81,6 +81,7 @@ async def propose_action(
     await record_audit_event(
         session,
         customer_id=customer_id,
+        workspace_id=workspace_id,
         trace_id=trace_id,
         actor_id=actor_id,
         event_type="action.proposed.v1",
@@ -100,6 +101,7 @@ async def apply_transition(
         await record_audit_event(
             session,
             customer_id=action.customer_id,
+            workspace_id=action.workspace_id,
             trace_id=action.trace_id,
             actor_id=actor_id,
             event_type="action.transition_rejected.v1",
@@ -110,6 +112,7 @@ async def apply_transition(
     await record_audit_event(
         session,
         customer_id=action.customer_id,
+        workspace_id=action.workspace_id,
         trace_id=action.trace_id,
         actor_id=actor_id,
         event_type=f"action.{target.value.lower()}.v1",

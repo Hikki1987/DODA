@@ -47,6 +47,7 @@ async def engage_workspace_kill_switch(
         await record_audit_event(
             session,
             customer_id=customer_id,
+            workspace_id=workspace_id,
             trace_id=uuid.uuid4(),
             actor_id=actor_id,
             event_type="killswitch.workspace.engaged.v1",
@@ -65,6 +66,7 @@ async def disengage_workspace_kill_switch(
         await record_audit_event(
             session,
             customer_id=customer_id,
+            workspace_id=workspace_id,
             trace_id=uuid.uuid4(),
             actor_id=actor_id,
             event_type="killswitch.workspace.disengaged.v1",

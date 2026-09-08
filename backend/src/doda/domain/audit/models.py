@@ -25,6 +25,13 @@ class AuditEvent(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __tablename__ = "audit_events"
 
     customer_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(index=True, default=None)
+    """Nullable: some events (customer creation, customer-membership
+    changes, the customer-scoped kill switch) have no single workspace to
+    attach to. A real, indexed column rather than a safe_metadata field —
+    FR-AUD-002's 'Audit viewer: filtr' needs to filter by workspace
+    efficiently for the WorkspaceAdmin scope (10.2: 'Workspace bo'yicha'),
+    which JSON-blob text search could not do correctly or with an index."""
     trace_id: Mapped[uuid.UUID] = mapped_column(index=True)
     actor_id: Mapped[str] = mapped_column(String(256))
     event_type: Mapped[str] = mapped_column(String(128))

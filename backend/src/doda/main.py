@@ -16,6 +16,7 @@ from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider
 
 from doda.api.actions import router as actions_router
+from doda.api.audit import router as audit_router
 from doda.api.errors import register_exception_handlers
 from doda.api.health import router as health_router
 from doda.api.kill_switch import router as kill_switch_router
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(tasks_router)
     app.include_router(workspace_admin_router)
     app.include_router(kill_switch_router)
+    app.include_router(audit_router)
     FastAPIInstrumentor.instrument_app(app)
     return app
 
