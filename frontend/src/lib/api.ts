@@ -207,6 +207,24 @@ export function getWorkspaceKillSwitch(sessionId: string, workspaceId: string): 
   return apiFetch(`/v1/workspaces/${workspaceId}/kill-switch`, sessionId);
 }
 
+export function engageWorkspaceKillSwitch(
+  sessionId: string,
+  workspaceId: string,
+  reason: string,
+): Promise<KillSwitchStatusOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/kill-switch/engage`, sessionId, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function disengageWorkspaceKillSwitch(
+  sessionId: string,
+  workspaceId: string,
+): Promise<KillSwitchStatusOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/kill-switch/disengage`, sessionId, { method: "POST" });
+}
+
 // ---- /v1/workspaces/{id}/members ----
 
 export interface WorkspaceMemberOut {

@@ -9,6 +9,8 @@ import {
   changeTaskStatus,
   changeWorkspaceMemberRole,
   createTask,
+  disengageWorkspaceKillSwitch,
+  engageWorkspaceKillSwitch,
   getTaskHistory,
   getWorkspaceKillSwitch,
   listActions,
@@ -47,6 +49,8 @@ export default function WorkspacePage() {
   const router = useRouter();
 
   const [killSwitch, setKillSwitch] = useState<KillSwitchStatusOut | null>(null);
+  const [killSwitchReason, setKillSwitchReason] = useState("");
+  const [engagingKillSwitch, setEngagingKillSwitch] = useState(false);
   const [tasks, setTasks] = useState<TaskOut[] | null>(null);
   const [actions, setActions] = useState<ActionOut[] | null>(null);
   const [notifications, setNotifications] = useState<NotificationOut[] | null>(null);
@@ -150,6 +154,31 @@ export default function WorkspacePage() {
     refresh();
   }
 
+  async function handleEngageKillSwitch(event: FormEvent) {
+    event.preventDefault();
+    if (sessionId === null || killSwitchReason.trim().length === 0 || engagingKillSwitch) return;
+    setEngagingKillSwitch(true);
+    try {
+      await engageWorkspaceKillSwitch(sessionId, workspaceId, killSwitchReason.trim());
+      setKillSwitchReason("");
+      refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Kill switch'ni yoqib bo'lmadi.");
+    } finally {
+      setEngagingKillSwitch(false);
+    }
+  }
+
+  async function handleDisengageKillSwitch() {
+    if (sessionId === null) return;
+    try {
+      await disengageWorkspaceKillSwitch(sessionId, workspaceId);
+      refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Kill switch'ni o'chirib bo'lmadi.");
+    }
+  }
+
   async function handleArchiveWorkspace() {
     if (sessionId === null || archivingWorkspace) return;
     // Archiving removes this workspace from GET /v1/me/workspaces and this
@@ -186,11 +215,39 @@ export default function WorkspacePage() {
         </button>
       </div>
 
-      {killSwitch?.engaged && (
-        <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900">
-          <strong>Kill switch faol.</strong> Sabab: {killSwitch.reason}. Yangi action&apos;lar bloklangan.
-        </div>
-      )}
+      <section>
+        <h2 className="mb-3 text-lg font-semibold">Kill switch</h2>
+        {killSwitch?.engaged ? (
+          <div className="space-y-2 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900">
+            <p>
+              <strong>Faol.</strong> Sabab: {killSwitch.reason}. Yangi action&apos;lar bloklangan.
+            </p>
+            <button
+              onClick={handleDisengageKillSwitch}
+              className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white"
+            >
+              O&apos;chirish
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleEngageKillSwitch} className="flex gap-2">
+            <input
+              type="text"
+              value={killSwitchReason}
+              onChange={(event) => setKillSwitchReason(event.target.value)}
+              placeholder="Sabab"
+              className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-black focus:outline-none"
+            />
+            <button
+              type="submit"
+              disabled={killSwitchReason.trim().length === 0 || engagingKillSwitch}
+              className="rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              Yoqish
+            </button>
+          </form>
+        )}
+      </section>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 

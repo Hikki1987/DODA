@@ -1375,6 +1375,38 @@ within_sla` xuddi shu naqshni (engage'dan blokgacha real vaqtni
 
 183 test, barchasi real Postgres'da.
 
+**Yana bir "backend qobiliyati bor, UI yo'q" bo'shlig'i topildi va
+yopildi: workspace-darajasidagi kill switch'ni ENGAGE/DISENGAGE qilish
+uchun frontend'da hech qanday tugma yo'q edi — faqat customer sahifasida
+bor edi.** `POST /v1/workspaces/{id}/kill-switch/engage|disengage`
+allaqachon qurilgan/testlangan edi (10.2: "Kill switch" qatorida
+WorkspaceAdmin = Workspace scope), lekin workspace sahifasi faqat
+`GET .../kill-switch`ni chaqirib, o'qish-uchun banner ko'rsatardi. Bu
+degani: CustomerOwner BO'LMAGAN, faqat workspace_admin bo'lgan
+foydalanuvchi (10.2 bo'yicha bunga to'liq huquqli) o'z workspace'ining
+kill switch'ini UI orqali umuman yoqib/o'chira olmasdi — customer
+sahifasidagi versiya CustomerOwner-only (`authorize_engage_customer_kill_
+switch`) bo'lgani uchun ularga yordam bermaydi. Xuddi shu bo'shliq
+turkumi (archive/restore, notification preferences, va h.k.) yana bir
+joyda takrorlangan edi.
+
+Tuzatish: `frontend/src/lib/api.ts`ga `engageWorkspaceKillSwitch`/
+`disengageWorkspaceKillSwitch` qo'shildi, workspace sahifasidagi
+o'qish-uchun banner customer sahifasidagi bilan bir xil to'liq
+forma/tugma juftligiga almashtirildi (sabab kiritish + "Yoqish", faol
+bo'lsa "O'chirish"). Yangi, mustaqil Playwright E2E spec
+(`workspace-kill-switch.spec.ts`, `--prefix E2E_KILLSWITCH_` — xuddi
+avvalgi darsning takrori: bu spec workspace'ning o'z kill switch'ini
+yoqadi, boshqa spec'lar bilan bir xil seed'ni bo'lishsa ularning
+action-taklif qilish oqimini buzardi) — engage'dan keyin backend'ning
+o'zi (`POST .../actions` to'g'ridan-to'g'ri, sahifaning o'z fetch'i
+orqali emas) haqiqatda 403/`KILL_SWITCH_ENGAGED` qaytarishini,
+disengage'dan keyin esa qaytadan 200 qaytarishini tasdiqlaydi — faqat
+banner ko'rinishini emas. Barcha 5 E2E spec (workspace, customer,
+archive, kill-switch, accessibility) birga qayta ishga tushirilib,
+regressiya yo'qligi (va yangi forma WCAG buzilishi keltirmasligi)
+tasdiqlandi.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,
