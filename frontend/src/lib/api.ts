@@ -64,6 +64,10 @@ export function listMySessions(sessionId: string): Promise<SessionOut[]> {
   return apiFetch("/v1/sessions", sessionId);
 }
 
+export function revokeSession(sessionId: string, targetSessionId: string): Promise<void> {
+  return apiFetch(`/v1/sessions/${targetSessionId}`, sessionId, { method: "DELETE" });
+}
+
 // ---- /v1/me/workspaces ----
 
 export interface MyWorkspaceOut {

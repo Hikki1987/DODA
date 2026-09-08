@@ -39,9 +39,15 @@ workspace ichida: kill-switch holati, task'lar (ro'yxat/yaratish/holat
 o'zgartirish), action'lar (ro'yxat — tool_name/risk_level/status, faqat
 o'qish uchun), bildirishnomalar (ro'yxat/o'qildi belgilash), a'zolar
 ro'yxati, audit (`GET /v1/workspaces/{id}/audit` — event_type/actor/vaqt,
-faqat o'qish, FR-AUD-002). Chat (FR-CONV) va Knowledge/RAG (2-bosqich)
-qurilmagan — backend'da ham hali yo'q, shuning uchun bu yerda ham yo'q
-(soxta UI qurish "DEMO ≠ PRODUCTION" qoidasini buzardi).
+faqat o'qish, FR-AUD-002). `/sessions` (workspace'lar sahifasidagi
+"Sessiyalar" havolasi) — foydalanuvchi darajasida, workspace'ga bog'liq
+emas: barcha faol sessiyalarni (joriysi belgilangan holda) ko'rsatadi va
+boshqa qurilmadagi sessiyani uzoqdan yopish imkonini beradi (FR-CTL-001/002,
+`GET`/`DELETE /v1/sessions`). Joriy sessiyani shu sahifadan yopib
+bo'lmaydi — buning uchun "Chiqish" ishlatiladi. Chat (FR-CONV) va
+Knowledge/RAG (2-bosqich) qurilmagan — backend'da ham hali yo'q, shuning
+uchun bu yerda ham yo'q (soxta UI qurish "DEMO ≠ PRODUCTION" qoidasini
+buzardi).
 
 Action'lar bo'limi ataylab faqat o'qish uchun: yangi action taklif qilish
 (propose) formasi qurilmadi, chunki hali hech qanday haqiqiy tool/connector

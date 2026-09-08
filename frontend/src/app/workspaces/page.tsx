@@ -31,9 +31,14 @@ export default function WorkspacesPage() {
     <main className="mx-auto w-full max-w-2xl flex-1 p-6">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-xl font-semibold">Mening workspace&apos;larim</h1>
-        <button onClick={logOut} className="text-sm text-gray-500 hover:text-black">
-          Chiqish
-        </button>
+        <div className="flex items-center gap-4">
+          <Link href="/sessions" className="text-sm text-gray-500 hover:text-black">
+            Sessiyalar
+          </Link>
+          <button onClick={logOut} className="text-sm text-gray-500 hover:text-black">
+            Chiqish
+          </button>
+        </div>
       </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}

@@ -544,6 +544,23 @@ backend'ga qarshi (163 test) va Playwright orqali brauzer'da (seed
 qilingan workspace'ning "workspace.created.v1" audit yozuvi ekranda
 ko'rinishi) tasdiqlandi.
 
+Uchinchi shu turkumdagi bo'shliq: FR-CTL-001/002ning session qismi
+(`GET`/`DELETE /v1/sessions`) S2'dayoq qurilgan va testlangan edi, lekin
+frontend faqat login'da bir martalik tasdiqlash uchun ishlatardi — o'zining
+sessiya-boshqaruv ekrani yo'q edi. Yangi `/sessions` sahifasi (workspace'lar
+sahifasidagi "Sessiyalar" havolasidan) qo'shildi: foydalanuvchi darajasida
+(workspace'ga bog'liq emas, `useSession`ning o'zi ishlatiladi, workspace
+context kerak emas) barcha faol sessiyalar, joriysi belgilangan holda, va
+boshqalarini uzoqdan yopish tugmasi. Joriy sessiyani ataylab shu tugma
+bilan yopib bo'lmaydi (UX: o'zini-o'zi darhol qulflab qo'yishning oldini
+olish) — buning uchun mavjud "Chiqish" bor. Ikkinchi, alohida `Session`
+qatori (bir xil user_id, boshqa session_id) haqiqiy backend orqali
+yaratilib, Playwright'da: (1) ikkalasi ham ro'yxatda ko'rinishi, joriysi
+belgilangan holda, (2) boshqasini "Yopish" bosilgach yo'qolishi, (3) bu
+UI-only emasligi — `curl -H "Authorization: Bearer <joriy>"
+/v1/sessions` orqali serverning o'zi ham endi faqat bitta sessiya
+qaytarishi — alohida tasdiqlandi.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,

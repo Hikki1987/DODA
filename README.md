@@ -72,13 +72,20 @@ Xuddi shu naqshda audit ko'rinishi ham qo'shildi (`GET
 frontend'da ko'rinmas edi): workspace sahifasiga event_type/actor/vaqt
 ro'yxati.
 
+`/sessions` sahifasi ham qo'shildi (`GET`/`DELETE /v1/sessions` —
+FR-CTL-001/002, allaqachon qurilgan/testlangan): foydalanuvchi darajasidagi
+(workspace'ga bog'liq emas) faol sessiyalar ro'yxati, joriysi belgilangan
+holda, va boshqa qurilmadagi sessiyani uzoqdan yopish tugmasi.
+
 Real backend'ga (native Postgres 16 + pgvector, Redis, `doda_app`
 huquqi cheklangan rol) qarshi to'liq qayta tekshirildi: 163 test (avvalgi
 150'dan ko'p — bu orada boshqa ishlar ham qo'shilgan edi), so'ng haqiqiy
 seed qilingan R3 action bilan Playwright orqali browser'da — action
-"send_email / risk: R3 / AWAITING_APPROVAL" va audit'da
-"workspace.created.v1" ekranda to'g'ri ko'rinishi tasdiqlandi, konsol
-xatosiz.
+"send_email / risk: R3 / AWAITING_APPROVAL", audit'da
+"workspace.created.v1", va ikkita sessiyadan birini uzoqdan yopib
+(server tomonda `GET /v1/sessions` orqali haqiqatda yo'qolgani `curl`
+bilan alohida tasdiqlangan) faqat joriysi qolishi ekranda to'g'ri
+ko'rinishi tasdiqlandi, konsol xatosiz.
 
 ## Ishga tushirish (local dev)
 
