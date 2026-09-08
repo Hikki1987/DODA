@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ApiError, listMyWorkspaces, type MyWorkspaceOut } from "@/lib/api";
+import { ApiError, listMyWorkspaces, revokeSession, type MyWorkspaceOut } from "@/lib/api";
 import { clearStoredSessionId } from "@/lib/session";
 import { useSession } from "@/lib/useSession";
 
@@ -20,7 +20,17 @@ export default function WorkspacesPage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : "Yuklab bo'lmadi."));
   }, [sessionId]);
 
-  function logOut() {
+  async function logOut() {
+    // "Chiqish" must actually revoke the session server-side (FR-AUTH-005),
+    // not just forget it client-side — otherwise the raw session UUID
+    // (Authorization: Bearer <id>) still works via direct API calls until
+    // its natural idle/absolute timeout, even after the user believes
+    // they've logged out. Clear local storage regardless of whether the
+    // revoke call succeeds (e.g. offline) — the user must never be stuck
+    // unable to leave the logged-in screen because of a network error.
+    if (sessionId !== null) {
+      await revokeSession(sessionId, sessionId).catch(() => {});
+    }
     clearStoredSessionId();
     router.push("/login");
   }

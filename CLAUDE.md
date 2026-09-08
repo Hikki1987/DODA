@@ -1435,6 +1435,44 @@ qamrovi bilan — yangi bo'lim WCAG buzilishi keltirmadi) qayta ishga
 tushirilib, regressiya yo'qligi tasdiqlandi. Backend o'zgarmadi, 183 test
 o'zgarishsiz.
 
+**Haqiqiy xavfsizlik-yo'nalishdagi xato topildi va tuzatildi: "Chiqish"
+tugmasi sessiyani serverda HECH QACHON revoke qilmagan — faqat
+localStorage'ni tozalagan.** `workspaces/page.tsx`ning `logOut()`
+funksiyasi `clearStoredSessionId()` chaqirib `/login`ga yo'naltirardi,
+lekin `DELETE /v1/sessions/{id}`ni hech qachon chaqirmasdi. Amaliy
+oqibat: "Chiqish" bosilgandan keyin ham, xom session UUID
+(`Authorization: Bearer <id>`) hali ham to'g'ridan-to'g'ri API
+so'rovlarida ishlar edi — sessiya faqat o'zining tabiiy idle/absolute
+timeout'iga yetguncha. Bu ayniqsa `/sessions` sahifasidagi mavjud
+izohni noto'g'ri qilardi: "joriy sessiyani shu tugma bilan yopib
+bo'lmaydi... buning uchun mavjud 'Chiqish' bor" — bu izoh "Chiqish"
+haqiqatda revoke qilishini FARAZ qilgan edi, lekin tekshirilganda bu
+faraz noto'g'ri chiqdi.
+
+Backend'ning o'zi bunga tayyor edi — `DELETE /v1/sessions/{id}`
+o'zining JORIY sessiyasini revoke qilishga hech qanday cheklov
+qo'ymaydi (`get_current_identity` avtorizatsiyani so'rov boshida
+tasdiqlaydi, keyin o'sha sessiyani revoke qiladi — joriy so'rovning
+o'zi muvaffaqiyatli tugaydi, faqat KEYINGI so'rovlar rad etiladi) va
+bu aniq stsenariy allaqachon `test_revoking_a_session_makes_it_
+unusable`da testlangan edi (auth header'i VA maqsad sessiyasi bir xil).
+Demak bu sof frontend bo'shlig'i edi.
+
+Tuzatish: `logOut()` endi `revokeSession(sessionId, sessionId)`ni
+chaqiradi (xatoni jimgina yutib — tarmoq xatosi foydalanuvchini
+"chiqish"dan butunlay to'sib qo'ymasligi kerak), keyin localStorage'ni
+tozalaydi. Yangi, mustaqil E2E spec (`logout.spec.ts`, `--prefix
+E2E_LOGOUT_`) audit-zanjiri uslubida isbotlandi: avval tuzatishni
+vaqtincha `git stash` bilan olib tashlab, qayta build qilib, test
+haqiqatda kutilganidek muvaffaqiyatsiz bo'lishi ko'rsatildi (`Expected:
+401, Received: 200` — "Chiqish"dan keyin ham sessiya hali ishlardi),
+keyin tuzatish qaytarilib, qayta build qilinib, test yashil ekani
+tasdiqlandi. Test o'zi UI orqali emas — to'g'ridan-to'g'ri backend'ga
+(`page.request.get`, sahifaning o'z fetch'idan tashqarida) sessiya
+haqiqatda 401/`UNAUTHENTICATED` qaytarishini tekshiradi. Barcha 6 E2E
+spec birga qayta ishga tushirilib, regressiya yo'qligi tasdiqlandi.
+Backend o'zgarmadi, 183 test o'zgarishsiz.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,
