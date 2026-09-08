@@ -209,4 +209,14 @@ infra/
   postgres-init/    # doda_app (huquqi cheklangan) rolini yaratuvchi bootstrap skript
 docs/
   DODA-TRD-v2.0.docx  # authoritative talab hujjati
+  adr/                # Architecture Decision Records (TRD 6.4, NFR-MNT-001)
+  open-decisions.md   # TRD 19.4 — Product Owner tasdig'i shart bo'lgan 8 savol, holati
 ```
+
+## Arxitektura qarorlari va ochiq savollar
+
+`docs/adr/` — TRD 6.4'dagi ADR ro'yxatining to'liq hujjatlashtirilgan
+versiyasi (kontekst, qaror, oqibatlar — real kodga/incidentlarga havola
+bilan). `docs/open-decisions.md` — TRD 19.4'dagi sakkizta Product Owner
+qaroriga bitta joydan qarash: qaysi biri hal qilingan, qaysi biri hali
+ochiq, va qaysi biri hujjatdagi muddatidan allaqachon o'tib ketgan.

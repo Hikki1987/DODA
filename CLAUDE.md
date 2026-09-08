@@ -911,6 +911,46 @@ belgilab qo'yildi (yolg'on "avtomatik enforce qilinadi" da'vosi emas).
 169 test, barchasi real Postgres'da (CI job qo'shildi, mavjud test
 suite'ga o'zgarish yo'q).
 
+**NFR-MNT-001ning "ADR mavjud" qismi qurildi — va buni yozish jarayonida
+TRD 19.4'dagi sakkizta Product Owner qarori (OD-001..008) hech qayerda
+bitta joyda ko'rinmasligi aniqlandi, uchtasi esa hujjatdagi o'z muddatidan
+allaqachon o'tib ketgani topildi.** `docs/adr/`ga TRD 6.4'dagi ADR
+ro'yxatining hammasi (ADR-001..007) yozildi: beshtasi (001 modular
+monolith, 002 pgvector, 003 transactional outbox, 004 model gateway, 005
+RLS ikkinchi qatlam) TRD'da "Qabul qilingan" deb belgilangan, real kodga/
+incident'larga (masalan ADR-005'da yuqoridagi RLS-bypass voqeasi) havola
+bilan yozildi; ikkitasi (006 hosting/data residency, 007 birinchi
+konnektor) TRD'ning o'zida "Ochiq" deb qolgan, shuning uchun "Open" holatda,
+javob o'ylab topilmasdan yozildi.
+
+Buni yozish OD-* ro'yxatini to'liq TRD 19.4'dan o'qishni talab qildi — va
+shu jarayonda muhim narsa aniqlandi: OD-002 va OD-006 (kill switch dual-
+control) allaqachon bilingan edi, lekin OD-003 (AI providerga qaysi
+ma'lumot sinfi yuborilmasin), OD-005 (hosting/data residency — ADR-006
+allaqachon shuni aytadi) va OD-008 (oylik AI/infra byudjeti) TRD'ning o'z
+muddatidan (mos ravishda S3 oxiri, S2 boshlanishidan oldin, S2 oxiri)
+allaqachon o'tib ketgan — bu bosqichlar (Safe actions, API adapterlari)
+shu kod bazasida allaqachon substantially bajarilgan. Bugungi kunda bu
+uchtasi haqiqiy zarar keltirmayapti, chunki ularga bog'liq ish (AI/prompt
+chaqiruvlari, real infra deploy, byudjet enforcement) hali boshlanmagan —
+lekin shu ish boshlanishidan OLDIN yopilishi kerak, aks holda TRD'ning o'z
+ogohlantirishi bo'yicha "texnik jamoa taxmin qiladi, taxmin esa keyinchalik
+qayta qurish va xavfsizlik ziddiyatiga aylanadi". `docs/open-decisions.md`
+— shu sakkiztasining bittasi joyda, holati bilan (hal qilingan/ochiq/
+muddatidan o'tgan) ko'rinadigan tracker. README.md'ga ikkalasiga ham
+havola qo'shildi (`## Arxitektura qarorlari va ochiq savollar`).
+
+Bu sof hujjatlashtirish — kod o'zgarmadi, 169 test o'zgarishsiz qoladi.
+Aniqlikni tekshirish uchun `test_rls_coverage.py`ning o'zidan (grep
+o'rniga to'g'ridan-to'g'ri o'qib) `KNOWN_RLS_EXEMPT_TABLES` ro'yxatini
+oldim — dastlab ADR-003/005'ni CLAUDE.md'dagi eski ("ikkita istisno")
+paragrafga tayanib yozgan edim, lekin bu eskirgan edi: `user_customer_index`
+(0011-migratsiya) keyinroq uchinchi istisno sifatida qo'shilgan, CLAUDE.md
+esa xronologik log bo'lgani uchun eski paragrafni orqaga qaytarib
+yangilamagan. ADR'larning o'zi nuqtai-vaqt hujjat (point-in-time reference)
+bo'lishi kerak, xronologik log emas — shuning uchun haqiqiy joriy holatga
+(uchta istisno) tuzatildi.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,
