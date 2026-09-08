@@ -531,6 +531,19 @@ haqiqiy seed qilingan R3 action bilan Playwright orqali brauzer'da
 tasdiqlandi — "send_email / risk: R3 / AWAITING_APPROVAL" ekranda
 to'g'ri ko'rinadi, konsol xatosiz.
 
+Xuddi shu turkumdagi yana bir bo'shliq ham yopildi: `GET
+/v1/workspaces/{id}/audit` (FR-AUD-002, audit viewer) allaqachon qurilgan
+va testlangan edi, lekin frontend'da hech qayerda ko'rinmas edi. Workspace
+sahifasiga "Audit" bo'limi qo'shildi — event_type, actor_id, occurred_at
+ro'yxati, faqat o'qish (bu allaqachon o'qish-uchun-endpoint, yozish yo'q).
+Customer-darajasidagi audit (`GET /v1/customers/{id}/audit`) ataylab
+qo'shilmadi — bu workspace sahifasi customer_id'ni bilmaydi (faqat
+workspace_id URL'da bor) va alohida customer-darajasidagi sahifa/navigatsiya
+talab qiladi, bu boshqa, kattaroq ish. Xuddi Actions bo'limi kabi, real
+backend'ga qarshi (163 test) va Playwright orqali brauzer'da (seed
+qilingan workspace'ning "workspace.created.v1" audit yozuvi ekranda
+ko'rinishi) tasdiqlandi.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,

@@ -11,9 +11,11 @@ import {
   listActions,
   listNotifications,
   listTasks,
+  listWorkspaceAudit,
   listWorkspaceMembers,
   markNotificationRead,
   type ActionOut,
+  type AuditEventOut,
   type KillSwitchStatusOut,
   type NotificationOut,
   type TaskOut,
@@ -37,6 +39,7 @@ export default function WorkspacePage() {
   const [actions, setActions] = useState<ActionOut[] | null>(null);
   const [notifications, setNotifications] = useState<NotificationOut[] | null>(null);
   const [members, setMembers] = useState<WorkspaceMemberOut[] | null>(null);
+  const [auditEvents, setAuditEvents] = useState<AuditEventOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
 
@@ -49,6 +52,7 @@ export default function WorkspacePage() {
     listActions(sessionId, workspaceId).then(setActions).catch(() => {});
     listNotifications(sessionId, workspaceId).then(setNotifications).catch(() => {});
     listWorkspaceMembers(sessionId, workspaceId).then(setMembers).catch(() => {});
+    listWorkspaceAudit(sessionId, workspaceId).then(setAuditEvents).catch(() => {});
   }, [sessionId, workspaceId]);
 
   useEffect(() => {
@@ -209,6 +213,26 @@ export default function WorkspacePage() {
               <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{member.role}</span>
             </li>
           ))}
+        </ul>
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-lg font-semibold">Audit</h2>
+        <ul className="space-y-2">
+          {auditEvents?.map((event) => (
+            <li key={event.id} className="rounded-md border border-gray-200 px-3 py-2 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="font-medium">{event.event_type}</span>
+                <span className="text-xs text-gray-500">
+                  {new Date(event.occurred_at).toLocaleString()}
+                </span>
+              </div>
+              <div className="text-xs text-gray-500">{event.actor_id}</div>
+            </li>
+          ))}
+          {auditEvents !== null && auditEvents.length === 0 && (
+            <p className="text-sm text-gray-500">Audit yozuvi yo&apos;q.</p>
+          )}
         </ul>
       </section>
     </main>

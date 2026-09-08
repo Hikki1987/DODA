@@ -67,12 +67,18 @@ endpoint edi, lekin frontend'da hech qayerda ko'rsatilmagan edi). Ataylab
 faqat o'qish uchun (tafsilot `frontend/README.md`da): propose/approve
 formalari hali yo'q, chunki (1) haqiqiy tool/connector yo'q, (2) approval
 nonce'i faqat propose javobida bir marta qaytariladi, ro'yxatlashda emas.
+Xuddi shu naqshda audit ko'rinishi ham qo'shildi (`GET
+/v1/workspaces/{id}/audit`, FR-AUD-002 — allaqachon qurilgan/testlangan,
+frontend'da ko'rinmas edi): workspace sahifasiga event_type/actor/vaqt
+ro'yxati.
+
 Real backend'ga (native Postgres 16 + pgvector, Redis, `doda_app`
 huquqi cheklangan rol) qarshi to'liq qayta tekshirildi: 163 test (avvalgi
 150'dan ko'p — bu orada boshqa ishlar ham qo'shilgan edi), so'ng haqiqiy
 seed qilingan R3 action bilan Playwright orqali browser'da — action
-"send_email / risk: R3 / AWAITING_APPROVAL" ekranda to'g'ri ko'rinishi
-tasdiqlandi, konsol xatosiz.
+"send_email / risk: R3 / AWAITING_APPROVAL" va audit'da
+"workspace.created.v1" ekranda to'g'ri ko'rinishi tasdiqlandi, konsol
+xatosiz.
 
 ## Ishga tushirish (local dev)
 

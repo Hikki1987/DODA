@@ -199,3 +199,22 @@ export interface WorkspaceMemberOut {
 export function listWorkspaceMembers(sessionId: string, workspaceId: string): Promise<WorkspaceMemberOut[]> {
   return apiFetch(`/v1/workspaces/${workspaceId}/members`, sessionId);
 }
+
+// ---- /v1/workspaces/{id}/audit ----
+
+export interface AuditEventOut {
+  id: string;
+  customer_id: string;
+  workspace_id: string | null;
+  trace_id: string;
+  actor_id: string;
+  event_type: string;
+  occurred_at: string;
+  safe_metadata: Record<string, unknown>;
+  prev_hash: string | null;
+  hash: string;
+}
+
+export function listWorkspaceAudit(sessionId: string, workspaceId: string): Promise<AuditEventOut[]> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/audit`, sessionId);
+}
