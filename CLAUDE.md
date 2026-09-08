@@ -1152,6 +1152,57 @@ yo'li shu naqshni takrorlashi kerak, yangisini o'ylab topmasdan.
 
 176 test, barchasi real Postgres+Redis'da.
 
+**FR-CTL-002ning "ma'lumot eksporti" qismi qurildi — bu talabning
+oxirgi, hali qamrab olinmagan yarmi edi** (sessiya revoke — bor,
+konnektor uzish — OD-002'ga bog'liq, memory o'chirish — 2-bosqich hali
+yo'q, eksport — endi bor). Talab matni "Eksport asinxron, kuzatiladigan
+va tekshiriladigan" deydi; bugungi ma'lumot hajmi (Knowledge/RAG fayllari
+yo'q, chat transkriptlari yo'q — ikkalasi ham hali qurilmagan domenlar)
+uchun to'liq asinxron job-queue infratuzilmasi spekulyativ bo'lar edi,
+shuning uchun v1 ataylab **sinxron** qilib qurildi — "asinxron" qismi
+ochiq bo'shliq sifatida pastdagi "Bilingan cheklovlar"ga yozildi, sukut
+saqlanmadi.
+
+`application/export_service.py`dagi `export_my_data` — chaqiruvchi
+foydalanuvchining o'zi a'zo bo'lgan HAR BIR customer/workspace bo'ylab
+o'ziga tegishli ma'lumotni (o'zi egalik qiladigan task'lar, o'ziga
+yo'naltirilgan bildirishnomalar, o'zi actor bo'lgan audit yozuvlari)
+bitta javobda yig'adi — hech qachon boshqa a'zoning ma'lumoti, hatto bir
+xil workspace ichida bo'lsa ham. `GET /v1/me/export` (`api/me.py`)
+`/v1/me/workspaces` bilan bir xil naqsh — session-scoped, `get_current_
+identity` orqali.
+
+Buni yozish jarayonida haqiqiy xato o'zining yangi kodida topildi va
+tuzatildi (commit qilinmasdan oldin, testning o'zi ushladi): birinchi
+versiya customer qamrovini (`customer_ids`) `list_my_workspaces`ning
+natijasidan (`memberships`) chiqarardi. Lekin `list_my_workspaces`
+**workspace-shaped** — `CustomerOwner` biror customer'da bironta
+arxivlanmagan `Workspace`ga ega bo'lmasa, o'sha customer uchun HECH
+QANDAY yozuv qaytarmaydi (`GET /v1/me/workspaces`ning o'zi ham shunday
+ishlaydi — bu allaqachon bilingan xulq). Natijada: workspace'siz
+customer'ning CustomerOwner'i eksport qilsa, o'sha customer ostidagi
+bildirishnomalar, audit yozuvlar VA eksportning o'z audit yozuvi
+(`user.data_exported.v1`) sukut saqlab tashlab ketilardi. Bu aynan shu
+stsenariyni ataylab qamrab oluvchi `test_exporting_data_is_itself_
+audited` (workspace'siz customer yaratadi) bilan ushlandi — haqiqiy
+xato xabari: `AssertionError: assert 'user.data_exported.v1' in
+['customer.created.v1']`. Tuzatish: customer qamrovini `memberships`dan
+emas, `UserCustomerIndex`dan to'g'ridan-to'g'ri so'rab olish (`GET
+/v1/me/workspaces` qurilishida ishlatilgan, RLS'siz bootstrap jadval) —
+"foydalanuvchi qaysi customer'larga a'zo" degan savolning haqiqiy manbai
+shu, `list_my_workspaces`ning natijasi emas. Tuzatishdan keyin ikkala
+test ham (workspace bilan va workspace'siz customer stsenariylari)
+o'tdi.
+
+Eksportning o'zi ham audit qilinadi (`user.data_exported.v1`, har bir
+qamrab olingan customer uchun bittadan) — "audit.viewed.v1" naqshining
+takrori, bu ham NFR-OBS-001 trace-korrelyatsiya darsiga rioya qiladi:
+`export_my_data` chaqiruvchi HTTP so'rovining o'z `trace_id`sidan
+foydalanadi (`propose_and_submit_action`da qo'llanilgan xuddi shu naqsh),
+yangi bog'liqsiz `uuid4()` emas.
+
+178 test, barchasi real Postgres'da.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,
@@ -1227,6 +1278,11 @@ issuer URL) talab qiladi, Product Owner'dan kelishi kerak. Yoki OD-002
   trigger orqali).
 - Email/Telegram adapter (FR-NTF-001'ning ikkinchi yarmi) qurilmagan —
   tashqi provayder integratsiyasini talab qiladi.
+- `GET /v1/me/export` (FR-CTL-002) hozircha faqat **sinxron** — talabning
+  "asinxron, kuzatiladigan" qismi ataylab v1'da qamrab olinmagan (yuqoriga
+  qarang). Ma'lumot hajmi kattalashsa (Knowledge/RAG fayllari, chat
+  transkriptlari qo'shilgandan keyin) real job-queue infratuzilmasi kerak
+  bo'ladi — bugungi kunda buni qurish spekulyativ bo'lar edi.
 - `risk_level` (Action propose qilishda) to'liq caller-supplied — `tool_name`
   qanday risk darajasiga loyiqligini aniqlaydigan server-side siyosat hali
   yo'q (9.1'ning "risk-based routing"i risk_level QIYMATIGA ishonadi, uni
