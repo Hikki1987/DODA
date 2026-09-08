@@ -15,6 +15,8 @@ from opentelemetry import trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from doda.api.actions import router as actions_router
 from doda.api.audit import router as audit_router
@@ -44,6 +46,17 @@ def _configure_logging() -> None:
 
 def _configure_tracing(service_name: str) -> None:
     provider = TracerProvider(resource=Resource.create({SERVICE_NAME: service_name}))
+    # Without a span processor, FastAPIInstrumentor's spans are created
+    # (trace_id propagation still works) but immediately discarded — nothing
+    # ever exports them, not even to stdout. Console for now: it proves
+    # capture genuinely works end-to-end. Once a real collector destination
+    # exists (ties to hosting/data residency, docs/open-decisions.md OD-005),
+    # replace this with an OTLP exporter rather than adding a second,
+    # competing one alongside it. SimpleSpanProcessor (synchronous, exports
+    # inline) rather than BatchSpanProcessor: the latter's background thread
+    # can still be mid-flush when a short-lived process (e.g. a test run)
+    # closes stdout, raising "I/O operation on closed file" on the way out.
+    provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
     trace.set_tracer_provider(provider)
 
 
@@ -75,6 +88,11 @@ def create_app() -> FastAPI:
     app.include_router(sessions_router)
     app.include_router(me_router)
     FastAPIInstrumentor.instrument_app(app)
+    # Unversioned by design, unlike every other route here — Prometheus
+    # scrapers universally expect a fixed /metrics path, not a versioned
+    # API contract (6.3: "OpenTelemetry, Prometheus" stack decision; this
+    # was previously entirely unimplemented — no metrics endpoint existed).
+    Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
     return app
 
 

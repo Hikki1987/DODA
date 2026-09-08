@@ -1034,6 +1034,45 @@ uchraydi), (3) `main()`ning o'zi haqiqiy `os.kill(os.getpid(),
 signal.SIGTERM)` bilan chaqirilib, toza to'xtashi — real signal, mock
 emas. 172 test, barchasi real Postgres+Redis'da.
 
+**Xuddi outbox worker'da bo'lgani kabi yana bitta "ko'rinishda bor, aslida
+hech narsa qilmaydi" bo'shlig'i topildi va yopildi — bu safar
+observability qatlamida (6.3-bo'lim stack qarori: "OpenTelemetry,
+Prometheus, structured log").** `main.py`da `FastAPIInstrumentor.
+instrument_app(app)` chaqirilardi va `TracerProvider` yaratilardi —
+ko'rinishida tracing "ishlagandek" edi. Lekin `TracerProvider`ga hech
+qanday span processor/exporter biriktirilmagan edi: FastAPI'ning har bir
+so'rovi uchun span haqiqatda yaratilardi (trace_id propagation ishlardi),
+lekin keyin hech qayerga eksport qilinmasdan **jimgina yo'qolib ketardi** —
+konsolga ham, hech qanday collector'ga ham emas. Bundan tashqari,
+Prometheus umuman ulanmagan edi: na `prometheus-client` dependency, na
+`/metrics` endpoint mavjud emas edi — 6.3'dagi stack qarorining bu yarmi
+soddagina qurilmagan edi.
+
+Tuzatish: `_configure_tracing`ga `SimpleSpanProcessor(ConsoleSpanExporter())`
+qo'shildi — real OTLP collector destinatsiyasi hali tanlanmagani uchun
+(bu OD-005/hosting qaroriga bog'liq) konsolga chiqarish tanlandi, bu
+tracing haqiqatda ishlashini isbotlaydi, lekin kelajakda real collector
+tanlanganda almashtirilishi kerak. `BatchSpanProcessor` emas
+`SimpleSpanProcessor` ishlatildi — birinchisi bilan qisqa umrli jarayon
+(masalan test) tugaganda fon oqimi hali flush qilayotgan bo'lib qolib,
+"I/O operation on closed file" xatosini chiqarardi (buni haqiqatda
+ishga tushirib topdim, keyin `SimpleSpanProcessor`ga o'tkazib tuzatdim).
+Prometheus uchun `prometheus-fastapi-instrumentator` qo'shildi —
+`GET /metrics` (ataylab `/v1` prefiksisiz — Prometheus scraper'lari doim
+qat'iy `/metrics` yo'lini kutadi, versiyalangan kontrakt emas) standart
+HTTP metrikalarni (so'rovlar soni, davomiyligi, handler/method/status
+bo'yicha) chiqaradi.
+
+Ikkalasi ham real ishga tushirib tasdiqlandi: haqiqiy uvicorn server
+ishga tushirilib, `/v1/healthz`ga so'rov yuborilib, (1) konsol logida
+haqiqiy span (`"name": "GET /v1/healthz"`, to'g'ri trace_id/span_id bilan)
+ko'rinishi va (2) `/metrics`da `http_requests_total{handler="/v1/healthz",
+method="GET",status="2xx"} 1.0` haqiqatda oshgani tasdiqlandi. 2 ta yangi
+test (`test_tracing.py` — global tracer provider'ga test-only
+`InMemorySpanExporter` qo'shib, haqiqiy so'rovdan keyin tugallangan span
+borligini tekshiradi; `test_metrics.py` — haqiqiy so'rovdan keyin
+`/metrics`da mos counter ko'rinishini tekshiradi). 174 test.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,
