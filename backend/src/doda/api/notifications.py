@@ -27,12 +27,18 @@ from doda.api.dependencies import (
     get_customer_request_context,
     get_request_context,
 )
-from doda.api.notification_schemas import NotificationOut
+from doda.api.notification_schemas import (
+    NotificationOut,
+    NotificationPreferenceOut,
+    SetNotificationPreferenceRequest,
+)
 from doda.application.notification_service import (
+    list_notification_preferences,
     list_notifications_for_user,
     mark_notification_read,
+    set_notification_preference,
 )
-from doda.domain.notification.models import Notification
+from doda.domain.notification.models import Notification, NotificationType
 
 router = APIRouter(tags=["notifications"])
 
@@ -82,6 +88,45 @@ async def mark_read(
 
     notification = await mark_notification_read(ctx.db, notification)
     return _to_out(notification)
+
+
+@router.get(
+    "/v1/customers/{customer_id}/notification-preferences",
+    response_model=list[NotificationPreferenceOut],
+)
+async def list_my_notification_preferences(
+    ctx: CustomerRequestContext = Depends(get_customer_request_context),
+) -> list[NotificationPreferenceOut]:
+    """Customer-scoped, not workspace-scoped: "do I want this TYPE of
+    notification at all" is one setting per person per customer, the same
+    granularity notification_preferences is stored at — not per-workspace."""
+    resolved = await list_notification_preferences(
+        ctx.db, customer_id=ctx.customer.customer_id, recipient_id=f"user:{ctx.customer.user_id}"
+    )
+    return [
+        NotificationPreferenceOut(notification_type=t, enabled=enabled) for t, enabled in resolved.items()
+    ]
+
+
+@router.put(
+    "/v1/customers/{customer_id}/notification-preferences/{notification_type}",
+    response_model=NotificationPreferenceOut,
+)
+async def set_my_notification_preference(
+    notification_type: NotificationType,
+    body: SetNotificationPreferenceRequest,
+    ctx: CustomerRequestContext = Depends(get_customer_request_context),
+) -> NotificationPreferenceOut:
+    preference = await set_notification_preference(
+        ctx.db,
+        customer_id=ctx.customer.customer_id,
+        recipient_id=f"user:{ctx.customer.user_id}",
+        notification_type=notification_type,
+        enabled=body.enabled,
+    )
+    return NotificationPreferenceOut(
+        notification_type=preference.notification_type, enabled=preference.enabled
+    )
 
 
 @router.get("/v1/customers/{customer_id}/notifications", response_model=list[NotificationOut])

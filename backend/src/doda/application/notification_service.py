@@ -14,7 +14,83 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.application.audit_service import record_audit_event
 from doda.domain.base import utcnow
-from doda.domain.notification.models import Notification, NotificationType
+from doda.domain.notification.models import Notification, NotificationPreference, NotificationType
+
+# FR-NTF-004: "Security alert'ni o'chirib bo'lmaydi" — the one type
+# that must always reach the recipient no matter what preference row
+# exists. Enforced here, not as a DB constraint (see the 0009 migration's
+# docstring for why), and at both the read and write side below so a
+# stray disable can't ever be created in the first place.
+_ALWAYS_ON_TYPES = frozenset({NotificationType.SECURITY_ALERT})
+
+
+class NotificationPreferenceError(Exception):
+    """Raised when a caller tries to disable a type that must always fire."""
+
+
+async def is_notification_type_enabled(
+    session: AsyncSession, *, customer_id: uuid.UUID, recipient_id: str, notification_type: NotificationType
+) -> bool:
+    if notification_type in _ALWAYS_ON_TYPES:
+        return True
+    preference = await session.scalar(
+        select(NotificationPreference).where(
+            NotificationPreference.customer_id == customer_id,
+            NotificationPreference.recipient_id == recipient_id,
+            NotificationPreference.notification_type == notification_type,
+        )
+    )
+    # No row = enabled (the default for every type) — see
+    # NotificationPreference's docstring for why a new user needs no rows.
+    return preference is None or preference.enabled
+
+
+async def list_notification_preferences(
+    session: AsyncSession, *, customer_id: uuid.UUID, recipient_id: str
+) -> dict[NotificationType, bool]:
+    """Resolved enabled/disabled for all four types, defaulting to enabled
+    where no row exists — a full picture for a preferences UI to render,
+    not just the overrides someone has actually saved."""
+    rows = await session.execute(
+        select(NotificationPreference).where(
+            NotificationPreference.customer_id == customer_id,
+            NotificationPreference.recipient_id == recipient_id,
+        )
+    )
+    overrides = {row.notification_type: row.enabled for row in rows.scalars()}
+    return {t: overrides.get(t, True) for t in NotificationType}
+
+
+async def set_notification_preference(
+    session: AsyncSession,
+    *,
+    customer_id: uuid.UUID,
+    recipient_id: str,
+    notification_type: NotificationType,
+    enabled: bool,
+) -> NotificationPreference:
+    if not enabled and notification_type in _ALWAYS_ON_TYPES:
+        raise NotificationPreferenceError(f"{notification_type.value} can never be disabled")
+
+    preference = await session.scalar(
+        select(NotificationPreference).where(
+            NotificationPreference.customer_id == customer_id,
+            NotificationPreference.recipient_id == recipient_id,
+            NotificationPreference.notification_type == notification_type,
+        )
+    )
+    if preference is None:
+        preference = NotificationPreference(
+            customer_id=customer_id,
+            recipient_id=recipient_id,
+            notification_type=notification_type,
+            enabled=enabled,
+        )
+        session.add(preference)
+    else:
+        preference.enabled = enabled
+    await session.flush()
+    return preference
 
 
 async def create_notification(
@@ -27,7 +103,17 @@ async def create_notification(
     reference_id: uuid.UUID,
     workspace_id: uuid.UUID | None = None,
     safe_metadata: dict[str, Any] | None = None,
-) -> Notification:
+) -> Notification | None:
+    """Returns None (no row created, no audit event) when the recipient
+    has turned this notification_type off (FR-NTF-004) — every existing
+    caller (action_service, task_service, kill_switch_service) already
+    ignores this function's return value, so the preference check lives
+    here once rather than needing a check before each call site."""
+    if not await is_notification_type_enabled(
+        session, customer_id=customer_id, recipient_id=recipient_id, notification_type=notification_type
+    ):
+        return None
+
     notification = Notification(
         customer_id=customer_id,
         workspace_id=workspace_id,

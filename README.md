@@ -25,8 +25,10 @@ himoyalangan HTTP API (`/v1/workspaces/{id}/actions`, `.../approvals/{id}/consum
 `/v1/customers/{id}/audit`, `/v1/customers/{id}/members` (invite/rol
 o'zgartirish/chiqarish, faqat CustomerOwner — FR-WKS-005),
 `/v1/customers/{id}/notifications` (customer ostidagi barcha
-workspace'lardagi bildirishnomalar bitta joydan). Audit hash-zanjiri endi
-concurrent yozuvlarda
+workspace'lardagi bildirishnomalar bitta joydan),
+`/v1/customers/{id}/notification-preferences[/{type}]` (FR-NTF-004:
+SECURITY_ALERT'dan tashqari har bir turni yoqish/o'chirish). Audit
+hash-zanjiri endi concurrent yozuvlarda
 ham xavfsiz (FR-AUD-004, per-customer lock); sessiya faollik-belgisi
 (FR-AUTH-006 idle timeout) endi haqiqatda saqlanadi (avval jimgina
 saqlanmasdi — tuzatildi).

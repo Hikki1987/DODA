@@ -14,6 +14,7 @@ from doda.application.action_service import ApprovalInvalidError
 from doda.application.authz_service import AuthorizationError
 from doda.application.customer_service import CustomerMembershipError
 from doda.application.kill_switch_service import KillSwitchEngagedError
+from doda.application.notification_service import NotificationPreferenceError
 from doda.application.session_service import SessionInvalidError
 from doda.application.task_service import InvalidTaskTransition
 from doda.application.workspace_service import WorkspaceMembershipError
@@ -124,6 +125,20 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=_envelope(
                 code="LAST_OWNER_PROTECTED",
                 message="Oxirgi Customer Owner'ni chiqarib yoki lavozimini pasaytirib bo'lmaydi.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(NotificationPreferenceError)
+    async def _notification_preference_error(
+        request: Request, exc: NotificationPreferenceError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content=_envelope(
+                code="SECURITY_ALERT_MANDATORY",
+                message="Security alert turdagi bildirishnomani o'chirib bo'lmaydi.",
                 trace_id=_trace_id(request),
                 retryable=False,
             ),

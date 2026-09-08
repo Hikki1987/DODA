@@ -44,3 +44,21 @@ class Notification(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     reference_id: Mapped[uuid.UUID] = mapped_column()
     safe_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
+class NotificationPreference(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """FR-NTF-004: a recipient may turn off a notification type — except
+    SECURITY_ALERT, which stays mandatory (10.2/12.4: kill switch and
+    other security alerts must always reach every member). Absence of a
+    row means "enabled" (the default for all four types); a row only
+    exists once someone has changed it away from the default, so a new
+    user needs no rows seeded at all."""
+
+    __tablename__ = "notification_preferences"
+
+    customer_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    recipient_id: Mapped[str] = mapped_column(String(256), index=True)
+    notification_type: Mapped[NotificationType] = mapped_column(
+        SAEnum(NotificationType, name="notification_preference_type", native_enum=False, length=32)
+    )
+    enabled: Mapped[bool] = mapped_column(default=True)

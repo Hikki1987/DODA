@@ -16,3 +16,12 @@ class NotificationOut(BaseModel):
     safe_metadata: dict[str, Any]
     created_at: datetime
     read_at: datetime | None
+
+
+class NotificationPreferenceOut(BaseModel):
+    notification_type: NotificationType
+    enabled: bool
+
+
+class SetNotificationPreferenceRequest(BaseModel):
+    enabled: bool

@@ -312,6 +312,11 @@ customer-lararo global inbox'ning ataylab qurilmaganligi bilan birga).
 
 137 test, barchasi real Postgres'da.
 
+FR-NTF-004 (bildirishnoma turlarini sozlash) ham qurildi — tafsilot
+pastdagi "Bilingan cheklovlar"da.
+
+141 test, barchasi real Postgres'da.
+
 Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
 — bu yerda FR-AUTH-001'ning haqiqiy OIDC oqimi qurilishi kerak (hozir
 `session_service.create_session` faqat dev/test seam) va bu tashqi OIDC
@@ -369,10 +374,21 @@ oldin hal qilinishi kerak.
   bootstrap jadval talab qiladi — bu haqiqiy arxitektura qarori, oddiy
   endpoint qo'shish emas, shuning uchun so'ralmagan holda amalga
   oshirilmadi (QOIDA 2: change request).
-- FR-NTF-004 (foydalanuvchi bildirishnoma turlarini sozlashi, Should
-  darajali) qurilmagan — hozircha barcha bildirishnoma turlari doim
-  yetkaziladi (bu "Security alert o'chirib bo'lmaydi" qismini avtomatik
-  qanoatlantiradi, lekin boshqa uch turni o'chirish imkoniyati yo'q).
+- ~~FR-NTF-004 (foydalanuvchi bildirishnoma turlarini sozlashi) qurilmagan~~
+  — **tuzatildi**: 0009-migratsiya `notification_preferences` jadvalini
+  qo'shdi (customer_id + recipient_id + notification_type + enabled,
+  RLS bilan). `GET/PUT /v1/customers/{id}/notification-preferences[/{type}]`
+  orqali har bir foydalanuvchi 4 turdan 3 tasini (PENDING_APPROVAL/
+  FAILED_ACTION/COMPLETED_TASK) o'chira oladi. SECURITY_ALERT ataylab
+  DB CHECK constraint bilan emas, application qatlamida (`notification_
+  service.set_notification_preference` + `create_notification`ning o'zi)
+  bloklanadi — "faqat shu bitta enum qiymati istisno" CHECK sifatida
+  ifodalab bo'lmaydi. Qator yo'qligi = yoqilgan (yangi foydalanuvchi uchun
+  hech qanday qator oldindan yaratilmaydi). Test bilan real end-to-end
+  isbotlandi: FAILED_ACTION'ni o'chirib, keyin haqiqiy action'ni FAILED
+  holatiga o'tkazib — bildirishnoma haqiqatda yaratilmasligi tasdiqlandi
+  (sintetik chaqiruv emas, xuddi test_notifications.py'dagi kabi haqiqiy
+  trigger orqali).
 - Email/Telegram adapter (FR-NTF-001'ning ikkinchi yarmi) qurilmagan —
   tashqi provayder integratsiyasini talab qiladi.
 - `workspace_tenant_index` jadvali — RLS'ning "tuxum-tovuq" muammosini hal
