@@ -52,6 +52,13 @@ jobs:
         run: npm ci
       - name: ESLint
         run: npm run lint
+      - name: Generate route types
+        # tsc alone doesn't know about Next's own generated types (e.g.
+        # LayoutProps<'/'>) — those only exist after typegen/build/dev has
+        # run once. Without this step tsc fails on a clean checkout even
+        # though the exact same command passes locally once a dev server
+        # has been run there.
+        run: npx next typegen
       - name: TypeScript
         run: npx tsc --noEmit
 
