@@ -1,0 +1,201 @@
+// Thin, typed client for the DODA backend (see backend/src/doda/api/*.py).
+// No codegen — the backend has no OpenAPI schema export wired up yet, so
+// these types are hand-kept in sync with the Pydantic response models.
+// Every function takes sessionId explicitly (never reads it from storage
+// itself) so server components / tests can call the same functions.
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    public code: string,
+    message: string,
+    public traceId: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+async function apiFetch<T>(
+  path: string,
+  sessionId: string,
+  init?: RequestInit & { idempotencyKey?: string },
+): Promise<T> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${sessionId}`,
+    ...(init?.body ? { "Content-Type": "application/json" } : {}),
+    ...(init?.idempotencyKey ? { "Idempotency-Key": init.idempotencyKey } : {}),
+  };
+
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  const body = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      body.code ?? "UNKNOWN",
+      body.message ?? "Noma'lum xato yuz berdi",
+      body.trace_id ?? "",
+    );
+  }
+
+  return body as T;
+}
+
+// ---- /v1/sessions — used only to validate a pasted dev session id ----
+
+export interface SessionOut {
+  id: string;
+  created_at: string;
+  last_seen_at: string;
+  expires_at: string;
+  auth_strength: "AAL1" | "AAL2";
+  is_current: boolean;
+}
+
+export function listMySessions(sessionId: string): Promise<SessionOut[]> {
+  return apiFetch("/v1/sessions", sessionId);
+}
+
+// ---- /v1/me/workspaces ----
+
+export interface MyWorkspaceOut {
+  customer_id: string;
+  customer_name: string;
+  workspace_id: string;
+  workspace_name: string;
+  role: string;
+}
+
+export function listMyWorkspaces(sessionId: string): Promise<MyWorkspaceOut[]> {
+  return apiFetch("/v1/me/workspaces", sessionId);
+}
+
+// ---- /v1/workspaces/{id}/tasks ----
+
+export type TaskStatus = "TODO" | "IN_PROGRESS" | "DONE" | "CANCELLED";
+
+export interface TaskOut {
+  id: string;
+  workspace_id: string;
+  owner_id: string;
+  title: string;
+  status: TaskStatus;
+  due_date: string | null;
+  parent_task_id: string | null;
+}
+
+export function listTasks(sessionId: string, workspaceId: string): Promise<TaskOut[]> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/tasks`, sessionId);
+}
+
+export function createTask(sessionId: string, workspaceId: string, title: string): Promise<TaskOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/tasks`, sessionId, {
+    method: "POST",
+    body: JSON.stringify({ title }),
+  });
+}
+
+export function changeTaskStatus(
+  sessionId: string,
+  workspaceId: string,
+  taskId: string,
+  targetStatus: TaskStatus,
+): Promise<TaskOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/tasks/${taskId}/status`, sessionId, {
+    method: "POST",
+    body: JSON.stringify({ target_status: targetStatus }),
+  });
+}
+
+// ---- /v1/workspaces/{id}/actions ----
+
+export type ActionStatus =
+  | "DRAFT"
+  | "VALIDATING"
+  | "AWAITING_APPROVAL"
+  | "READY"
+  | "RUNNING"
+  | "SUCCEEDED"
+  | "FAILED"
+  | "RETRYING"
+  | "COMPENSATING"
+  | "COMPENSATED"
+  | "DENIED"
+  | "REJECTED"
+  | "EXPIRED"
+  | "CANCELLED";
+
+export interface ActionOut {
+  id: string;
+  workspace_id: string;
+  trace_id: string;
+  tool_name: string;
+  risk_level: string;
+  status: ActionStatus;
+  payload: Record<string, unknown>;
+}
+
+export function listActions(sessionId: string, workspaceId: string): Promise<ActionOut[]> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/actions`, sessionId);
+}
+
+// ---- /v1/workspaces/{id}/notifications ----
+
+export interface NotificationOut {
+  id: string;
+  workspace_id: string | null;
+  notification_type: "PENDING_APPROVAL" | "FAILED_ACTION" | "COMPLETED_TASK" | "SECURITY_ALERT";
+  reference_type: string;
+  reference_id: string;
+  safe_metadata: Record<string, unknown>;
+  created_at: string;
+  read_at: string | null;
+}
+
+export function listNotifications(sessionId: string, workspaceId: string): Promise<NotificationOut[]> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/notifications`, sessionId);
+}
+
+export function markNotificationRead(
+  sessionId: string,
+  workspaceId: string,
+  notificationId: string,
+): Promise<NotificationOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/notifications/${notificationId}/read`, sessionId, {
+    method: "POST",
+  });
+}
+
+// ---- /v1/workspaces/{id}/kill-switch ----
+
+export interface KillSwitchStatusOut {
+  engaged: boolean;
+  reason: string | null;
+  engaged_at: string | null;
+  engaged_by: string | null;
+}
+
+export function getWorkspaceKillSwitch(sessionId: string, workspaceId: string): Promise<KillSwitchStatusOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/kill-switch`, sessionId);
+}
+
+// ---- /v1/workspaces/{id}/members ----
+
+export interface WorkspaceMemberOut {
+  membership_id: string | null;
+  user_id: string;
+  display_name: string;
+  role: string;
+}
+
+export function listWorkspaceMembers(sessionId: string, workspaceId: string): Promise<WorkspaceMemberOut[]> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/members`, sessionId);
+}

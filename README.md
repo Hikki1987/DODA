@@ -49,6 +49,17 @@ ikkita workspace bir xil kalitni ishlatsa, biri ikkinchisining action
 payload'i va approval nonce'ini ko'rar edi) va `parent_task_id` orqali
 tenant-lararo mavjudlik oracle'i.
 
+Bosqich **S3 (qisman)** boshlandi: `frontend/` — Next.js + TypeScript web
+qobig'i (login, workspace tanlash, task/bildirishnoma/a'zolar/kill-switch
+ekranlari), backend'ning real, testlangan endpointlariga ulangan. Haqiqiy
+OIDC hali yo'q (FR-AUTH-001), shuning uchun login sahifasi `session_
+service`ning dev/test seam'idan foydalanadi — bu aniq belgilangan. Chat
+(FR-CONV) va Knowledge/RAG ekranlari qurilmagan, chunki backend'da ham
+ular yo'q ("DEMO ≠ PRODUCTION" qoidasi: mavjud bo'lmagan backend uchun
+soxta UI qurilmaydi). To'liq end-to-end oqim (login → workspace →
+bildirishnoma → task yaratish/holat o'zgartirish → o'qildi belgilash →
+a'zolar) real backend'ga qarshi Playwright orqali browser'da qo'lda
+tasdiqlandi, faqat `npm run build` bilan emas.
 
 ## Ishga tushirish (local dev)
 
@@ -81,6 +92,17 @@ mypy src/doda                   # tiplar
 CI (`.github/workflows/ci.yml`): har push/PR'da lint+format+mypy, Alembic
 migratsiya round-trip (upgrade→downgrade→upgrade, real Postgres'da), va
 to'liq test suite (real Postgres+Redis'da) ishga tushadi.
+
+Frontend (backend allaqachon ishga tushirilgan bo'lishi kerak):
+
+```bash
+cd frontend
+cp .env.example .env.local
+npm install
+npm run dev
+```
+
+`http://localhost:3000` — tafsilot `frontend/README.md`da.
 
 ### Ikki xil DB roli — nega
 
@@ -115,6 +137,10 @@ backend/
     config.py, db.py, main.py
   migrations/       # Alembic
   tests/
+frontend/
+  src/
+    app/            # Next.js App Router sahifalari (login, workspaces, workspace/[id])
+    lib/            # api.ts (backend client), session.ts, useSession.ts
 infra/
   postgres-init/    # doda_app (huquqi cheklangan) rolini yaratuvchi bootstrap skript
 docs/

@@ -449,12 +449,63 @@ sezgir ma'lumot emas.
 
 160 test, barchasi real Postgres'da.
 
-Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
-— bu yerda FR-AUTH-001'ning haqiqiy OIDC oqimi qurilishi kerak (hozir
-`session_service.create_session` faqat dev/test seam) va bu tashqi OIDC
-provayder ma'lumotlarini (client_id/secret, issuer URL) talab qiladi —
-Product Owner'dan kelishi kerak. Yoki OD-002 (connector tanlovi) S6'dan
-oldin hal qilinishi kerak.
+Backend'ga endi ikkita "kashfiyot" endpoint'lar to'plami qo'shilgani va
+`GET /v1/me/workspaces` haqiqatda ishlashi tufayli, S3'ning frontend
+qismini (chat'siz — pastga qarang) qurish uchun endi haqiqiy to'siq
+qolmadi (faqat OIDC'ning o'zi, login'ning ICHKI mexanizmi uchun kerak,
+lekin frontend qobig'ining o'zi buni kutmasdan qurilishi mumkin edi).
+Shuning uchun **S3'ning frontend qismi (chat'siz) shu sessiyada qurildi**:
+
+`frontend/` — Next.js 16 (App Router) + TypeScript + Tailwind, TRD 6.3
+stack'iga mos. `create-next-app` bilan boshlab, quyidagilar qo'shildi:
+
+- `src/lib/api.ts` — backend uchun yozilgan (qo'lda, OpenAPI codegen
+  hali yo'q) tipdagi client. Har bir funksiya `sessionId`ni ochiq
+  parametr sifatida oladi (hech qachon o'zi storage'dan o'qimaydi).
+- `src/lib/session.ts` / `useSession.ts` — session ID'ni localStorage'da
+  saqlash. `useSession` `useSyncExternalStore` orqali yozilgan (oddiy
+  `useEffect`+`setState` emas) — bu React'ning "effect ichida setState"
+  anti-pattern'ini ESLint darajasida to'g'ri chetlab o'tadi, SSR/hydration
+  mos kelmasligini oldini oladi.
+- Sahifalar: `/login` (dev/test session-ID kirish, aniq ogohlantirish
+  bilan — "haqiqiy OIDC emas"), `/workspaces` (`GET /v1/me/workspaces`),
+  `/workspaces/[id]` (kill-switch banner, task ro'yxati+yaratish+holat
+  o'zgartirish, bildirishnomalar ro'yxati+o'qildi belgilash, a'zolar
+  ro'yxati — hammasi real, testlangan backend endpoint'lariga ulangan).
+
+**Backend'da bitta zarur o'zgarish kerak bo'ldi**: CORS. Frontend
+(`localhost:3000`) backend'ni (`localhost:8000`) brauzerdan to'g'ridan-
+to'g'ri chaqiradi — CORS sozlanmagan bo'lsa, har qanday `fetch()`
+so'rovi Authorization header to'g'ri bo'lsa ham brauzer tomonidan
+jimgina bloklanardi. `config.py`ga `cors_allowed_origins` (vergul bilan
+ajratilgan, hech qachon `"*"` emas — har bir so'rov session token olib
+yuradi) qo'shildi, `main.py`ga `CORSMiddleware`. `tests/test_cors.py`
+(3 test) buni real HTTP orqali tekshiradi: sozlangan origin ruxsat
+etiladi, sozlanmagan origin **qaytarilmaydi** (wildcard emasligini
+isbotlaydi), va preflight `Authorization` header'ni ruxsat beradi.
+
+**Butun oqim real backend'ga qarshi Playwright orqali (headless Chromium,
+`npm run build`/tsc emas — haqiqiy brauzer) qo'lda tasdiqlandi**: login →
+workspace ro'yxati → workspace ichiga kirish → seed qilingan R3
+action'dan PENDING_APPROVAL bildirishnoma ko'rinishi → yangi task
+yaratish → uni IN_PROGRESS'ga o'tkazish → bildirishnomani o'qildi deb
+belgilash → a'zolar ro'yxatida owner ko'rinishi — 9 bosqichning barchasi
+console xatosiz o'tdi. Bu "DEMO ≠ PRODUCTION" qoidasiga mos: frontend
+kodi yozilgani va tip-check/lint'dan o'tgani "isbot" emas — real HTTP
+orqali, real ma'lumot bilan ishlashi ko'rsatilgan.
+
+**Ataylab qurilmagan**: Chat (FR-CONV) va Knowledge/RAG ekranlari —
+backend'da bu domainlar umuman yo'q, shuning uchun ularning UI'sini
+qurish "mavjud bo'lmagan backend uchun soxta frontend" bo'lar edi.
+Actions bo'limi ham workspace sahifasiga qo'shilmadi (vaqt/ko'lam
+sababli, TaskService/NotificationService'dan farqli o'laroq bu "keyingi
+navbatdagi" ekran, backend endpointi allaqachon tayyor va testlangan).
+
+Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
+(FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
+seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,
+issuer URL) talab qiladi, Product Owner'dan kelishi kerak. Yoki OD-002
+(connector tanlovi) S6'dan oldin hal qilinishi kerak.
 
 **Bilingan cheklovlar (keyingi ishlarda hisobga olinsin):**
 - ~~Audit hash-zanjiri concurrent yozuvlarda xavfsiz emas~~ — **tuzatildi**:

@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     object_storage_endpoint: str = "http://localhost:9000"
     object_storage_bucket: str = "doda-files"
     otel_service_name: str = "doda-backend"
+    # Comma-separated origins the Experience layer (web frontend) is served
+    # from. Never "*" — every request here already carries a bearer session
+    # token, and a wildcard would let any origin's script read the response.
+    cors_allowed_origins: str = "http://localhost:3000"
 
 
 @lru_cache

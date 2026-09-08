@@ -10,6 +10,7 @@ import logging
 
 import structlog
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from opentelemetry import trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
@@ -52,6 +53,15 @@ def create_app() -> FastAPI:
     _configure_tracing(settings.otel_service_name)
 
     app = FastAPI(title="DODA API", version="0.1.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            origin.strip() for origin in settings.cors_allowed_origins.split(",") if origin.strip()
+        ],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
+        allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+    )
     app.add_middleware(TraceIdMiddleware)
     register_exception_handlers(app)
     app.include_router(health_router, prefix="/v1")
