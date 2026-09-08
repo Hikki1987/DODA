@@ -368,6 +368,41 @@ sifatida "tuzatilmadi" (yolg'on signal emas — chinakam bo'sh joy).
 
 145 test, barchasi real Postgres'da.
 
+**Fundamental bo'shliq topildi va yopildi: hech qanday client "men qaysi
+workspace'larga a'zoman" deb so'ray olmasdi.** Frontend/klient integratsiyasi
+haqida o'ylashda aniqlandi — API'dagi HAR BIR workspace/customer-scoped
+endpoint chaqiruvchidan workspace_id yoki customer_id'ni URL'da OLDINDAN
+bilishni talab qiladi; login'dan keyin "menda qaysi workspace'lar bor"
+degan savolga javob beradigan birorta endpoint yo'q edi. Bu shunchaki
+"frontend hali yo'q" emas — bu HAR QANDAY klient (web, CLI, boshqa xizmat)
+uchun asosiy, ishlatib bo'lmaydigan bo'shliq edi.
+
+Sabab — xuddi `workspace_tenant_index`ni talab qilgan tuxum-tovuq
+muammosining bir pog'ona yuqorisi: `customer_memberships`ning o'zi
+`customer_id` bo'yicha RLS bilan qamalgan, shuning uchun "foydalanuvchi X
+qaysi customer'larga a'zo" so'roviga customer_id'ni OLDINDAN bilmasdan
+javob berib bo'lmaydi. Yechim: yangi `UserCustomerIndex` bootstrap jadvali
+(0011-migratsiya) — `workspace_tenant_index` bilan bir xil, ataylab
+RLS'siz, faqat `(user_id, customer_id)` xaritasi, hech qanday kontent yo'q.
+`customer_service.py`ning uchta funksiyasida (`create_customer_with_owner`,
+`invite_customer_member`, `remove_customer_member`) CustomerMembership
+bilan BITTA tranzaksiyada yoziladi/o'chiriladi — `workspace_tenant_index`
+uchun allaqachon qabul qilingan naqshning aynan takrori, yangi presedent
+emas.
+
+Yangi `GET /v1/me/workspaces` (`api/me.py`, session-scoped, `get_current_
+identity` orqali — `/v1/sessions` bilan bir xil naqsh) — login'dan keyin
+klient chaqira oladigan BIRINCHI endpoint: foydalanuvchi a'zo bo'lgan
+HAR BIR customer bo'ylab, o'sha customer'dagi workspace'larini (nomi,
+roli bilan) qaytaradi. `CustomerOwner` uchun maxsus holat ham to'g'ri
+ishlaydi: `get_workspace_context`dagi kabi, hech qanday WorkspaceMembership
+qatori bo'lmasa ham, CustomerOwner o'z customer'idagi BARCHA workspace'larni
+(workspace_admin roli bilan) ko'radi — bu alohida testda tasdiqlangan.
+Index'ning o'zi ham to'g'ri tozalanishi (`remove_customer_member`da)
+alohida testda tekshirilgan.
+
+150 test, barchasi real Postgres'da.
+
 Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
 — bu yerda FR-AUTH-001'ning haqiqiy OIDC oqimi qurilishi kerak (hozir
 `session_service.create_session` faqat dev/test seam) va bu tashqi OIDC

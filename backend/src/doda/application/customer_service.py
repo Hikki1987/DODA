@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.application.audit_service import record_audit_event
-from doda.domain.customer.models import Customer, CustomerMembership
+from doda.domain.customer.models import Customer, CustomerMembership, UserCustomerIndex
 from doda.domain.security.roles import CustomerRole
 from doda.domain.workspace.models import WorkspaceMembership
 
@@ -44,6 +44,9 @@ async def create_customer_with_owner(
         customer_id=customer_id, user_id=owner_user_id, role=CustomerRole.CUSTOMER_OWNER.value
     )
     session.add(membership)
+    # See UserCustomerIndex's docstring: written in the same transaction as
+    # the CustomerMembership row it mirrors, never independently.
+    session.add(UserCustomerIndex(user_id=owner_user_id, customer_id=customer_id))
     await session.flush()
 
     await record_audit_event(
@@ -72,6 +75,13 @@ async def invite_customer_member(
 ) -> CustomerMembership:
     membership = CustomerMembership(customer_id=customer_id, user_id=user_id, role=role.value)
     session.add(membership)
+
+    existing_index_row = await session.get(
+        UserCustomerIndex, {"user_id": user_id, "customer_id": customer_id}
+    )
+    if existing_index_row is None:
+        session.add(UserCustomerIndex(user_id=user_id, customer_id=customer_id))
+
     await session.flush()
     await record_audit_event(
         session,
@@ -140,5 +150,24 @@ async def remove_customer_member(
         event_type="customer.member_removed.v1",
         safe_metadata={"customer_membership_id": str(membership.id), "role": membership.role},
     )
+    removed_user_id, removed_customer_id = membership.user_id, membership.customer_id
     await session.delete(membership)
     await session.flush()
+
+    # Only drop the bootstrap index row once no OTHER CustomerMembership
+    # row remains for this (user, customer) pair — nothing prevents more
+    # than one such row today (see UserCustomerIndex's docstring), and a
+    # stray extra one must keep the user discoverable via GET /v1/me/workspaces.
+    remaining = await session.scalar(
+        select(CustomerMembership).where(
+            CustomerMembership.user_id == removed_user_id,
+            CustomerMembership.customer_id == removed_customer_id,
+        )
+    )
+    if remaining is None:
+        index_row = await session.get(
+            UserCustomerIndex, {"user_id": removed_user_id, "customer_id": removed_customer_id}
+        )
+        if index_row is not None:
+            await session.delete(index_row)
+            await session.flush()

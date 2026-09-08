@@ -27,7 +27,10 @@ o'zgartirish/chiqarish, faqat CustomerOwner — FR-WKS-005),
 `/v1/customers/{id}/notifications` (customer ostidagi barcha
 workspace'lardagi bildirishnomalar bitta joydan),
 `/v1/customers/{id}/notification-preferences[/{type}]` (FR-NTF-004:
-SECURITY_ALERT'dan tashqari har bir turni yoqish/o'chirish). Audit
+SECURITY_ALERT'dan tashqari har bir turni yoqish/o'chirish), va
+session-scoped `/v1/me/workspaces` — login'dan keyin klient chaqiradigan
+birinchi endpoint, foydalanuvchi a'zo bo'lgan barcha customer/workspace'larni
+qaytaradi (avval bunday "kashfiyot" endpointi umuman yo'q edi). Audit
 hash-zanjiri endi concurrent yozuvlarda
 ham xavfsiz (FR-AUD-004, per-customer lock); sessiya faollik-belgisi
 (FR-AUTH-006 idle timeout) endi haqiqatda saqlanadi (avval jimgina

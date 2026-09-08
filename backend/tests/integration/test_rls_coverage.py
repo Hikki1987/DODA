@@ -29,16 +29,20 @@ from doda.domain.security import kill_switch as _security_kill_switch_models  # 
 from doda.domain.task import models as _task_models  # noqa: F401
 from doda.domain.workspace import models as _workspace_models  # noqa: F401
 
-# Both deliberate, documented exceptions:
+# All deliberate, documented exceptions:
 # - workspace_tenant_index: a bootstrap table solving RLS's own
 #   chicken-and-egg problem (you need customer_id to pass RLS, but this
 #   table's whole job is telling you a workspace's customer_id). See
 #   doda.domain.workspace.models.WorkspaceTenantIndex.
+# - user_customer_index: the same bootstrap pattern one level up — you
+#   need a customer_id to pass RLS on customer_memberships, but this
+#   table's whole job is telling you which customers a user belongs to.
+#   See doda.domain.customer.models.UserCustomerIndex.
 # - outbox_messages: the relay is a platform-level process that must see
 #   every customer's pending messages to deliver them, and the payload is
 #   already-derived event data, not raw tenant content. See
 #   doda.domain.outbox.models.OutboxMessage.
-KNOWN_RLS_EXEMPT_TABLES = {"workspace_tenant_index", "outbox_messages"}
+KNOWN_RLS_EXEMPT_TABLES = {"workspace_tenant_index", "user_customer_index", "outbox_messages"}
 
 
 def _tables_with_customer_id() -> set[str]:
