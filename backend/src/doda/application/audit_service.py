@@ -12,6 +12,7 @@ Different customers still write in parallel — they lock different rows.
 """
 
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
@@ -73,3 +74,73 @@ async def record_audit_event(
     tip.tip_hash = digest
     await session.flush()
     return event
+
+
+@dataclass(frozen=True)
+class AuditChainViolation:
+    """One broken link found by `verify_audit_chain` (FR-AUD-004)."""
+
+    event_id: uuid.UUID
+    reason: str
+
+
+@dataclass(frozen=True)
+class AuditChainVerificationResult:
+    checked_count: int
+    violations: list[AuditChainViolation]
+
+    @property
+    def ok(self) -> bool:
+        return len(self.violations) == 0
+
+
+async def verify_audit_chain(
+    session: AsyncSession, *, customer_id: uuid.UUID
+) -> AuditChainVerificationResult:
+    """Walk this customer's audit events in the order they were written and
+    recompute each one's hash from its own stored fields plus the previous
+    event's stored hash, comparing against what is actually stored.
+
+    Read-only — this detects tampering (FR-AUD-004: "buzilishda alert"), it
+    never repairs a row. An empty return means the chain is intact.
+
+    Ordered by (created_at, id) — the same tie-broken ordering
+    `audit_query_service.list_audit_events` already uses for pagination —
+    which matches true write order because `record_audit_event` serializes
+    writes per customer via `AuditChainTip`'s row lock.
+    """
+    events = (
+        await session.scalars(
+            select(AuditEvent)
+            .where(AuditEvent.customer_id == customer_id)
+            .order_by(AuditEvent.created_at.asc(), AuditEvent.id.asc())
+        )
+    ).all()
+
+    violations = []
+    expected_prev_hash: str | None = None
+    for event in events:
+        if event.prev_hash != expected_prev_hash:
+            violations.append(AuditChainViolation(event_id=event.id, reason="prev_hash_mismatch"))
+
+        recomputed = hash_payload(
+            {
+                "customer_id": str(event.customer_id),
+                "workspace_id": str(event.workspace_id) if event.workspace_id else None,
+                "trace_id": str(event.trace_id),
+                "actor_id": event.actor_id,
+                "event_type": event.event_type,
+                "occurred_at": event.occurred_at.isoformat(),
+                "safe_metadata": canonical_json(event.safe_metadata),
+                "prev_hash": event.prev_hash,
+            }
+        )
+        if recomputed != event.hash:
+            violations.append(AuditChainViolation(event_id=event.id, reason="hash_mismatch"))
+
+        # Continue walking from this event's *stored* hash even when it
+        # didn't validate, so one bad row is reported once and doesn't
+        # cascade into a false "prev_hash_mismatch" for every row after it.
+        expected_prev_hash = event.hash
+
+    return AuditChainVerificationResult(checked_count=len(events), violations=violations)

@@ -269,6 +269,24 @@ export function listCustomerAudit(sessionId: string, customerId: string): Promis
   return apiFetch(`/v1/customers/${customerId}/audit`, sessionId);
 }
 
+export interface AuditChainViolationOut {
+  event_id: string;
+  reason: string;
+}
+
+export interface AuditChainVerificationOut {
+  ok: boolean;
+  checked_count: number;
+  violations: AuditChainViolationOut[];
+}
+
+export function verifyCustomerAuditChain(
+  sessionId: string,
+  customerId: string,
+): Promise<AuditChainVerificationOut> {
+  return apiFetch(`/v1/customers/${customerId}/audit/verify`, sessionId);
+}
+
 // ---- /v1/customers/{id}/kill-switch ----
 
 export function getCustomerKillSwitch(sessionId: string, customerId: string): Promise<KillSwitchStatusOut> {

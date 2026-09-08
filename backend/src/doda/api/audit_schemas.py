@@ -16,3 +16,14 @@ class AuditEventOut(BaseModel):
     safe_metadata: dict[str, Any]
     prev_hash: str | None
     hash: str
+
+
+class AuditChainViolationOut(BaseModel):
+    event_id: uuid.UUID
+    reason: str
+
+
+class AuditChainVerificationOut(BaseModel):
+    ok: bool
+    checked_count: int
+    violations: list[AuditChainViolationOut]

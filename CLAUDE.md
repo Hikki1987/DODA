@@ -795,6 +795,83 @@ tugmasini o'chirib qo'yadigan holatga o'tkazildi (`creatingTask`/
 real Postgres'da; frontend E2E suite ham (workspace + customer specs)
 qayta o'tkazilib, regressiya yo'qligi tasdiqlandi.
 
+**FR-ADM va global kill switch bo'yicha tekshiruv o'tkazildi (TRD'ning
+o'zidan, xotiradan taxmin qilinmadi) — xulosa: hozircha qurilmaydi, chunki
+haqiqiy arxitektura qarori talab qiladi.** TRD'ni (`docs/DODA-TRD-v2.0.docx`)
+to'g'ridan-to'g'ri o'qib chiqib (3.9-bo'lim FR-ADM-001..006, 2.2-bo'lim rol
+jadvali, 3.8-bo'lim FR-CTL-003) ikkita narsa aniqlandi: (1) FR-ADM aslida
+admin panel (customer/workspace ro'yxati, rol-permission matritsa
+tahrirlagichi, konnektor boshqaruvi, ABAC policy versiyalash, AI byudjeti,
+feature flag) haqida — global kill switch bilan bog'liq emas, bu sessiyada
+oldinroq qilingan taxmin noto'g'ri edi; global kill switch aslida
+FR-CTL-003ning ikkinchi yarmi ("Global va workspace kill switch" — workspace
+qismi allaqachon qurilgan). (2) Muhimi — 2.2-bo'lim rol jadvali Platform
+Owner'ni "R5 (dual control bilan)" deb belgilaydi, ya'ni global kill switch
+**ikki alohida shaxs** tasdig'ini talab qiladi (9.1: R5 — "Ikki alohida
+shaxs"). Bugungi kod bazasida (`domain/security/roles.py`) `CustomerRole` va
+`WorkspaceRole`dan boshqa hech qanday rol yo'q — `platform_owner` degan,
+tenant'ga bog'liq bo'lmagan primitiv umuman mavjud emas, va approval
+modelining o'zi ham faqat bitta approver'ni tekshiradi (9.2), ikkita
+mustaqil shaxsni talab qiluvchi dual-control mexanizmi yo'q. Bitta AI agent
++ bitta Product Owner bilan ishlaydigan loyihada "ikkinchi alohida shaxs"
+kim bo'lishi ham hal qilinmagan savol. Demak bu FR-CTL-003'ning global
+yarmini qurish (a) yangi, tenant-scoped bo'lmagan authorization primitivini
+kiritish, (b) approval modeliga dual-control semantikasini qo'shish, (c) bu
+ikkinchi shaxs kim bo'lishini hal qilishni talab qiladi — bularning
+barchasi OD-002/OIDC kabi Product Owner qarorini talab qiladigan haqiqiy
+arxitektura qarori, "kichik xavfsiz keyingi qadam" emas. Shuning uchun
+so'ralmagan holda amalga oshirilmadi (QOIDA 2: change request) — workspace
+darajasidagi kill switch (allaqachon qurilgan/drill-testlangan) hozircha
+yagona amalga oshirilgan qism bo'lib qoladi.
+
+**FR-AUD-004ning ikkinchi yarmi ("Kunlik verification job; buzilishda
+alert") qurildi — hash-zanjiri yozilishi (concurrency bilan) allaqachon bor
+edi, lekin uni haqiqatan TEKSHIRADIGAN hech narsa yo'q edi.**
+`audit_service.verify_audit_chain` har bir customer'ning audit zanjirini
+yozilish tartibida (`(created_at, id)`, xuddi `list_audit_events`ning
+pagination tartibi) aylanib chiqadi, har bir yozuvning hash'ini o'z
+maydonlari + oldingi yozuvning saqlangan hash'idan qayta hisoblab, saqlangan
+qiymat bilan solishtiradi — mos kelmasa `hash_mismatch`, zanjir bog'lanishi
+uzilgan bo'lsa `prev_hash_mismatch` deb belgilaydi. Buni yozish jarayonida
+haqiqiy narsa aniqlandi: `audit_events` jadvalidagi
+`audit_events_no_update_delete` trigger (0001-migratsiya) UPDATE/DELETE'ni
+allaqachon butunlay bloklaydi — birinchi test urinishim (ORM orqali qatorni
+UPDATE qilib "tamper" simulyatsiya qilish) shu trigger tomonidan rad etildi.
+Demak bu funksiya haqiqatda qaysi tahdidga qarshi himoya qilishini aniq
+belgilash kerak bo'ldi: trigger faqat UPDATE/DELETE'ni to'xtatadi, INSERT'ga
+tegmaydi — shuning uchun test to'g'ri stsenariyga (mavjud
+`record_audit_event`ni chetlab o'tib, to'g'ridan-to'g'ri soxta hash bilan
+yangi qator qo'shish — kelajakdagi xato yoki soxta tarixiy yozuv) tuzatildi,
+va bu haqiqatan aniq bitta buzilgan yozuvni ko'rsatishi tasdiqlandi.
+
+`GET /v1/customers/{id}/audit/verify` — audit viewer bilan bir xil auditoriya
+(`authorize_view_customer_audit`: CustomerOwner/Auditor), chunki bu faqat
+o'qish/aniqlash, hech narsani tuzatmaydi yoki yozmaydi (tekshirishning o'zi
+`audit.chain_verified.v1` sifatida audit qilinadi, "audit.viewed.v1" bilan
+bir xil naqsh). "Kunlik job" qismi uchun `backend/scripts/
+verify_audit_chain_job.py` qo'shildi — `UserCustomerIndex` (RLS'siz
+bootstrap jadval, xuddi `GET /v1/me/workspaces` ishlatgani) orqali barcha
+customer'larni topib, har birini tekshiradi, buzilish topilsa stderr'ga
+yozib exit code 1 bilan chiqadi (haqiqiy paging/alerting tizimi hali yo'q —
+"alert" shu exit code + stderr, cron/systemd wrapper buni ushlay oladi).
+Skriptni yozishda yana bitta real xato topildi: `db.get_session()` FastAPI
+`Depends()` uchun mo'ljallangan yalang'och async generator, `@asynccontext
+manager` bilan bezatilmagan — `async with get_session()` `TypeError` beradi;
+`async_session_factory()`ning o'ziga to'g'ridan-to'g'ri murojaat qilib
+tuzatildi. Tuzatilgandan keyin skript shu sessiya davomida yig'ilgan haqiqiy
+~2365 ta customer'ning barchasiga qarshi ishga tushirilib, barchasi toza
+(buzilish yo'q) ekani tasdiqlandi.
+
+Frontend'ning customer sahifasiga "Zanjirni tekshirish" tugmasi qo'shildi
+(Audit bo'limida) — natijani yashil ("Zanjir sog'lom — N ta yozuv
+tekshirildi") yoki qizil (necha ta buzilish) banner sifatida ko'rsatadi.
+Real backend'ga (169 test, barchasi real Postgres'da) va haqiqiy brauzerga
+(production build, seed qilingan customer) qarshi tasdiqlandi — tugma
+bosilganda haqiqiy `audit.chain_verified.v1` yozuvi hosil bo'lishi va
+"Audit" ro'yxatida darhol ko'rinishi kuzatildi, konsol xatosiz.
+
+169 test, barchasi real Postgres'da.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,

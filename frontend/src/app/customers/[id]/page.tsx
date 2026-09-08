@@ -18,6 +18,8 @@ import {
   markCustomerNotificationRead,
   removeCustomerMember,
   setNotificationPreference,
+  verifyCustomerAuditChain,
+  type AuditChainVerificationOut,
   type AuditEventOut,
   type CustomerMemberOut,
   type CustomerRole,
@@ -47,6 +49,8 @@ export default function CustomerPage() {
   const [notifications, setNotifications] = useState<NotificationOut[] | null>(null);
   const [preferences, setPreferences] = useState<NotificationPreferenceOut[] | null>(null);
   const [auditEvents, setAuditEvents] = useState<AuditEventOut[] | null>(null);
+  const [chainVerification, setChainVerification] = useState<AuditChainVerificationOut | null>(null);
+  const [verifyingChain, setVerifyingChain] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
@@ -127,6 +131,19 @@ export default function CustomerPage() {
       refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "A'zoni chiqarib bo'lmadi.");
+    }
+  }
+
+  async function handleVerifyChain() {
+    if (sessionId === null || verifyingChain) return;
+    setVerifyingChain(true);
+    try {
+      const result = await verifyCustomerAuditChain(sessionId, customerId);
+      setChainVerification(result);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Zanjirni tekshirib bo'lmadi.");
+    } finally {
+      setVerifyingChain(false);
     }
   }
 
@@ -311,7 +328,37 @@ export default function CustomerPage() {
       </section>
 
       <section>
-        <h2 className="mb-3 text-lg font-semibold">Audit</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Audit</h2>
+          <button
+            onClick={handleVerifyChain}
+            disabled={verifyingChain}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 disabled:opacity-50"
+          >
+            {verifyingChain ? "Tekshirilmoqda..." : "Zanjirni tekshirish"}
+          </button>
+        </div>
+        {chainVerification && (
+          <div
+            className={`mb-3 rounded-md border p-3 text-sm ${
+              chainVerification.ok
+                ? "border-green-300 bg-green-50 text-green-900"
+                : "border-red-300 bg-red-50 text-red-900"
+            }`}
+          >
+            {chainVerification.ok ? (
+              <p>
+                Zanjir sog&apos;lom — {chainVerification.checked_count} ta yozuv tekshirildi, buzilish
+                topilmadi.
+              </p>
+            ) : (
+              <p>
+                {chainVerification.violations.length} ta buzilish topildi ({chainVerification.checked_count}{" "}
+                ta yozuvdan)!
+              </p>
+            )}
+          </div>
+        )}
         <ul className="space-y-2">
           {auditEvents?.map((event) => (
             <li key={event.id} className="rounded-md border border-gray-200 px-3 py-2 text-sm">

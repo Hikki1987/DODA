@@ -12,7 +12,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query
 
-from doda.api.audit_schemas import AuditEventOut
+from doda.api.audit_schemas import AuditChainVerificationOut, AuditChainViolationOut, AuditEventOut
 from doda.api.dependencies import (
     CustomerRequestContext,
     RequestContext,
@@ -20,7 +20,7 @@ from doda.api.dependencies import (
     get_request_context,
 )
 from doda.application.audit_query_service import list_audit_events
-from doda.application.audit_service import record_audit_event
+from doda.application.audit_service import record_audit_event, verify_audit_chain
 from doda.application.authz_service import authorize_view_customer_audit
 from doda.domain.audit.models import AuditEvent
 from doda.domain.security.roles import WorkspaceRole
@@ -115,3 +115,35 @@ async def list_customer_audit(
         },
     )
     return [_to_out(e) for e in events]
+
+
+@router.get("/v1/customers/{customer_id}/audit/verify", response_model=AuditChainVerificationOut)
+async def verify_customer_audit_chain(
+    ctx: CustomerRequestContext = Depends(get_customer_request_context),
+) -> AuditChainVerificationOut:
+    """FR-AUD-004: on-demand chain-integrity check, same audience as the
+    audit viewer itself (CustomerOwner/Auditor) — this only detects
+    tampering, it never repairs a row, so it needs no stronger permission
+    than reading the audit log already requires.
+    """
+    authorize_view_customer_audit(ctx.customer)
+
+    result = await verify_audit_chain(ctx.db, customer_id=ctx.customer.customer_id)
+
+    await record_audit_event(
+        ctx.db,
+        customer_id=ctx.customer.customer_id,
+        trace_id=uuid.uuid4(),
+        actor_id=f"user:{ctx.customer.user_id}",
+        event_type="audit.chain_verified.v1",
+        safe_metadata={
+            "role": ctx.customer.role.value,
+            "checked_count": result.checked_count,
+            "violation_count": len(result.violations),
+        },
+    )
+    return AuditChainVerificationOut(
+        ok=result.ok,
+        checked_count=result.checked_count,
+        violations=[AuditChainViolationOut(event_id=v.event_id, reason=v.reason) for v in result.violations],
+    )
