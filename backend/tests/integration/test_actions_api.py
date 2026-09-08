@@ -229,3 +229,66 @@ async def test_workspace_admin_can_approve_a_members_action(client: AsyncClient,
     )
     assert consume.status_code == 200
     assert consume.json()["status"] == "READY"
+
+
+async def test_bare_customer_owner_can_approve_a_members_action_over_http(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """CLAUDE.md flagged this as an open question after the get_workspace_context
+    fix (which only had test coverage for archive/manage-members, not R3
+    approval): does a customer_owner with NO WorkspaceMembership row at all
+    also pass authorize_consume_approval's ROLES_THAT_MAY_APPROVE_ANOTHER_ACTORS_ACTION
+    check? authorize_consume_approval reads context.role, which
+    get_workspace_context already resolves to WORKSPACE_ADMIN for any
+    customer_owner — so this should already work. Proving it here rather
+    than assuming it, since it was never actually exercised end-to-end."""
+    import doda.db as doda_db
+    from doda.application.customer_service import create_customer_with_owner
+    from doda.application.session_service import create_session
+    from doda.application.workspace_service import add_workspace_member, create_workspace
+    from doda.domain.customer.models import CustomerMembership
+    from doda.domain.identity.models import User
+
+    customer_id = uuid.uuid4()
+    owner_user_id = uuid.uuid4()
+    async with doda_db.tenant_scoped_session(customer_id) as db:
+        proposer = User(oidc_subject_hash=str(uuid.uuid4()), display_name="Proposer")
+        owner = User(id=owner_user_id, oidc_subject_hash=str(uuid.uuid4()), display_name="Owner")
+        db.add_all([proposer, owner])
+        await db.flush()
+
+        _customer, owner_membership = await create_customer_with_owner(
+            db, customer_id=customer_id, name="Acme", owner_user_id=owner_user_id, actor_id="user:setup"
+        )
+        proposer_membership = CustomerMembership(customer_id=customer_id, user_id=proposer.id, role="member")
+        db.add(proposer_membership)
+        await db.flush()
+
+        workspace = await create_workspace(db, customer_id=customer_id, name="Shared Workspace")
+        # Only the proposer gets an actual WorkspaceMembership row — the
+        # owner never does, on purpose.
+        await add_workspace_member(
+            db,
+            workspace=workspace,
+            customer_membership=proposer_membership,
+            role="member",
+            actor_id="user:setup",
+        )
+
+        proposer_session = await create_session(db, user_id=proposer.id, auth_strength=AuthStrength.AAL1)
+        owner_session = await create_session(db, user_id=owner_user_id, auth_strength=AuthStrength.AAL2)
+
+    submit = await client.post(
+        f"/v1/workspaces/{workspace.id}/actions",
+        json={"tool_name": "email.send", "risk_level": "R3", "payload": {"to": "x@example.com"}},
+        headers=_auth_headers(proposer_session.id, "e2e-owner-approve-1"),
+    )
+    approval = submit.json()["approval"]
+
+    consume = await client.post(
+        f"/v1/workspaces/{workspace.id}/approvals/{approval['id']}/consume",
+        json={"nonce": approval["nonce"]},
+        headers=_auth_headers(owner_session.id),
+    )
+    assert consume.status_code == 200
+    assert consume.json()["status"] == "READY"

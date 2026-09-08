@@ -278,6 +278,14 @@ oldin hal qilinishi kerak.
   hamon alohida, faqat customer-scoped endpointlar (kill switch, audit
   viewer) uchun ishlatiladi — bu ikkalasi konseptual jihatdan farqli
   (customer-scoped amal vs workspace-scoped amalda CustomerOwner huquqi).
+  Bu tuzatishning o'zi ilgari faqat archive/manage-members yo'llarida real
+  HTTP orqali tekshirilgan edi — R3 approval consumption (`authorize_
+  consume_approval`) yo'lida hech qachon emas, garchi kod jihatdan bir xil
+  `context.role` orqali ishlasa ham. "Isbotlamasdan taxmin qilma" tamoyiliga
+  ko'ra `test_bare_customer_owner_can_approve_a_members_action_over_http`
+  qo'shildi — WorkspaceMembership qatori yo'q customer_owner haqiqatda
+  boshqa a'zoning R3 action'ini real HTTP orqali tasdiqlay olishini
+  tasdiqladi.
 - "Customer'ga taklif qilish" (yangi foydalanuvchini customer'ga a'zo
   qilish) uchun HTTP endpoint yo'q — `customer_service.invite_customer_member`
   faqat application-layer funksiya.
