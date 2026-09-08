@@ -28,16 +28,15 @@ async def tenant_scoped_session(customer_id: UUID) -> AsyncGenerator[AsyncSessio
     Every request that touches tenant-scoped tables must go through this,
     never through a bare session — see CLAUDE.md dependency rules.
     """
-    async with async_session_factory() as session:
-        async with session.begin():
-            # SET LOCAL does not accept bind parameters (it's not a regular
-            # DML statement); set_config() is a normal function call and
-            # does, so it is the only safe way to pass the value in.
-            await session.execute(
-                text("SELECT set_config('app.current_customer_id', :customer_id, true)"),
-                {"customer_id": str(customer_id)},
-            )
-            yield session
+    async with async_session_factory() as session, session.begin():
+        # SET LOCAL does not accept bind parameters (it's not a regular
+        # DML statement); set_config() is a normal function call and
+        # does, so it is the only safe way to pass the value in.
+        await session.execute(
+            text("SELECT set_config('app.current_customer_id', :customer_id, true)"),
+            {"customer_id": str(customer_id)},
+        )
+        yield session
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:

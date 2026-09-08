@@ -18,9 +18,7 @@ ALLOWED_TRANSITIONS: dict[ActionStatus, frozenset[ActionStatus]] = {
         {ActionStatus.READY, ActionStatus.EXPIRED, ActionStatus.REJECTED}
     ),
     ActionStatus.READY: frozenset({ActionStatus.RUNNING, ActionStatus.CANCELLED}),
-    ActionStatus.RUNNING: frozenset(
-        {ActionStatus.SUCCEEDED, ActionStatus.FAILED, ActionStatus.COMPENSATING}
-    ),
+    ActionStatus.RUNNING: frozenset({ActionStatus.SUCCEEDED, ActionStatus.FAILED, ActionStatus.COMPENSATING}),
     # The TRD table lists FAILED's next state as "RETRYING / Terminal": it
     # may be retried (modeled here as FAILED -> RETRYING -> READY) or it may
     # simply remain FAILED if nothing calls transition() again — that is why

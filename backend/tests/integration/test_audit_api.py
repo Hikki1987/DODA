@@ -10,7 +10,7 @@ from httpx import ASGITransport, AsyncClient
 
 from doda.application.customer_service import create_customer_with_owner, invite_customer_member
 from doda.application.session_service import create_session
-from doda.application.workspace_service import add_workspace_member, create_workspace
+from doda.application.workspace_service import add_workspace_member
 from doda.db import tenant_scoped_session
 from doda.domain.identity.models import AuthStrength, User
 from doda.domain.security.roles import CustomerRole
@@ -77,7 +77,9 @@ async def test_member_only_sees_their_own_actions(client: AsyncClient, db_availa
             role="member",
             actor_id="user:setup",
         )
-        second_session = await create_session(session, user_id=second_user.id, auth_strength=AuthStrength.AAL1)
+        second_session = await create_session(
+            session, user_id=second_user.id, auth_strength=AuthStrength.AAL1
+        )
 
     await _propose_action(client, first, "member-view-mine")
 
@@ -106,9 +108,7 @@ async def test_customer_owner_sees_whole_customer_audit(client: AsyncClient, db_
         )
         owner_session = await create_session(session, user_id=owner_user_id, auth_strength=AuthStrength.AAL1)
 
-    response = await client.get(
-        f"/v1/customers/{customer_id}/audit", headers=_auth_headers(owner_session.id)
-    )
+    response = await client.get(f"/v1/customers/{customer_id}/audit", headers=_auth_headers(owner_session.id))
     assert response.status_code == 200
     # customer.created.v1 must be visible — proves customer-scoped (not
     # workspace-scoped) events are reachable here.
@@ -134,9 +134,15 @@ async def test_customer_member_cannot_view_customer_wide_audit(
             session, customer_id=customer_id, name="Acme", owner_user_id=owner_user_id, actor_id="user:setup"
         )
         await invite_customer_member(
-            session, customer_id=customer_id, user_id=member_user_id, role=CustomerRole.MEMBER, actor_id="user:setup"
+            session,
+            customer_id=customer_id,
+            user_id=member_user_id,
+            role=CustomerRole.MEMBER,
+            actor_id="user:setup",
         )
-        member_session = await create_session(session, user_id=member_user_id, auth_strength=AuthStrength.AAL1)
+        member_session = await create_session(
+            session, user_id=member_user_id, auth_strength=AuthStrength.AAL1
+        )
 
     response = await client.get(
         f"/v1/customers/{customer_id}/audit", headers=_auth_headers(member_session.id)
@@ -145,7 +151,9 @@ async def test_customer_member_cannot_view_customer_wide_audit(
     assert response.json()["code"] == "DENY"
 
 
-async def test_auditor_can_view_but_cannot_engage_kill_switch(client: AsyncClient, db_available: bool) -> None:
+async def test_auditor_can_view_but_cannot_engage_kill_switch(
+    client: AsyncClient, db_available: bool
+) -> None:
     """Cross-check that Auditor's read-only access (2.2) really is
     read-only: they can view audit, but authorize_engage_customer_kill_switch
     (a write) must still deny them."""
@@ -164,9 +172,15 @@ async def test_auditor_can_view_but_cannot_engage_kill_switch(client: AsyncClien
             session, customer_id=customer_id, name="Acme", owner_user_id=owner_user_id, actor_id="user:setup"
         )
         await invite_customer_member(
-            session, customer_id=customer_id, user_id=auditor_user_id, role=CustomerRole.AUDITOR, actor_id="user:setup"
+            session,
+            customer_id=customer_id,
+            user_id=auditor_user_id,
+            role=CustomerRole.AUDITOR,
+            actor_id="user:setup",
         )
-        auditor_session = await create_session(session, user_id=auditor_user_id, auth_strength=AuthStrength.AAL1)
+        auditor_session = await create_session(
+            session, user_id=auditor_user_id, auth_strength=AuthStrength.AAL1
+        )
 
     view_response = await client.get(
         f"/v1/customers/{customer_id}/audit", headers=_auth_headers(auditor_session.id)

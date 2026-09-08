@@ -69,7 +69,9 @@ async def test_list_sessions_marks_the_current_one(client: AsyncClient, db_avail
 async def test_revoking_a_session_makes_it_unusable(client: AsyncClient, db_available: bool) -> None:
     member = await seed_workspace_member()
 
-    revoke = await client.delete(f"/v1/sessions/{member.session_id}", headers=_auth_headers(member.session_id))
+    revoke = await client.delete(
+        f"/v1/sessions/{member.session_id}", headers=_auth_headers(member.session_id)
+    )
     assert revoke.status_code == 204
 
     response = await client.get("/v1/sessions", headers=_auth_headers(member.session_id))

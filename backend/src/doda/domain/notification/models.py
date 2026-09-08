@@ -11,16 +11,15 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime
+from sqlalchemy import DateTime, String
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from doda.domain.base import Base, CreatedAtMixin, UUIDPrimaryKeyMixin
 
 
-class NotificationType(str, enum.Enum):
+class NotificationType(enum.StrEnum):
     """FR-NTF-002's four required types."""
 
     PENDING_APPROVAL = "PENDING_APPROVAL"

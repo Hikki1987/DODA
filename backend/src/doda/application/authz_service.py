@@ -128,9 +128,7 @@ def authorize_consume_approval(
         raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not approve this action")
 
     if auth_strength is not AuthStrength.AAL2:
-        raise AuthorizationError(
-            Decision.STEP_UP_REQUIRED, "R3+ approval requires fresh MFA (FR-AUTH-004)"
-        )
+        raise AuthorizationError(Decision.STEP_UP_REQUIRED, "R3+ approval requires fresh MFA (FR-AUTH-004)")
 
 
 def authorize_create_task(context: WorkspaceContext) -> None:
@@ -163,7 +161,9 @@ def authorize_task_mutation(context: WorkspaceContext, task: Task) -> None:
     approvals (authorize_consume_approval) and equally defensible here."""
     is_owner = task.owner_id == f"user:{context.user_id}"
     if not is_owner and context.role is not WorkspaceRole.WORKSPACE_ADMIN:
-        raise AuthorizationError(Decision.DENY, "only the task owner or a workspace admin may change this task")
+        raise AuthorizationError(
+            Decision.DENY, "only the task owner or a workspace admin may change this task"
+        )
 
 
 def authorize_engage_workspace_kill_switch(context: WorkspaceContext) -> None:
@@ -173,7 +173,9 @@ def authorize_engage_workspace_kill_switch(context: WorkspaceContext) -> None:
     dedicated customer-scope kill switch, which would take this workspace
     down too."""
     if context.role is not WorkspaceRole.WORKSPACE_ADMIN:
-        raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not operate the workspace kill switch")
+        raise AuthorizationError(
+            Decision.DENY, f"role {context.role.value} may not operate the workspace kill switch"
+        )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -210,7 +212,9 @@ async def get_customer_context(
 def authorize_engage_customer_kill_switch(context: CustomerContext) -> None:
     """10.2 'Kill switch' row: CustomerOwner = Customer scope."""
     if context.role is not CustomerRole.CUSTOMER_OWNER:
-        raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not operate the customer kill switch")
+        raise AuthorizationError(
+            Decision.DENY, f"role {context.role.value} may not operate the customer kill switch"
+        )
 
 
 def authorize_view_customer_audit(context: CustomerContext) -> None:

@@ -6,18 +6,20 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from doda.config import get_settings
+from doda.domain.action import approval as action_approval_models  # noqa: F401
+from doda.domain.action import models as action_models  # noqa: F401
+from doda.domain.audit import models as audit_models  # noqa: F401
 from doda.domain.base import Base
+from doda.domain.customer import models as customer_models  # noqa: F401
+
 # Import every domain's models so Base.metadata is complete for autogenerate.
 from doda.domain.identity import models as identity_models  # noqa: F401
-from doda.domain.customer import models as customer_models  # noqa: F401
-from doda.domain.workspace import models as workspace_models  # noqa: F401
-from doda.domain.audit import models as audit_models  # noqa: F401
-from doda.domain.task import models as task_models  # noqa: F401
-from doda.domain.action import models as action_models  # noqa: F401
-from doda.domain.action import approval as action_approval_models  # noqa: F401
+from doda.domain.notification import models as notification_models  # noqa: F401
 from doda.domain.outbox import models as outbox_models  # noqa: F401
 from doda.domain.security import kill_switch as security_kill_switch_models  # noqa: F401
-from doda.domain.notification import models as notification_models  # noqa: F401
+from doda.domain.task import models as task_models  # noqa: F401
+from doda.domain.workspace import models as workspace_models  # noqa: F401
+
 # Note: doda.domain.security.roles/decisions hold only enums, no ORM
 # models, so there is nothing to import from them for autogenerate.
 

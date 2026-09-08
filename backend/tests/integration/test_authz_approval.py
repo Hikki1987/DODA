@@ -40,13 +40,19 @@ async def test_customer_owner_authority_overrides_a_lower_explicit_workspace_rol
     customer_id, session = tenant_session
     owner_user_id = uuid.uuid4()
     session.add(Customer(id=customer_id, name="Acme"))
-    owner_membership = CustomerMembership(customer_id=customer_id, user_id=owner_user_id, role="customer_owner")
+    owner_membership = CustomerMembership(
+        customer_id=customer_id, user_id=owner_user_id, role="customer_owner"
+    )
     session.add(owner_membership)
     await session.flush()
 
     workspace = await create_workspace(session, customer_id=customer_id, name="Main")
     await add_workspace_member(
-        session, workspace=workspace, customer_membership=owner_membership, role="member", actor_id="user:setup"
+        session,
+        workspace=workspace,
+        customer_membership=owner_membership,
+        role="member",
+        actor_id="user:setup",
     )
 
     context = await get_workspace_context(session, user_id=owner_user_id, workspace_id=workspace.id)
@@ -70,7 +76,11 @@ async def test_plain_member_without_customer_owner_role_keeps_their_real_role(
 
     workspace = await create_workspace(session, customer_id=customer_id, name="Main")
     await add_workspace_member(
-        session, workspace=workspace, customer_membership=member_membership, role="member", actor_id="user:setup"
+        session,
+        workspace=workspace,
+        customer_membership=member_membership,
+        role="member",
+        actor_id="user:setup",
     )
 
     context = await get_workspace_context(session, user_id=member_user_id, workspace_id=workspace.id)

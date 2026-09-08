@@ -121,10 +121,18 @@ async def test_customer_kill_switch_blocks_every_workspace_under_it(
         workspace_a = await create_workspace(session, customer_id=customer_id, name="A")
         workspace_b = await create_workspace(session, customer_id=customer_id, name="B")
         await add_workspace_member(
-            session, workspace=workspace_a, customer_membership=owner_membership, role="workspace_admin", actor_id="user:setup"
+            session,
+            workspace=workspace_a,
+            customer_membership=owner_membership,
+            role="workspace_admin",
+            actor_id="user:setup",
         )
         await add_workspace_member(
-            session, workspace=workspace_b, customer_membership=owner_membership, role="workspace_admin", actor_id="user:setup"
+            session,
+            workspace=workspace_b,
+            customer_membership=owner_membership,
+            role="workspace_admin",
+            actor_id="user:setup",
         )
         owner_session = await create_session(session, user_id=owner_user_id, auth_strength=AuthStrength.AAL1)
 
@@ -177,9 +185,15 @@ async def test_plain_member_cannot_engage_customer_kill_switch(
             session, customer_id=customer_id, name="Acme", owner_user_id=owner_user_id, actor_id="user:setup"
         )
         await invite_customer_member(
-            session, customer_id=customer_id, user_id=member_user_id, role=CustomerRole.MEMBER, actor_id="user:setup"
+            session,
+            customer_id=customer_id,
+            user_id=member_user_id,
+            role=CustomerRole.MEMBER,
+            actor_id="user:setup",
         )
-        member_session = await create_session(session, user_id=member_user_id, auth_strength=AuthStrength.AAL1)
+        member_session = await create_session(
+            session, user_id=member_user_id, auth_strength=AuthStrength.AAL1
+        )
 
     response = await client.post(
         f"/v1/customers/{customer_id}/kill-switch/engage",

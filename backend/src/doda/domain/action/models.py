@@ -22,7 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from doda.domain.base import Base, CreatedAtMixin, UUIDPrimaryKeyMixin
 
 
-class RiskLevel(str, enum.Enum):
+class RiskLevel(enum.StrEnum):
     R0 = "R0"
     R1 = "R1"
     R2 = "R2"
@@ -35,7 +35,7 @@ class RiskLevel(str, enum.Enum):
 AUTO_APPROVED_RISK_LEVELS = frozenset({RiskLevel.R0, RiskLevel.R1, RiskLevel.R2})
 
 
-class ActionStatus(str, enum.Enum):
+class ActionStatus(enum.StrEnum):
     DRAFT = "DRAFT"
     VALIDATING = "VALIDATING"
     AWAITING_APPROVAL = "AWAITING_APPROVAL"
@@ -64,7 +64,9 @@ class Action(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     task_id: Mapped[uuid.UUID | None] = mapped_column(default=None)
     actor_id: Mapped[str] = mapped_column(String(256))
     tool_name: Mapped[str] = mapped_column(String(128))
-    risk_level: Mapped[RiskLevel] = mapped_column(SAEnum(RiskLevel, name="risk_level", native_enum=False, length=2))
+    risk_level: Mapped[RiskLevel] = mapped_column(
+        SAEnum(RiskLevel, name="risk_level", native_enum=False, length=2)
+    )
     payload: Mapped[dict] = mapped_column(JSONB)
     payload_hash: Mapped[str] = mapped_column(String(64))
     """sha256 of the canonical payload — see doda.application.hashing.hash_payload.

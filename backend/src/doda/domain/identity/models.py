@@ -14,9 +14,8 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime
+from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from doda.domain.base import Base, CreatedAtMixin, UUIDPrimaryKeyMixin
@@ -29,7 +28,7 @@ class User(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     display_name: Mapped[str] = mapped_column(String(256))
 
 
-class AuthStrength(str, enum.Enum):
+class AuthStrength(enum.StrEnum):
     """NIST-style authenticator assurance level. AAL2 is what 9.1/FR-AUTH-004
     call "fresh MFA" — R3+ actions require it at approval time."""
 

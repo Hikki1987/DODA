@@ -16,7 +16,8 @@ import enum
 import uuid
 from datetime import datetime, timedelta
 
-from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
 from doda.domain.base import Base, CreatedAtMixin, UUIDPrimaryKeyMixin
@@ -24,7 +25,7 @@ from doda.domain.base import Base, CreatedAtMixin, UUIDPrimaryKeyMixin
 DEFAULT_APPROVAL_TTL = timedelta(minutes=10)
 
 
-class ApprovalStatus(str, enum.Enum):
+class ApprovalStatus(enum.StrEnum):
     PENDING = "PENDING"
     APPROVED = "APPROVED"
     DENIED = "DENIED"

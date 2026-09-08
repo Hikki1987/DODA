@@ -8,7 +8,7 @@ in doda.application.authz_service must raise rather than default-allow.
 import enum
 
 
-class Decision(str, enum.Enum):
+class Decision(enum.StrEnum):
     ALLOW = "ALLOW"
     DENY = "DENY"
     STEP_UP_REQUIRED = "STEP_UP_REQUIRED"

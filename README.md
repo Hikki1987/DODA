@@ -47,6 +47,19 @@ pytest                          # unit testlar (infra shart emas)
 pytest tests/integration        # RLS/live-DB testlari (docker compose up talab qiladi)
 ```
 
+Kod sifati (14.2-bo'lim, CI'da ham majburiy):
+
+```bash
+cd backend
+ruff check .                    # lint
+ruff format --check .           # format
+mypy src/doda                   # tiplar
+```
+
+CI (`.github/workflows/ci.yml`): har push/PR'da lint+format+mypy, Alembic
+migratsiya round-trip (upgrade→downgrade→upgrade, real Postgres'da), va
+to'liq test suite (real Postgres+Redis'da) ishga tushadi.
+
 ## Struktura
 
 ```

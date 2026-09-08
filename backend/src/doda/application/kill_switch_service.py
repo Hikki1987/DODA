@@ -64,7 +64,9 @@ async def engage_workspace_kill_switch(
         member_user_ids = (
             await session.execute(
                 select(CustomerMembership.user_id)
-                .join(WorkspaceMembership, WorkspaceMembership.customer_membership_id == CustomerMembership.id)
+                .join(
+                    WorkspaceMembership, WorkspaceMembership.customer_membership_id == CustomerMembership.id
+                )
                 .where(WorkspaceMembership.workspace_id == workspace_id)
             )
         ).scalars()

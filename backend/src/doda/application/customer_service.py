@@ -87,9 +87,12 @@ async def invite_customer_member(
 async def change_customer_member_role(
     session: AsyncSession, membership: CustomerMembership, *, new_role: CustomerRole, actor_id: str
 ) -> CustomerMembership:
-    if membership.role == CustomerRole.CUSTOMER_OWNER.value and new_role is not CustomerRole.CUSTOMER_OWNER:
-        if await _count_customer_owners(session, membership.customer_id) <= 1:
-            raise CustomerMembershipError("cannot demote the last customer_owner")
+    if (
+        membership.role == CustomerRole.CUSTOMER_OWNER.value
+        and new_role is not CustomerRole.CUSTOMER_OWNER
+        and await _count_customer_owners(session, membership.customer_id) <= 1
+    ):
+        raise CustomerMembershipError("cannot demote the last customer_owner")
 
     previous_role = membership.role
     membership.role = new_role.value
@@ -117,9 +120,11 @@ async def remove_customer_member(
     FK on customer_membership_id (6.2: no cross-domain FK, ID-reference
     only), so without this cleanup a removed customer member would leave
     orphaned workspace memberships an authz lookup could still resolve."""
-    if membership.role == CustomerRole.CUSTOMER_OWNER.value:
-        if await _count_customer_owners(session, membership.customer_id) <= 1:
-            raise CustomerMembershipError("cannot remove the last customer_owner")
+    if (
+        membership.role == CustomerRole.CUSTOMER_OWNER.value
+        and await _count_customer_owners(session, membership.customer_id) <= 1
+    ):
+        raise CustomerMembershipError("cannot remove the last customer_owner")
 
     orphaned = await session.execute(
         select(WorkspaceMembership).where(WorkspaceMembership.customer_membership_id == membership.id)

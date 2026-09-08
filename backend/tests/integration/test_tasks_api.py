@@ -122,7 +122,9 @@ async def test_non_owner_member_cannot_change_someone_elses_task(
         await db.flush()
 
         owner_membership = CustomerMembership(customer_id=customer_id, user_id=owner.id, role="member")
-        bystander_membership = CustomerMembership(customer_id=customer_id, user_id=bystander.id, role="member")
+        bystander_membership = CustomerMembership(
+            customer_id=customer_id, user_id=bystander.id, role="member"
+        )
         db.add_all([owner_membership, bystander_membership])
         await db.flush()
 
@@ -165,9 +167,7 @@ async def test_non_owner_member_cannot_change_someone_elses_task(
     assert response.json()["code"] == "DENY"
 
 
-async def test_task_history_records_creation_and_transition(
-    client: AsyncClient, db_available: bool
-) -> None:
+async def test_task_history_records_creation_and_transition(client: AsyncClient, db_available: bool) -> None:
     member = await seed_workspace_member()
     create = await client.post(
         f"/v1/workspaces/{member.workspace_id}/tasks",

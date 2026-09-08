@@ -43,9 +43,13 @@ async def list_audit_events(
     if before_id is not None:
         cursor_row = await session.get(AuditEvent, before_id)
         if cursor_row is not None:
+            # Right side is a plain literal tuple (not tuple_(...)) — the
+            # left side's tuple_() is enough for SQLAlchemy to compile a
+            # correct row-comparison; wrapping literals in tuple_() too
+            # only satisfies mypy's (imprecise) stub for that call, not
+            # anything SQLAlchemy itself needs at runtime.
             query = query.where(
-                tuple_(AuditEvent.created_at, AuditEvent.id)
-                < tuple_(cursor_row.created_at, cursor_row.id)
+                tuple_(AuditEvent.created_at, AuditEvent.id) < (cursor_row.created_at, cursor_row.id)
             )
 
     query = query.order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()).limit(limit)

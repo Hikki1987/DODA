@@ -14,7 +14,7 @@ proves the outbox -> transport leg of the pattern.
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from redis.asyncio import Redis
 from sqlalchemy import select
@@ -28,28 +28,27 @@ DEFAULT_BATCH_SIZE = 50
 async def relay_once(redis: Redis, *, batch_size: int = DEFAULT_BATCH_SIZE) -> int:
     """Publish up to `batch_size` pending messages. Returns how many were sent."""
     published = 0
-    async with async_session_factory() as session:
-        async with session.begin():
-            result = await session.execute(
-                select(OutboxMessage)
-                .where(OutboxMessage.published_at.is_(None))
-                .order_by(OutboxMessage.created_at)
-                .limit(batch_size)
-                .with_for_update(skip_locked=True)
+    async with async_session_factory() as session, session.begin():
+        result = await session.execute(
+            select(OutboxMessage)
+            .where(OutboxMessage.published_at.is_(None))
+            .order_by(OutboxMessage.created_at)
+            .limit(batch_size)
+            .with_for_update(skip_locked=True)
+        )
+        for message in result.scalars():
+            stream = f"doda:outbox:{message.event_type}"
+            await redis.xadd(
+                stream,
+                {
+                    "id": str(message.id),
+                    "customer_id": str(message.customer_id),
+                    "aggregate_type": message.aggregate_type,
+                    "aggregate_id": str(message.aggregate_id),
+                    "payload": json.dumps(message.payload),
+                },
             )
-            for message in result.scalars():
-                stream = f"doda:outbox:{message.event_type}"
-                await redis.xadd(
-                    stream,
-                    {
-                        "id": str(message.id),
-                        "customer_id": str(message.customer_id),
-                        "aggregate_type": message.aggregate_type,
-                        "aggregate_id": str(message.aggregate_id),
-                        "payload": json.dumps(message.payload),
-                    },
-                )
-                message.published_at = datetime.now(timezone.utc)
-                message.attempts += 1
-                published += 1
+            message.published_at = datetime.now(UTC)
+            message.attempts += 1
+            published += 1
     return published

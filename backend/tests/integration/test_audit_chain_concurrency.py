@@ -44,8 +44,10 @@ async def test_concurrent_audit_writes_for_same_customer_do_not_fork_the_chain(
 
     async with tenant_scoped_session(customer_id) as session:
         events = (
-            await session.execute(select(AuditEvent).where(AuditEvent.customer_id == customer_id))
-        ).scalars().all()
+            (await session.execute(select(AuditEvent).where(AuditEvent.customer_id == customer_id)))
+            .scalars()
+            .all()
+        )
 
     assert len(events) == CONCURRENT_WRITERS
 
@@ -56,5 +58,7 @@ async def test_concurrent_audit_writes_for_same_customer_do_not_fork_the_chain(
     assert prev_hashes.count(None) == 1  # exactly one root — no two events both "went first"
 
     non_root_prev_hashes = [p for p in prev_hashes if p is not None]
-    assert len(non_root_prev_hashes) == len(set(non_root_prev_hashes))  # no hash claimed by two children (fork)
+    assert len(non_root_prev_hashes) == len(
+        set(non_root_prev_hashes)
+    )  # no hash claimed by two children (fork)
     assert set(non_root_prev_hashes) <= hashes  # every parent link resolves within this chain

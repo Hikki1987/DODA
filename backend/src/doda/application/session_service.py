@@ -72,12 +72,14 @@ async def list_active_sessions_for_user(session: AsyncSession, user_id: uuid.UUI
     alive forever."""
     now = utcnow()
     result = await session.execute(
-        select(Session).where(
+        select(Session)
+        .where(
             Session.user_id == user_id,
             Session.revoked_at.is_(None),
             Session.expires_at > now,
             Session.last_seen_at > now - IDLE_TIMEOUT,
-        ).order_by(Session.last_seen_at.desc())
+        )
+        .order_by(Session.last_seen_at.desc())
     )
     return list(result.scalars())
 

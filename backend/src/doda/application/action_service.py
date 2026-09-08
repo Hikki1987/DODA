@@ -192,9 +192,7 @@ async def request_approval(session: AsyncSession, action: Action) -> Approval:
     """Create a fresh approval bound to the action's current payload_hash
     (9.2). Only meaningful while the action is AWAITING_APPROVAL."""
     if action.status is not ActionStatus.AWAITING_APPROVAL:
-        raise ApprovalInvalidError(
-            f"cannot request approval for action in status {action.status.value}"
-        )
+        raise ApprovalInvalidError(f"cannot request approval for action in status {action.status.value}")
     approval = Approval(
         customer_id=action.customer_id,
         action_id=action.id,

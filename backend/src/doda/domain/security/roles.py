@@ -20,13 +20,13 @@ Owner's R5 dual-control flow is S4/S6 scope).
 import enum
 
 
-class CustomerRole(str, enum.Enum):
+class CustomerRole(enum.StrEnum):
     CUSTOMER_OWNER = "customer_owner"
     MEMBER = "member"
     AUDITOR = "auditor"
 
 
-class WorkspaceRole(str, enum.Enum):
+class WorkspaceRole(enum.StrEnum):
     WORKSPACE_ADMIN = "workspace_admin"
     MEMBER = "member"
 

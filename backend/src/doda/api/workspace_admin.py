@@ -43,7 +43,10 @@ def _to_membership_out(membership: WorkspaceMembership) -> WorkspaceMembershipOu
 
 def _to_workspace_out(workspace: Workspace) -> WorkspaceOut:
     return WorkspaceOut(
-        id=workspace.id, customer_id=workspace.customer_id, name=workspace.name, archived_at=workspace.archived_at
+        id=workspace.id,
+        customer_id=workspace.customer_id,
+        name=workspace.name,
+        archived_at=workspace.archived_at,
     )
 
 
@@ -83,9 +86,7 @@ async def _get_workspace_membership(ctx: RequestContext, membership_id: uuid.UUI
     return membership
 
 
-@router.patch(
-    "/v1/workspaces/{workspace_id}/members/{membership_id}", response_model=WorkspaceMembershipOut
-)
+@router.patch("/v1/workspaces/{workspace_id}/members/{membership_id}", response_model=WorkspaceMembershipOut)
 async def change_member_role(
     membership_id: uuid.UUID,
     body: ChangeWorkspaceMemberRoleRequest,
@@ -100,9 +101,7 @@ async def change_member_role(
 
 
 @router.delete("/v1/workspaces/{workspace_id}/members/{membership_id}", status_code=204)
-async def remove_member(
-    membership_id: uuid.UUID, ctx: RequestContext = Depends(get_request_context)
-) -> None:
+async def remove_member(membership_id: uuid.UUID, ctx: RequestContext = Depends(get_request_context)) -> None:
     authorize_manage_workspace_members(ctx.workspace)
     membership = await _get_workspace_membership(ctx, membership_id)
     await remove_workspace_member(ctx.db, membership, actor_id=f"user:{ctx.workspace.user_id}")

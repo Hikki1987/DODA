@@ -67,9 +67,7 @@ async def test_low_risk_action_is_auto_ready_end_to_end(client: AsyncClient, db_
     assert body["approval"] is None
 
 
-async def test_duplicate_idempotency_key_returns_same_action(
-    client: AsyncClient, db_available: bool
-) -> None:
+async def test_duplicate_idempotency_key_returns_same_action(client: AsyncClient, db_available: bool) -> None:
     member = await seed_workspace_member()
     payload = {"tool_name": "knowledge.read", "risk_level": "R1", "payload": {"query": "hi"}}
     headers = _auth_headers(member.session_id, "e2e-idem-1")
@@ -143,9 +141,7 @@ async def test_wrong_nonce_is_rejected_over_http(client: AsyncClient, db_availab
     assert consume.json()["code"] == "APPROVAL_INVALID"
 
 
-async def test_approval_from_another_workspace_is_not_found(
-    client: AsyncClient, db_available: bool
-) -> None:
+async def test_approval_from_another_workspace_is_not_found(client: AsyncClient, db_available: bool) -> None:
     member_a = await seed_workspace_member(auth_strength=AuthStrength.AAL2)
     member_b = await seed_workspace_member(auth_strength=AuthStrength.AAL2)
 
@@ -169,9 +165,7 @@ async def test_approval_from_another_workspace_is_not_found(
     assert consume.status_code == 404
 
 
-async def test_workspace_admin_can_approve_a_members_action(
-    client: AsyncClient, db_available: bool
-) -> None:
+async def test_workspace_admin_can_approve_a_members_action(client: AsyncClient, db_available: bool) -> None:
     # Two separate memberships in the SAME workspace: proposer (member) and
     # approver (workspace_admin). seed_workspace_member always creates a
     # fresh workspace, so build this scenario by hand instead of reusing it

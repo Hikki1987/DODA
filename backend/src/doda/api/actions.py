@@ -93,18 +93,14 @@ async def propose_and_submit_action(
 
 
 @router.get("/v1/workspaces/{workspace_id}/actions/{action_id}", response_model=ActionOut)
-async def get_action(
-    action_id: uuid.UUID, ctx: RequestContext = Depends(get_request_context)
-) -> ActionOut:
+async def get_action(action_id: uuid.UUID, ctx: RequestContext = Depends(get_request_context)) -> ActionOut:
     action = await ctx.db.get(Action, action_id)
     if action is None or action.workspace_id != ctx.workspace.workspace_id:
         raise HTTPException(status_code=404, detail="action not found")
     return _to_action_out(action)
 
 
-@router.post(
-    "/v1/workspaces/{workspace_id}/approvals/{approval_id}/consume", response_model=ActionOut
-)
+@router.post("/v1/workspaces/{workspace_id}/approvals/{approval_id}/consume", response_model=ActionOut)
 async def consume_action_approval(
     approval_id: uuid.UUID,
     body: ConsumeApprovalRequest,

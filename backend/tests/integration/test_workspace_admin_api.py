@@ -38,9 +38,7 @@ async def _invite_bare_customer_member(customer_id: uuid.UUID):
         return membership.id
 
 
-async def test_plain_member_cannot_manage_workspace_members(
-    client: AsyncClient, db_available: bool
-) -> None:
+async def test_plain_member_cannot_manage_workspace_members(client: AsyncClient, db_available: bool) -> None:
     member = await seed_workspace_member(workspace_role="member")
     candidate_id = await _invite_bare_customer_member(member.customer_id)
 
@@ -53,9 +51,7 @@ async def test_plain_member_cannot_manage_workspace_members(
     assert response.json()["code"] == "DENY"
 
 
-async def test_workspace_admin_can_add_and_remove_a_member(
-    client: AsyncClient, db_available: bool
-) -> None:
+async def test_workspace_admin_can_add_and_remove_a_member(client: AsyncClient, db_available: bool) -> None:
     admin = await seed_workspace_member(workspace_role="workspace_admin")
     candidate_id = await _invite_bare_customer_member(admin.customer_id)
 
@@ -89,7 +85,6 @@ async def test_adding_member_from_a_different_customer_is_not_found(
     tenant must not be attachable to this workspace — RLS hides it as 404,
     same DENY-shaped response as everywhere else (10.1)."""
     admin = await seed_workspace_member(workspace_role="workspace_admin")
-    other = await seed_workspace_member()  # different customer entirely
 
     response = await client.post(
         f"/v1/workspaces/{admin.workspace_id}/members",

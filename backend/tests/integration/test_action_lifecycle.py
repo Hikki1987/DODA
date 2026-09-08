@@ -52,10 +52,10 @@ async def test_low_risk_action_auto_advances_to_ready_and_enqueues_outbox(
     assert action.status is ActionStatus.READY
 
     outbox_rows = (
-        await session.execute(
-            select(OutboxMessage).where(OutboxMessage.aggregate_id == action.id)
-        )
-    ).scalars().all()
+        (await session.execute(select(OutboxMessage).where(OutboxMessage.aggregate_id == action.id)))
+        .scalars()
+        .all()
+    )
     assert len(outbox_rows) == 1
     assert outbox_rows[0].event_type == "action.ready.v1"
     assert outbox_rows[0].published_at is None
@@ -84,18 +84,16 @@ async def test_high_risk_action_requires_approval_before_ready(tenant_session) -
     assert approval.status is ApprovalStatus.PENDING
     assert approval.payload_hash == action.payload_hash
 
-    await consume_approval(
-        session, action, approval, approver_id="user:approver", nonce=approval.nonce
-    )
+    await consume_approval(session, action, approval, approver_id="user:approver", nonce=approval.nonce)
 
     assert action.status is ActionStatus.READY
     assert approval.status is ApprovalStatus.APPROVED
 
     outbox_rows = (
-        await session.execute(
-            select(OutboxMessage).where(OutboxMessage.aggregate_id == action.id)
-        )
-    ).scalars().all()
+        (await session.execute(select(OutboxMessage).where(OutboxMessage.aggregate_id == action.id)))
+        .scalars()
+        .all()
+    )
     assert any(row.event_type == "action.ready.v1" for row in outbox_rows)
 
 
@@ -129,9 +127,7 @@ async def test_approval_rejected_if_payload_changed_after_approval_requested(
     await session.flush()
 
     with pytest.raises(ApprovalInvalidError, match="payload changed"):
-        await consume_approval(
-            session, action, approval, approver_id="user:approver", nonce=approval.nonce
-        )
+        await consume_approval(session, action, approval, approver_id="user:approver", nonce=approval.nonce)
 
     assert action.status is ActionStatus.REJECTED
     assert approval.status is ApprovalStatus.DENIED
@@ -156,9 +152,7 @@ async def test_wrong_nonce_does_not_consume_the_approval(tenant_session) -> None
     approval = await request_approval(session, action)
 
     with pytest.raises(ApprovalInvalidError, match="nonce mismatch"):
-        await consume_approval(
-            session, action, approval, approver_id="user:approver", nonce="wrong-nonce"
-        )
+        await consume_approval(session, action, approval, approver_id="user:approver", nonce="wrong-nonce")
 
     assert approval.status is ApprovalStatus.PENDING
     assert action.status is ActionStatus.AWAITING_APPROVAL
@@ -187,9 +181,7 @@ async def test_expired_approval_is_rejected_and_action_moves_to_expired(
     await session.flush()
 
     with pytest.raises(ApprovalInvalidError, match="expired"):
-        await consume_approval(
-            session, action, approval, approver_id="user:approver", nonce=approval.nonce
-        )
+        await consume_approval(session, action, approval, approver_id="user:approver", nonce=approval.nonce)
 
     assert action.status is ActionStatus.EXPIRED
     assert approval.status is ApprovalStatus.EXPIRED
@@ -219,10 +211,14 @@ async def test_duplicate_idempotency_key_returns_same_action_not_a_new_one(
     assert first.id == second.id
 
     rows = (
-        await session.execute(
-            select(Action).where(
-                Action.customer_id == customer_id, Action.idempotency_key == "idem-shared"
+        (
+            await session.execute(
+                select(Action).where(
+                    Action.customer_id == customer_id, Action.idempotency_key == "idem-shared"
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(rows) == 1

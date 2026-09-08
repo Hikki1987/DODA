@@ -57,16 +57,18 @@ async def create_task(
     # including its birth into TODO — not just later transitions.
     session.add(
         TaskHistory(
-            customer_id=customer_id, task_id=task.id, actor_id=owner_id, from_status=None, to_status=TaskStatus.TODO
+            customer_id=customer_id,
+            task_id=task.id,
+            actor_id=owner_id,
+            from_status=None,
+            to_status=TaskStatus.TODO,
         )
     )
     await session.flush()
     return task
 
 
-async def change_task_status(
-    session: AsyncSession, task: Task, *, target: TaskStatus, actor_id: str
-) -> Task:
+async def change_task_status(session: AsyncSession, task: Task, *, target: TaskStatus, actor_id: str) -> Task:
     if target not in ALLOWED_TASK_TRANSITIONS.get(task.status, frozenset()):
         raise InvalidTaskTransition(task.status, target)
 
@@ -75,7 +77,11 @@ async def change_task_status(
     await session.flush()
     session.add(
         TaskHistory(
-            customer_id=task.customer_id, task_id=task.id, actor_id=actor_id, from_status=previous, to_status=target
+            customer_id=task.customer_id,
+            task_id=task.id,
+            actor_id=actor_id,
+            from_status=previous,
+            to_status=target,
         )
     )
     await session.flush()

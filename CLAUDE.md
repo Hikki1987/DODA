@@ -209,6 +209,43 @@ bitta markazlashtirilgan tuzatishni — topdim va qo'lladim.
 
 122 test, barchasi real Postgres'da.
 
+Kod sifati infratuzilmasi (14.2-bo'lim, CI/CD gate) ham qurildi: `ruff`
+(lint + format) va `mypy` (tip tekshiruvi) `pyproject.toml`'ga qo'shildi va
+butun kod bazasi ularga mos qilib tozalandi (StrEnum'ga o'tish, B008
+false-positive'ni FastAPI idiomasi sifatida ignore qilish, real mypy
+xatosi — SQLAlchemy `tuple_()` stub cheklovi — tuzatildi). `.github/
+workflows/ci.yml` qo'shildi: har push/PR'da lint+format+mypy, Alembic
+migratsiya round-trip (upgrade→downgrade→upgrade, real Postgres'da), va
+to'liq test suite (real Postgres+Redis service konteynerlarida) ishga
+tushadi — bu round-trip mahalliy real Postgres'da ham qo'lda tekshirildi
+(0008'dan 0001'gacha downgrade, keyin qaytadan upgrade, keyin butun test
+suite qayta ishga tushirildi).
+
+Ikkita arxitektura testi ham qo'shildi — ilgari faqat qo'lda tekshirilgan
+ikkita invariantni endi CI o'zi kuzatadi:
+- `test_domain_isolation.py` — 6.2-bo'lim "domain boshqa domainning
+  implementatsiyasini import qilmaydi" qoidasini AST orqali statik
+  tekshiradi (DB shart emas).
+- `test_rls_coverage.py` — NFR-ISO-001/ADR-005: `customer_id` ustuni bor
+  har bir jadval `FORCE ROW LEVEL SECURITY`ga ega ekanini real Postgres'da
+  tekshiradi, faqat ataylab hujjatlashtirilgan ikkita istisno bilan
+  (`workspace_tenant_index` — RLS bootstrap, `outbox_messages` — relay
+  platform-darajali ko'rinish talab qiladi, ADR-003). Bu testni yozishda
+  o'zining haqiqiy xatosi topildi va tuzatildi: birinchi versiyasi
+  `Base.metadata`ga ishonardi, lekin hali import qilinmagan domenlar uchun
+  bo'sh qolardi — `migrations/env.py`dagi kabi barcha domen modellarini
+  aniq import qilish bilan tuzatildi. Buni isbotlash uchun
+  `workspace_kill_switches`'da real vaqtda `NO FORCE ROW LEVEL SECURITY`
+  qo'yib ko'rildi, test kutilganidek qizardi (`outbox_messages`'ning
+  ataylab istisno ekanini ham shu jarayonda aniqladi), keyin holat
+  qaytarildi va test qaytadan yashil ekani tasdiqlandi.
+
+Bundan tashqari `list_audit_events`'ning `before_id` cursor-pagination
+yo'li (11.2) hech qachon test qilinmagan bo'lib chiqdi (mypy xatosini
+tuzatishda topildi) — `test_audit_query_pagination.py` bilan yopildi.
+
+127 test, barchasi real Postgres'da.
+
 Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
 — bu yerda FR-AUTH-001'ning haqiqiy OIDC oqimi qurilishi kerak (hozir
 `session_service.create_session` faqat dev/test seam) va bu tashqi OIDC

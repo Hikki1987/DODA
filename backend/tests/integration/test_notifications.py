@@ -7,7 +7,7 @@ import uuid
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from doda.application.action_service import apply_transition, propose_action, submit_action_for_execution
+from doda.application.action_service import apply_transition, propose_action
 from doda.application.task_service import change_task_status, create_task
 from doda.db import tenant_scoped_session
 from doda.domain.action.models import ActionStatus, RiskLevel
