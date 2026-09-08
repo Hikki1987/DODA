@@ -132,6 +132,16 @@ alembic upgrade head
 uvicorn doda.main:app --reload
 ```
 
+Outbox relay worker (ADR-001/003 — a separate process from the API; polls
+`outbox_messages` and publishes to Redis Streams, so no proposed R0-R2
+action or approved R3+ action actually gets delivered without this
+running too):
+
+```bash
+cd backend
+python -m doda.infrastructure.outbox_relay
+```
+
 Test:
 
 ```bash

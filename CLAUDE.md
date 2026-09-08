@@ -995,6 +995,45 @@ bo'lishmasligi kerak degan avvalgi dars bilan bir xil ehtiyot choralari,
 garchi bu spec hech qanday state'ni o'zgartirmasa ham (faqat navigatsiya +
 skanerlash).
 
+**ADR-003ni yozish jarayonining o'zi yangi, jiddiy bo'shliqni ochib berdi:
+outbox relay hech qachon haqiqiy jarayon sifatida ishga tushmagan edi.**
+ADR-001/003 "alohida worker process" haqida yozar ekanman
+(`infrastructure/outbox_relay.py`), tekshirib ko'rsam —
+`relay_once()` funksiyasi faqat `test_outbox_relay.py`dan chaqirilardi,
+hech qachon haqiqiy, uzluksiz ishlaydigan biror jarayondan emas.
+`docker-compose.yml`da ham hech qanday "worker" servisi yo'q edi (faqat
+infra: postgres/redis/minio). Ya'ni: ADR'lar "worker allaqachon mavjud"
+deb yozilgan bo'lsa-da (va bu texnik jihatdan `outbox_relay.py` fayli
+mavjudligi ma'nosida to'g'ri edi), uni haqiqatda uzluksiz ishga
+tushiradigan HECH QANDAY yo'l yo'q edi — real deploy qilinganda hech
+qanday outbox xabari hech qachon Redis'ga yetkazilmagan bo'lardi.
+
+Tuzatish: `outbox_relay.py`ga `run_forever()` (poll siklidan, bo'sh
+bo'lganda `poll_interval` kutadi, lekin `stop_event`ni darhol sezadigan
+qilib — oddiy `asyncio.sleep` emas, `asyncio.wait_for(stop_event.wait(),
+timeout=poll_interval)`) va `main()` (SIGTERM/SIGINT'ni ro'yxatdan
+o'tkazib, graceful shutdown qiladi) qo'shildi. Endi `python -m
+doda.infrastructure.outbox_relay` — README.md'ga ham `uvicorn`
+qatoridan keyin shu qo'shildi. `docker-compose.yml`ga alohida servis
+qo'shilmadi — backend'ning o'zi ham hech qachon konteynerlashtirilmagan
+(Dockerfile yo'q, README doim `uvicorn ... --reload`ni to'g'ridan-to'g'ri
+host'da ishga tushirishni ko'rsatgan), shuning uchun worker ham xuddi shu
+naqshga mos — bu alohida arxitektura qarori (konteynerlashtirilgan
+deploy) bo'lar edi, minimal-diff doirasidan tashqarida.
+
+Haqiqiyligi real ishga tushirib tasdiqlandi (sintetik test emas): jarayon
+`python -m doda.infrastructure.outbox_relay` orqali fon jarayoni sifatida
+ishga tushirildi, `outbox_relay.starting` logi ko'rindi, haqiqiy `kill
+-TERM` yuborildi, `outbox_relay.stopped` logi bilan toza chiqdi, hech
+qanday osilib qolgan jarayon qolmadi. 3 ta yangi test
+(`test_outbox_relay.py`ga): (1) `run_forever` haqiqiy xabarni
+yetkazishi VA `stop_event` o'rnatilgach darhol to'xtashi, (2) bo'sh
+bo'lganda ham `stop_event`ni bir poll_interval ichida sezishi (busy-loop
+qilmasdan — regressiya bo'lsa, oddiy uzoq `asyncio.sleep` timeout'ga
+uchraydi), (3) `main()`ning o'zi haqiqiy `os.kill(os.getpid(),
+signal.SIGTERM)` bilan chaqirilib, toza to'xtashi — real signal, mock
+emas. 172 test, barchasi real Postgres+Redis'da.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,
@@ -1010,7 +1049,9 @@ issuer URL) talab qiladi, Product Owner'dan kelishi kerak. Yoki OD-002
   tasdiqlandi — keyin tuzatilgan versiya bilan qayta tekshirildi.
 - Outbox relay hozircha connector'siz — faqat Redis Stream'ga yetkazishni
   isbotlaydi. Haqiqiy tashqi effekt (S7, birinchi konnektor) connector'ning
-  o'zi ham idempotent bo'lishini talab qiladi.
+  o'zi ham idempotent bo'lishini talab qiladi. (Worker jarayonining o'zi —
+  uzluksiz ishga tushirish, graceful shutdown — endi bor va testlangan,
+  yuqoriga qarang; qolgan bo'shliq faqat connector'ning o'zi.)
 - `pytest` `asyncio_default_fixture_loop_scope = "session"` talab qiladi —
   `doda.db`dagi global `engine` bitta event loop'ga bog'lanadi; buni servis
   darajasida (masalan har-request engine) hal qilish keyingi bosqichda
