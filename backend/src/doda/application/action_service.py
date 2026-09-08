@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.application.audit_service import record_audit_event
 from doda.application.hashing import hash_payload
+from doda.application.kill_switch_service import assert_not_killed
 from doda.application.outbox_service import enqueue_outbox_message
 from doda.domain.action.approval import DEFAULT_APPROVAL_TTL, Approval, ApprovalStatus
 from doda.domain.action.models import AUTO_APPROVED_RISK_LEVELS, Action, ActionStatus, RiskLevel
@@ -43,7 +44,13 @@ async def propose_action(
     idempotency_key (FR-ACT-004) instead of creating a duplicate.
 
     Returns (action, created).
+
+    FR-CTL-003: checked first, before even a DRAFT row is created — an
+    engaged kill switch means no new action exists at all, not one that
+    exists but is stuck.
     """
+    await assert_not_killed(session, customer_id=customer_id, workspace_id=workspace_id)
+
     action = Action(
         customer_id=customer_id,
         workspace_id=workspace_id,

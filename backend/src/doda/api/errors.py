@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from doda.application.action_service import ApprovalInvalidError
 from doda.application.authz_service import AuthorizationError
 from doda.application.customer_service import CustomerMembershipError
+from doda.application.kill_switch_service import KillSwitchEngagedError
 from doda.application.session_service import SessionInvalidError
 from doda.application.task_service import InvalidTaskTransition
 from doda.application.workspace_service import WorkspaceMembershipError
@@ -123,6 +124,18 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=_envelope(
                 code="LAST_OWNER_PROTECTED",
                 message="Oxirgi Customer Owner'ni chiqarib yoki lavozimini pasaytirib bo'lmaydi.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(KillSwitchEngagedError)
+    async def _kill_switch_engaged(request: Request, exc: KillSwitchEngagedError) -> JSONResponse:
+        return JSONResponse(
+            status_code=403,
+            content=_envelope(
+                code="KILL_SWITCH_ENGAGED",
+                message=f"{exc.scope.capitalize()} darajasida kill switch faol — yangi actionlar bloklangan.",
                 trace_id=_trace_id(request),
                 retryable=False,
             ),

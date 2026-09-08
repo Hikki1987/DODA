@@ -22,7 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.application.authz_service import (
     AuthorizationError,
+    CustomerContext,
     WorkspaceContext,
+    get_customer_context,
     get_workspace_context,
 )
 from doda.application.session_service import SessionInvalidError, resolve_session
@@ -91,3 +93,27 @@ async def get_request_context_allow_archived(
         workspace_id=workspace_id, authorization=authorization, allow_archived=True
     ):
         yield ctx
+
+
+@dataclasses.dataclass(frozen=True)
+class CustomerRequestContext:
+    customer: CustomerContext
+    db: AsyncSession
+
+
+async def get_customer_request_context(
+    customer_id: uuid.UUID = Path(...),
+    authorization: str | None = Header(default=None),
+) -> AsyncGenerator[CustomerRequestContext, None]:
+    """Customer-scoped counterpart to get_request_context — currently only
+    used by the customer-level kill switch. See
+    authz_service.get_customer_context for why this needs no bootstrap
+    index the way workspace resolution does."""
+    session_id = _parse_bearer_session_id(authorization)
+
+    async with async_session_factory() as base_session:
+        session_record = await resolve_session(base_session, session_id)
+
+    async with tenant_scoped_session(customer_id) as db:
+        context = await get_customer_context(db, user_id=session_record.user_id, customer_id=customer_id)
+        yield CustomerRequestContext(customer=context, db=db)

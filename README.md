@@ -19,8 +19,10 @@ Bosqich **S2** yakunlandi: 10-bo'limdagi authoritative authz zanjiri
 (Session → Workspace Membership → RBAC → Step-Up) va shu zanjir orqali
 himoyalangan HTTP API (`/v1/workspaces/{id}/actions`, `.../approvals/{id}/consume`,
 `.../tasks`, `.../tasks/{id}/status`, `.../tasks/{id}/history`,
-`.../members`, `.../archive`, `.../restore`). Audit hash-zanjiri endi
-concurrent yozuvlarda ham xavfsiz (FR-AUD-004, per-customer lock).
+`.../members`, `.../archive`, `.../restore`, `.../kill-switch/engage`,
+`.../kill-switch/disengage`, va customer-darajasida
+`/v1/customers/{id}/kill-switch/...`). Audit hash-zanjiri endi concurrent
+yozuvlarda ham xavfsiz (FR-AUD-004, per-customer lock).
 
 
 ## Ishga tushirish (local dev)

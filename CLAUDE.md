@@ -113,12 +113,27 @@ tuzatildi: (1) audit hash-zanjiri concurrency fork'i (yuqorida), (2)
 generatsiya qilib, chaqiruvchi ochgan `tenant_scoped_session`ning ID'siga
 mos kelmasdi — RLS insert'ni rad etardi.
 
+FR-CTL-003 (kill switch, release-blocker — 15.2) ham qurildi: workspace
+darajasi (`workspace_admin`) va customer darajasi (`customer_owner`), 10.2
+permission-matritsasining "Kill switch" qatoriga mos. Tekshirish nuqtasi —
+`kill_switch_service.assert_not_killed` — `action_service.propose_action`
+boshida chaqiriladi, shuning uchun faol kill switch hech qanday yangi
+Action qatori yaratilishiga yo'l qo'ymaydi (hatto DRAFT holatida ham).
+"Drill" testi ham bor: engage'dan blokgacha o'tgan real vaqtni o'lchab,
+≤60s SLA'ni tasdiqlaydi (12.4/UC-007). Global (platform-wide) qamrov
+qurilmagan — bu Platform Owner + R5 dual-control infratuzilmasini talab
+qiladi (FR-ADM, hali yo'q); 10.2 jadvalining o'zida ham "global" ustuni
+yo'q, faqat workspace/customer bor.
+
+99 test, barchasi real Postgres'da.
+
 Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
 — bu yerda FR-AUTH-001'ning haqiqiy OIDC oqimi qurilishi kerak (hozir
 `session_service.create_session` faqat dev/test seam) va bu tashqi OIDC
 provayder ma'lumotlarini (client_id/secret, issuer URL) talab qiladi —
 Product Owner'dan kelishi kerak. Yoki OD-002 (connector tanlovi) S6'dan
-oldin hal qilinishi kerak.
+oldin hal qilinishi kerak. Yoki FR-AUD-002 (audit viewer API) — tashqi
+bog'liqliksiz keyingi tabiiy qadam.
 
 **Bilingan cheklovlar (keyingi ishlarda hisobga olinsin):**
 - ~~Audit hash-zanjiri concurrent yozuvlarda xavfsiz emas~~ — **tuzatildi**:
@@ -140,9 +155,12 @@ oldin hal qilinishi kerak.
   tug'iladi" bosqichi hali stand-in.
 - R3 approver siyosati va workspace-a'zolik boshqaruvi faqat `WorkspaceRole`ni
   tekshiradi (`member` / `workspace_admin`); `CustomerRole.CUSTOMER_OWNER`
-  ham 10.2 bo'yicha bu amallarni bajara olishi kerak, lekin bu
-  customer-darajasidagi rolni ham API chegarasida aniqlashni talab qiladi —
-  qamrovga kiritilmagan (`domain/security/roles.py` docstring'iga qarang).
+  ham 10.2 bo'yicha bu amallarni bajara olishi kerak. Kill switch uchun
+  qurilgan `CustomerContext` / `get_customer_request_context`
+  (`api/dependencies.py`) endi customer-darajasidagi rolni aniqlay oladi —
+  bu boshqa joylardagi shu cheklovni yopish uchun qayta ishlatilishi mumkin,
+  lekin hozircha faqat kill switch shu yo'ldan foydalanadi; qolganlari
+  ataylab o'zgartirilmadi (bu alohida, so'ralmagan o'zgarish bo'lardi).
 - "Customer'ga taklif qilish" (yangi foydalanuvchini customer'ga a'zo
   qilish) uchun HTTP endpoint yo'q — `customer_service.invite_customer_member`
   faqat application-layer funksiya. Buni ochish FR-NTF (bildirishnoma

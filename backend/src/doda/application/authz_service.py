@@ -11,12 +11,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.domain.action.models import Action
-from doda.domain.customer.models import CustomerMembership
+from doda.domain.customer.models import Customer, CustomerMembership
 from doda.domain.identity.models import AuthStrength
 from doda.domain.security.decisions import Decision
 from doda.domain.security.roles import (
     ROLES_THAT_MAY_APPROVE_ANOTHER_ACTORS_ACTION,
     ROLES_THAT_MAY_PROPOSE_ACTIONS,
+    CustomerRole,
     WorkspaceRole,
 )
 from doda.domain.task.models import Task
@@ -133,3 +134,46 @@ def authorize_task_mutation(context: WorkspaceContext, task: Task) -> None:
     is_owner = task.owner_id == f"user:{context.user_id}"
     if not is_owner and context.role is not WorkspaceRole.WORKSPACE_ADMIN:
         raise AuthorizationError(Decision.DENY, "only the task owner or a workspace admin may change this task")
+
+
+def authorize_engage_workspace_kill_switch(context: WorkspaceContext) -> None:
+    """10.2 'Kill switch' row: WorkspaceAdmin = Workspace scope."""
+    if context.role is not WorkspaceRole.WORKSPACE_ADMIN:
+        raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not operate the workspace kill switch")
+
+
+@dataclasses.dataclass(frozen=True)
+class CustomerContext:
+    customer_id: uuid.UUID
+    user_id: uuid.UUID
+    role: CustomerRole
+
+
+async def get_customer_context(
+    session: AsyncSession, *, user_id: uuid.UUID, customer_id: uuid.UUID
+) -> CustomerContext:
+    """Parallel to get_workspace_context but for customer-scoped actions
+    (currently only the customer-level kill switch). Customer has no RLS of
+    its own (it's the tenant root — 0001 migration), so this needs no
+    bootstrap-index lookup the way workspace resolution does: customer_id
+    from the URL directly becomes the tenant_scoped_session GUC.
+    """
+    customer = await session.get(Customer, customer_id)
+    if customer is None:
+        raise AuthorizationError(Decision.DENY, "customer not found")
+
+    membership = await session.scalar(
+        select(CustomerMembership).where(
+            CustomerMembership.customer_id == customer_id, CustomerMembership.user_id == user_id
+        )
+    )
+    if membership is None:
+        raise AuthorizationError(Decision.DENY, "no customer membership")
+
+    return CustomerContext(customer_id=customer_id, user_id=user_id, role=CustomerRole(membership.role))
+
+
+def authorize_engage_customer_kill_switch(context: CustomerContext) -> None:
+    """10.2 'Kill switch' row: CustomerOwner = Customer scope."""
+    if context.role is not CustomerRole.CUSTOMER_OWNER:
+        raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not operate the customer kill switch")

@@ -18,6 +18,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from doda.api.actions import router as actions_router
 from doda.api.errors import register_exception_handlers
 from doda.api.health import router as health_router
+from doda.api.kill_switch import router as kill_switch_router
 from doda.api.middleware import TraceIdMiddleware
 from doda.api.tasks import router as tasks_router
 from doda.api.workspace_admin import router as workspace_admin_router
@@ -52,6 +53,7 @@ def create_app() -> FastAPI:
     app.include_router(actions_router)
     app.include_router(tasks_router)
     app.include_router(workspace_admin_router)
+    app.include_router(kill_switch_router)
     FastAPIInstrumentor.instrument_app(app)
     return app
 

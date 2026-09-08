@@ -16,8 +16,9 @@ from doda.domain.task import models as task_models  # noqa: F401
 from doda.domain.action import models as action_models  # noqa: F401
 from doda.domain.action import approval as action_approval_models  # noqa: F401
 from doda.domain.outbox import models as outbox_models  # noqa: F401
-# Note: doda.domain.security holds only enums (roles.py, decisions.py), no
-# ORM models, so there is nothing to import here for autogenerate.
+from doda.domain.security import kill_switch as security_kill_switch_models  # noqa: F401
+# Note: doda.domain.security.roles/decisions hold only enums, no ORM
+# models, so there is nothing to import from them for autogenerate.
 
 config = context.config
 if config.config_file_name is not None:
