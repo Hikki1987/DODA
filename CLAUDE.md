@@ -1358,6 +1358,23 @@ docstring'dagi da'vo emas.
 
 182 test, barchasi real Postgres+Redis'da.
 
+**UC-007/12.4ning <=60s cheklash SLA'si — endi ikkala amalga oshirilgan
+kill switch qamrovida ham (workspace VA customer) haqiqatda o'lchandi,
+avval faqat workspace qamrovida edi.** 12.4-bo'limning o'zi ("Cheklash
+(kill switch / feature flag) — <=60 soniya qaror qabul qilingandan
+keyin") qamrovga bog'liq emas — Platform Owner darajasidagi global kill
+switch (hali qurilmagan, dual-control talab qiladi, yuqoriga qarang)
+uchun yozilgan bo'lsa-da, xuddi shu SLA workspace va customer darajasidagi
+allaqachon qurilgan/ishlayotgan kill switch'larga ham tabiiy ravishda
+tegishli. `test_customer_kill_switch_blocks_every_workspace_under_it`
+funksional to'g'rilikni (ikkala workspace ham bloklanadi) isbotlagan, lekin
+hech qachon vaqtni o'lchamagan edi — `test_workspace_kill_switch...`ning
+o'z drill'idan farqli. Yangi `test_customer_kill_switch_drill_blocks_
+within_sla` xuddi shu naqshni (engage'dan blokgacha real vaqtni
+`time.monotonic()` bilan o'lchash) customer qamroviga ham qo'lladi.
+
+183 test, barchasi real Postgres'da.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,

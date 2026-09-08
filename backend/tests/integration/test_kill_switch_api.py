@@ -104,6 +104,53 @@ async def test_plain_member_cannot_engage_workspace_kill_switch(
     assert response.json()["code"] == "DENY"
 
 
+async def test_customer_kill_switch_drill_blocks_within_sla(client: AsyncClient, db_available: bool) -> None:
+    """UC-007 / 12.4's <=60s containment SLA is scope-agnostic ("kill
+    switch / feature flag" cheklash muddati) — the workspace-scoped drill
+    above measures it for that scope, but the customer-wide switch is an
+    equally real, implemented containment mechanism that had never had
+    its own timing measured, only its blocking behavior (see
+    test_customer_kill_switch_blocks_every_workspace_under_it below)."""
+    owner_user_id = uuid.uuid4()
+    customer_id = uuid.uuid4()
+    async with tenant_scoped_session(customer_id) as session:
+        session.add(User(id=owner_user_id, oidc_subject_hash=str(uuid.uuid4()), display_name="Owner"))
+        await session.flush()
+        _customer, owner_membership = await create_customer_with_owner(
+            session, customer_id=customer_id, name="Acme", owner_user_id=owner_user_id, actor_id="user:setup"
+        )
+        workspace = await create_workspace(session, customer_id=customer_id, name="A")
+        await add_workspace_member(
+            session,
+            workspace=workspace,
+            customer_membership=owner_membership,
+            role="workspace_admin",
+            actor_id="user:setup",
+        )
+        owner_session = await create_session(session, user_id=owner_user_id, auth_strength=AuthStrength.AAL1)
+
+    class _Member:
+        def __init__(self, workspace_id, session_id):
+            self.workspace_id = workspace_id
+            self.session_id = session_id
+
+    member = _Member(workspace.id, owner_session.id)
+
+    engage_started_at = time.monotonic()
+    engage = await client.post(
+        f"/v1/customers/{customer_id}/kill-switch/engage",
+        json={"reason": "customer-drill-timing"},
+        headers=_auth_headers(owner_session.id),
+    )
+    assert engage.status_code == 200
+
+    blocked = await _propose_action(client, member, "customer-drill-timing-check")
+    elapsed = time.monotonic() - engage_started_at
+
+    assert blocked.status_code == 403
+    assert elapsed < KILL_SWITCH_SLA_SECONDS
+
+
 async def test_customer_kill_switch_blocks_every_workspace_under_it(
     client: AsyncClient, db_available: bool
 ) -> None:
