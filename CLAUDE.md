@@ -802,3 +802,21 @@ issuer URL) talab qiladi, Product Owner'dan kelishi kerak. Yoki OD-002
   qilishni ruxsat beradi, orqaga qaytish (masalan DONE → IN_PROGRESS,
   "qayta ochish") ataylab qo'llab-quvvatlanmaydi. Kerak bo'lsa bu change
   request (QOIDA 2), bug fix emas.
+- **Workspace archive/restore frontend'ga ataylab ulanmadi — UI orqali
+  haqiqiy tuponga olib borardi.** `POST .../archive`/`POST .../restore`
+  allaqachon qurilgan/testlangan (FR-WKS-006), lekin tekshirilganda aniq
+  bo'ldi: `list_my_workspaces` (demak `GET /v1/me/workspaces`) ikki
+  yo'lida ham (CustomerOwner va oddiy a'zo) arxivlangan workspace'larni
+  SHARTSIZ chiqarib tashlaydi (`Workspace.archived_at.is_(None)`), va
+  boshqa hech qanday endpoint arxivlangan workspace'larni ro'yxatlamaydi
+  yoki ID bo'yicha bitta-bitta o'qishga imkon bermaydi. Demak: agar
+  frontend'ga shunchaki "Arxivlash" tugmasi qo'shilsa, bosilgandan keyin
+  o'sha workspace `/v1/me/workspaces`dan butunlay yo'qoladi va uni
+  qaytarish uchun UI orqali HECH QANDAY yo'l qolmaydi — faqat workspace_id
+  UUID'ni yodlab, to'g'ridan-to'g'ri API'ga (`curl`) murojaat qilish orqali.
+  Bu "faqat frontend ulash" emas — backend'da "arxivlangan workspace'larni
+  ko'rish" degan yangi ro'yxatlash imkoniyati (va uni qaysi sahifaga —
+  customer darajasida, faqat CustomerOwner uchunmi — qo'yish haqidagi
+  mahsulot qarori) kerak, bu esa shu sessiyadagi boshqa hamma narsadan
+  farqli, haqiqiy arxitektura/mahsulot qarori (QOIDA 2), shuning uchun
+  so'ralmagan holda amalga oshirilmadi.
