@@ -15,6 +15,11 @@ skeleti, action execution state machine (4.2), risk-based approval routing
 (9.1), approval invariantlari (9.2), idempotentlik (FR-ACT-004) va
 transactional outbox (FR-ACT-008, ADR-003) — Redis Stream'ga relay bilan.
 
+Bosqich **S2** yakunlandi: 10-bo'limdagi authoritative authz zanjiri
+(Session → Workspace Membership → RBAC → Step-Up) va shu zanjir orqali
+himoyalangan HTTP API (`/v1/workspaces/{id}/actions`, `.../approvals/{id}/consume`).
+
+
 ## Ishga tushirish (local dev)
 
 ```bash

@@ -134,6 +134,22 @@ async def validate_action(session: AsyncSession, action: Action, *, actor_id: st
     return action
 
 
+async def submit_action_for_execution(
+    session: AsyncSession, action: Action, *, actor_id: str
+) -> tuple[Action, Approval | None]:
+    """The use case an API caller actually wants after proposing an action:
+    validate it, and if that routes to AWAITING_APPROVAL, immediately create
+    the Approval too so the caller has something to show a human — matching
+    UC-004's flow where the approval preview appears right after risk
+    classification, not as a separate round trip.
+    """
+    await validate_action(session, action, actor_id=actor_id)
+    if action.status is ActionStatus.AWAITING_APPROVAL:
+        approval = await request_approval(session, action)
+        return action, approval
+    return action, None
+
+
 async def request_approval(session: AsyncSession, action: Action) -> Approval:
     """Create a fresh approval bound to the action's current payload_hash
     (9.2). Only meaningful while the action is AWAITING_APPROVAL."""

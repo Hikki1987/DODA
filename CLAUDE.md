@@ -82,9 +82,18 @@ routing (9.1), approval invariantlari — payload-hash bog'lanish, bir martalik
 nonce, muddat (9.2), idempotentlik (FR-ACT-004) va transactional outbox
 (FR-ACT-008, ADR-003) barchasi ishlaydi va testlangan.
 
-Keyingi qadam — S2 (17.2): API application adapterlari (FastAPI routerlar
-action_service ustida), va real integratsiya uchun connector tanlovi
-(OD-002) hal qilinishi kerak S6'dan oldin.
+S2 (17.2: "API application adapterlari") ham yakunlandi va real HTTP orqali
+tekshirildi (67 test): 10-bo'limdagi authoritative zanjir — Session →
+[tenant bootstrap] → Workspace Membership → RBAC → Step-Up — endi kod
+bazasida haqiqatda mavjud va HTTP endpointlar shu zanjir orqali ochilgan
+(`api/actions.py`, `api/dependencies.py`). FR-AUTH-004 (step-up) ham qisman
+qamrab olindi: R3 approval `AuthStrength.AAL2` talab qiladi, aks holda
+STEP_UP_REQUIRED qaytadi.
+
+Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
+— bu yerda FR-AUTH-001'ning haqiqiy OIDC oqimi qurilishi kerak (hozir
+`session_service.create_session` faqat dev/test seam). Yoki OD-002
+(connector tanlovi) S6'dan oldin hal qilinishi kerak.
 
 **Bilingan cheklovlar (keyingi ishlarda hisobga olinsin):**
 - Audit hash-zanjiri (`application/audit_service.py`) bir xil customer uchun
@@ -98,3 +107,17 @@ action_service ustida), va real integratsiya uchun connector tanlovi
   `doda.db`dagi global `engine` bitta event loop'ga bog'lanadi; buni servis
   darajasida (masalan har-request engine) hal qilish keyingi bosqichda
   ko'rib chiqilishi mumkin.
+- `Authorization: Bearer <session-id>` — imzosiz xom session UUID, haqiqiy
+  JWT/OIDC token emas (FR-AUTH-001 S3 ishi). Session jadvali va uning
+  idle/absolute timeout, revoke mantig'i haqiqiy; faqat "session qanday
+  tug'iladi" bosqichi hali stand-in.
+- R3 approver siyosati faqat `WorkspaceRole`ni tekshiradi (`member` /
+  `workspace_admin`); `CustomerRole.CUSTOMER_OWNER` ham 10.2 bo'yicha
+  approve qila olishi kerak, lekin bu customer-darajasidagi rolni ham
+  API chegarasida aniqlashni talab qiladi — qamrovga kiritilmagan
+  (`domain/security/roles.py` docstring'iga qarang).
+- `workspace_tenant_index` jadvali — RLS'ning "tuxum-tovuq" muammosini hal
+  qilish uchun ataylab RLS'siz qoldirilgan bootstrap jadval (faqat
+  workspace_id→customer_id xaritasi, kontent yo'q). Faqat
+  `workspace_service.create_workspace` orqali, Workspace bilan bitta
+  tranzaksiyada yoziladi — hech qachon boshqa joydan yozilmasin.

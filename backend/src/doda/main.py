@@ -15,7 +15,10 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider
 
+from doda.api.actions import router as actions_router
+from doda.api.errors import register_exception_handlers
 from doda.api.health import router as health_router
+from doda.api.middleware import TraceIdMiddleware
 from doda.config import get_settings
 
 
@@ -41,7 +44,10 @@ def create_app() -> FastAPI:
     _configure_tracing(settings.otel_service_name)
 
     app = FastAPI(title="DODA API", version="0.1.0")
+    app.add_middleware(TraceIdMiddleware)
+    register_exception_handlers(app)
     app.include_router(health_router, prefix="/v1")
+    app.include_router(actions_router)
     FastAPIInstrumentor.instrument_app(app)
     return app
 
