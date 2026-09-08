@@ -544,7 +544,16 @@ backend'ga qarshi (163 test) va Playwright orqali brauzer'da (seed
 qilingan workspace'ning "workspace.created.v1" audit yozuvi ekranda
 ko'rinishi) tasdiqlandi.
 
-Uchinchi shu turkumdagi bo'shliq: FR-CTL-001/002ning session qismi
+Uchinchi shu turkumdagi bo'shliq: `GET .../tasks/{id}/history`
+(FR-TASK-007) allaqachon qurilgan va testlangan edi, task ro'yxatida
+ko'rinmas edi. Har bir task qatoriga "Tarix"/"Tarixni yashirish" toggle
+tugmasi qo'shildi — bosilganda `getTaskHistory`ni chaqiradi va
+`from_status → to_status (actor_id, vaqt)` ro'yxatini shu qator ostida
+ochadi. Playwright'da: yangi task yaratib, uni IN_PROGRESS'ga o'tkazib,
+"Tarix" bosilganda "TODO → IN_PROGRESS" yozuvi ko'rinishi va keyin
+yashirilishi real backend'ga qarshi tasdiqlandi.
+
+To'rtinchi shu turkumdagi bo'shliq: FR-CTL-001/002ning session qismi
 (`GET`/`DELETE /v1/sessions`) S2'dayoq qurilgan va testlangan edi, lekin
 frontend faqat login'da bir martalik tasdiqlash uchun ishlatardi — o'zining
 sessiya-boshqaruv ekrani yo'q edi. Yangi `/sessions` sahifasi (workspace'lar

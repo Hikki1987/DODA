@@ -119,6 +119,22 @@ export function changeTaskStatus(
   });
 }
 
+export interface TaskHistoryEntryOut {
+  id: string;
+  actor_id: string;
+  from_status: TaskStatus | null;
+  to_status: TaskStatus;
+  created_at: string;
+}
+
+export function getTaskHistory(
+  sessionId: string,
+  workspaceId: string,
+  taskId: string,
+): Promise<TaskHistoryEntryOut[]> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/tasks/${taskId}/history`, sessionId);
+}
+
 // ---- /v1/workspaces/{id}/actions ----
 
 export type ActionStatus =

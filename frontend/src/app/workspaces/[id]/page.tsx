@@ -7,6 +7,7 @@ import {
   ApiError,
   changeTaskStatus,
   createTask,
+  getTaskHistory,
   getWorkspaceKillSwitch,
   listActions,
   listNotifications,
@@ -18,6 +19,7 @@ import {
   type AuditEventOut,
   type KillSwitchStatusOut,
   type NotificationOut,
+  type TaskHistoryEntryOut,
   type TaskOut,
   type TaskStatus,
   type WorkspaceMemberOut,
@@ -42,6 +44,7 @@ export default function WorkspacePage() {
   const [auditEvents, setAuditEvents] = useState<AuditEventOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [openTaskHistory, setOpenTaskHistory] = useState<Record<string, TaskHistoryEntryOut[]>>({});
 
   const refresh = useCallback(() => {
     if (sessionId === null) return;
@@ -80,6 +83,24 @@ export default function WorkspacePage() {
       refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Task holatini o'zgartirib bo'lmadi.");
+    }
+  }
+
+  async function toggleTaskHistory(task: TaskOut) {
+    if (sessionId === null) return;
+    if (openTaskHistory[task.id] !== undefined) {
+      setOpenTaskHistory((prev) => {
+        const next = { ...prev };
+        delete next[task.id];
+        return next;
+      });
+      return;
+    }
+    try {
+      const history = await getTaskHistory(sessionId, workspaceId, task.id);
+      setOpenTaskHistory((prev) => ({ ...prev, [task.id]: history }));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Tarixni yuklab bo'lmadi.");
     }
   }
 
@@ -127,24 +148,44 @@ export default function WorkspacePage() {
         </form>
         <ul className="space-y-2">
           {tasks?.map((task) => (
-            <li
-              key={task.id}
-              className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2"
-            >
-              <span className={task.status === "DONE" ? "text-gray-400 line-through" : ""}>
-                {task.title}
-              </span>
-              <div className="flex items-center gap-2">
-                <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{task.status}</span>
-                {NEXT_STATUS[task.status] && (
+            <li key={task.id} className="rounded-md border border-gray-200 px-3 py-2">
+              <div className="flex items-center justify-between">
+                <span className={task.status === "DONE" ? "text-gray-400 line-through" : ""}>
+                  {task.title}
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                    {task.status}
+                  </span>
+                  {NEXT_STATUS[task.status] && (
+                    <button
+                      onClick={() => handleAdvanceTask(task)}
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      {NEXT_STATUS[task.status]} qilish
+                    </button>
+                  )}
                   <button
-                    onClick={() => handleAdvanceTask(task)}
-                    className="text-xs text-blue-600 hover:underline"
+                    onClick={() => toggleTaskHistory(task)}
+                    className="text-xs text-gray-500 hover:underline"
                   >
-                    {NEXT_STATUS[task.status]} qilish
+                    {openTaskHistory[task.id] !== undefined ? "Tarixni yashirish" : "Tarix"}
                   </button>
-                )}
+                </div>
               </div>
+              {openTaskHistory[task.id] !== undefined && (
+                <ul className="mt-2 space-y-1 border-t border-gray-100 pt-2">
+                  {openTaskHistory[task.id].map((entry) => (
+                    <li key={entry.id} className="text-xs text-gray-500">
+                      {entry.from_status ?? "—"} &rarr; {entry.to_status} ({entry.actor_id},{" "}
+                      {new Date(entry.created_at).toLocaleString()})
+                    </li>
+                  ))}
+                  {openTaskHistory[task.id].length === 0 && (
+                    <li className="text-xs text-gray-500">Tarix bo&apos;sh.</li>
+                  )}
+                </ul>
+              )}
             </li>
           ))}
           {tasks !== null && tasks.length === 0 && (

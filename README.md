@@ -72,6 +72,10 @@ Xuddi shu naqshda audit ko'rinishi ham qo'shildi (`GET
 frontend'da ko'rinmas edi): workspace sahifasiga event_type/actor/vaqt
 ro'yxati.
 
+Task ro'yxatidagi har bir qatorga "Tarix" tugmasi qo'shildi —
+`GET .../tasks/{id}/history` (FR-TASK-007) endi frontend'da ham ko'rinadi,
+bosilganda status o'tishlarini (`from → to`, kim, qachon) ko'rsatadi.
+
 `/sessions` sahifasi ham qo'shildi (`GET`/`DELETE /v1/sessions` —
 FR-CTL-001/002, allaqachon qurilgan/testlangan): foydalanuvchi darajasidagi
 (workspace'ga bog'liq emas) faol sessiyalar ro'yxati, joriysi belgilangan

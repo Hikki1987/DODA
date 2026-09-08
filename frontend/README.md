@@ -36,8 +36,10 @@ print(session.id)  # shu UUID'ni login sahifasiga kiriting
 
 Login (dev seam) → `/v1/me/workspaces` orqali workspace tanlash →
 workspace ichida: kill-switch holati, task'lar (ro'yxat/yaratish/holat
-o'zgartirish), action'lar (ro'yxat — tool_name/risk_level/status, faqat
-o'qish uchun), bildirishnomalar (ro'yxat/o'qildi belgilash), a'zolar
+o'zgartirish/"Tarix" tugmasi bilan status o'tishlari tarixi —
+`GET .../tasks/{id}/history`, FR-TASK-007), action'lar (ro'yxat —
+tool_name/risk_level/status, faqat o'qish uchun), bildirishnomalar
+(ro'yxat/o'qildi belgilash), a'zolar
 ro'yxati, audit (`GET /v1/workspaces/{id}/audit` — event_type/actor/vaqt,
 faqat o'qish, FR-AUD-002). `/sessions` (workspace'lar sahifasidagi
 "Sessiyalar" havolasi) — foydalanuvchi darajasida, workspace'ga bog'liq
