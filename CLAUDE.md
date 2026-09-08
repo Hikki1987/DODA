@@ -1073,6 +1073,54 @@ test (`test_tracing.py` — global tracer provider'ga test-only
 borligini tekshiradi; `test_metrics.py` — haqiqiy so'rovdan keyin
 `/metrics`da mos counter ko'rinishini tekshiradi). 174 test.
 
+**11.2'dagi "Xato konverti" da'vosi — "har xato uchun bitta shakl" — haqiqatda
+faqat ro'yxatga olingan aniq exception turlariga tegishli edi.** `api/
+errors.py`ning o'z docstring'i "Every exception handler here maps a domain/
+application exception to this one shape so API clients never have to
+special-case response bodies" deydi, lekin kutilmagan (ro'yxatga olinmagan)
+har qanday xato — masalan haqiqiy bug — FastAPI/Starlette'ning o'z standart
+500 javobiga (butunlay boshqa shakl, `trace_id`/`retryable`/`field_errors`
+maydonlarisiz) tushib qolardi, VA hech qanday server-side log yozuvi bilan
+bog'lanmagan edi (klient xato ko'radi, lekin uni trace_id orqali server
+loglaridan topib bo'lmaydi).
+
+Tuzatish: `@app.exception_handler(Exception)` — barcha aniq handler'lardan
+KEYIN emas, Starlette MRO bo'yicha eng mos handler'ni tanlagani uchun
+ularni "soyalab" qo'ymaydi (aniq turlar hamon o'z handler'iga tushadi,
+faqat RO'YXATGA OLINMAGAN turlar shu catch-all'ga tushadi). `structlog.
+exception(...)`ni trace_id bilan chaqiradi — endi haqiqiy bug production'da
+sodir bo'lsa, kliyent javobidagi trace_id orqali server logidan topsa
+bo'ladi.
+
+Buni yozish jarayonida ikkinchi, ancha nozikroq xato aniqlandi: `Exception`
+uchun ro'yxatga olingan handler Starlette tomonidan avtomatik ravishda
+`ServerErrorMiddleware`ga (butun ilova middleware stack'ining ENG TASHQI
+qatlami) biriktiriladi — bu `TraceIdMiddleware`ning HAM tashqarisida
+joylashadi. Demak bu yangi catch-all handler ishlaganda,
+`TraceIdMiddleware`ning javobga `X-Trace-Id` header qo'shadigan qismi
+UMUMAN ishlamaydi (chunki `call_next()` normal javob qaytarish o'rniga
+xatoni qayta ko'taradi — bu Starlette'ning ataylab shunday, real ASGI
+serverga (uvicorn) traceback ko'rsatish uchun mo'ljallangan xulqi). Natija:
+javobning JSON tanasida `trace_id` to'g'ri bo'lardi, lekin HTTP header'ida
+umuman yo'q bo'lardi — `TraceIdMiddleware`ning o'z docstring va'dasini
+("har bir javobda, hatto muvaffaqiyatsiz bo'lsa ham") aynan shu bitta holat
+uchun buzardi. Buni birinchi test yozishda haqiqatda ushladim (`KeyError:
+'X-Trace-Id'`) — taxmin qilib emas. Tuzatish: yangi handler `X-Trace-Id`
+header'ini o'zi, to'g'ridan-to'g'ri qo'yadi (`TRACE_ID_HEADER` konstantasi
+`api/middleware.py`dan import qilinib), `TraceIdMiddleware`ning normal
+oqimiga tayanmasdan.
+
+Testni yozishda ham bitta amaliy g'alati holat chiqdi: `httpx`ning
+`ASGITransport`i standart holatda (`raise_app_exceptions=True`) ilova
+qayta ko'targan xatoni test'ning o'ziga qayta ko'taradi, garchi
+`ServerErrorMiddleware` javobni allaqachon jo'natgan bo'lsa ham (bu
+Starlette'ning atayin xulqi — real uvicorn buni faqat ichki log sifatida
+ko'radi, klientga hali ham to'g'ri 500 javob boradi). Test `raise_app_
+exceptions=False` bilan tuzatildi — bu httpx'ning test-uchun cheklovi,
+tuzatishning o'zidagi xato emas.
+
+175 test, barchasi real Postgres+Redis'da.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,

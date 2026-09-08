@@ -7,9 +7,11 @@ special-case response bodies per endpoint.
 import uuid
 from typing import Any
 
+import structlog
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from doda.api.middleware import TRACE_ID_HEADER
 from doda.application.action_service import ApprovalInvalidError
 from doda.application.authz_service import AuthorizationError
 from doda.application.customer_service import CustomerMembershipError, DuplicateMembershipError
@@ -36,6 +38,9 @@ def _envelope(
 
 def _trace_id(request: Request) -> str:
     return getattr(request.state, "trace_id", str(uuid.uuid4()))
+
+
+logger = structlog.get_logger()
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -192,4 +197,35 @@ def register_exception_handlers(app: FastAPI) -> None:
                 trace_id=_trace_id(request),
                 retryable=False,
             ),
+        )
+
+    @app.exception_handler(Exception)
+    async def _unhandled_exception(request: Request, exc: Exception) -> JSONResponse:
+        """Catch-all so an unexpected bug still returns 11.2's one envelope
+        shape instead of FastAPI/Starlette's own default body (a different,
+        undocumented shape) — and so it leaves a trace_id-correlated log
+        line, not just a client-visible failure with no server-side record.
+        This does not shadow the handlers above: Starlette dispatches by the
+        most specific registered exception type in the MRO, so every
+        `exception_handler` registered earlier in this function still wins
+        for its own exception type.
+
+        Sets `X-Trace-Id` itself rather than relying on `TraceIdMiddleware`:
+        Starlette routes a handler registered for the bare `Exception` type
+        to `ServerErrorMiddleware`, which sits OUTSIDE every user middleware
+        (including `TraceIdMiddleware`) — proven by a test that this response
+        would otherwise ship with a `trace_id` in its JSON body but no
+        `X-Trace-Id` header at all, unlike every other error response.
+        """
+        trace_id = _trace_id(request)
+        logger.exception("unhandled_exception", trace_id=trace_id, path=request.url.path)
+        return JSONResponse(
+            status_code=500,
+            content=_envelope(
+                code="INTERNAL_ERROR",
+                message="Kutilmagan xato yuz berdi.",
+                trace_id=trace_id,
+                retryable=True,
+            ),
+            headers={TRACE_ID_HEADER: trace_id},
         )
