@@ -317,6 +317,57 @@ pastdagi "Bilingan cheklovlar"da.
 
 141 test, barchasi real Postgres'da.
 
+**Xavfsizlik ko'rib chiqish (`security-review` skill) o'tkazildi — butun
+PR diff'iga qarshi, uch bosqichli jarayon: (1) haqiqiy zaifliklarni topish
+subagent'i, (2) har bir nomzod uchun alohida false-positive filtrlash
+subagent'i (parallel), (3) faqat ishonch darajasi >=8 bo'lganlar
+qoldirildi.** Ikkita haqiqiy xato topildi va darhol tuzatildi:
+
+1. **Action idempotency-key workspace bo'ylab kesishishi** — `Action.
+   idempotency_key` faqat `customer_id` bo'yicha unique edi, `workspace_id`
+   bo'yicha emas. Bitta customer ostidagi ikkita xil workspace bir xil
+   (caller tanlagan) kalitni ishlatsa, ular BITTA Action qatoriga
+   to'qnashardi — `propose_action`ning idempotent-replay yo'li natijada
+   boshqa workspace'ning action payload'i va (agar AWAITING_APPROVAL
+   bo'lsa) uning bir martalik approval nonce'ini workspace'ga a'zo
+   bo'lmagan chaqiruvchiga qaytarardi. 0010-migratsiya constraint'ni
+   `(customer_id, workspace_id, idempotency_key)`ga o'zgartirdi;
+   `action_service.py`ning replay-qidiruvi ham mos ravishda tuzatildi.
+   Tuzatish audit-zanjiri uslubida isbotlandi: kod+DB vaqtincha eski
+   holatga qaytarildi, yangi regressiya testi aynan shu leak'ni (bir xil
+   action ID ikkala workspace uchun) ushlashi tasdiqlandi, keyin tuzatilgan
+   holat bilan qayta tekshirildi.
+2. **`parent_task_id` orqali tenant-lararo mavjudlik oracle'i** —
+   `create_task` `parent_task_id`ni faqat DB FK'ga tayanib qo'yardi,
+   workspace tekshiruvisiz. Buni tekshirish jarayonida muhim texnik
+   haqiqat aniqlandi: cross-CUSTOMER holat aslida `FORCE ROW LEVEL
+   SECURITY` tomonidan avtomatik bloklanadi (FK tekshiruvi ham superuser
+   bo'lmagan egasi uchun RLS'ga bo'ysunadi — bu xuddi shu PR'dagi RLS
+   bypass tuzatishining tabiiy natijasi), lekin cross-WORKSPACE-bir xil-
+   customer holati bloklanmaydi (RLS faqat customer_id bo'yicha). Bu haqiqiy
+   zaiflik: boshqa workspace'dagi (bir xil customer) task'ni parent qilib
+   qo'yish mumkin edi, mavjud bo'lmagan UUID esa 500 (ushlanmagan
+   IntegrityError) qaytarardi — 200-vs-500 orqali tenant-lararo mavjudlik
+   signali. `task_service.create_task`ga `add_workspace_member`dagi kabi
+   aniq workspace-ichida-qidirish tekshiruvi qo'shildi (`TaskParentNot
+   FoundError` → 404). Bu ham xuddi shunday revert-test-restore bilan
+   isbotlandi — muhimi, dastlabki test noto'g'ri stsenariy (ikkita butunlay
+   boshqa customer) bilan yozilgan edi va kutilmaganda "muvaffaqiyatsiz"
+   bo'lib chiqdi (chunki RLS uni allaqachon bloklagan edi) — shu narsa
+   aynan yuqoridagi FORCE RLS haqiqatini ochib berdi va testni to'g'ri
+   stsenariyga (bir xil customer, boshqa workspace) tuzatishga olib keldi.
+
+Uchinchi nomzod (client-controlled `risk_level` R3+ approval/step-up'ni
+chetlab o'tishi mumkinligi) tekshirildi va **tuzatilmadi**: dizayn
+bo'shlig'i haqiqiy (server-side tool→risk-level siyosati hali yo'q), lekin
+hech qanday real tashqi connector hali qurilmagani uchun (`outbox_relay.py`:
+"connector hali yo'q") bugungi kunda haqiqiy tashqi ta'sir yo'q — S7'da
+birinchi connector qurilishidan OLDIN bu siyosat qatlami qo'shilishi kerak,
+lekin bu alohida, kelajakdagi ish sifatida qayd etildi, hozircha xato
+sifatida "tuzatilmadi" (yolg'on signal emas — chinakam bo'sh joy).
+
+145 test, barchasi real Postgres'da.
+
 Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
 — bu yerda FR-AUTH-001'ning haqiqiy OIDC oqimi qurilishi kerak (hozir
 `session_service.create_session` faqat dev/test seam) va bu tashqi OIDC
@@ -391,6 +442,15 @@ oldin hal qilinishi kerak.
   trigger orqali).
 - Email/Telegram adapter (FR-NTF-001'ning ikkinchi yarmi) qurilmagan —
   tashqi provayder integratsiyasini talab qiladi.
+- `risk_level` (Action propose qilishda) to'liq caller-supplied — `tool_name`
+  qanday risk darajasiga loyiqligini aniqlaydigan server-side siyosat hali
+  yo'q (9.1'ning "risk-based routing"i risk_level QIYMATIGA ishonadi, uni
+  chiqarmaydi). Xavfsizlik ko'rib chiqishda topildi; bugungi kunda haqiqiy
+  tashqi ta'sir yo'qligi sababli (connector hali qurilmagan) darhol xato
+  emas, lekin **S7'da birinchi connector qurilishidan oldin** bu siyosat
+  qatlami (tool_name → minimal risk_level xaritasi) albatta qo'shilishi
+  kerak — aks holda har qanday member o'zi tanlagan tool'ni R0 deb
+  e'lon qilib, approval/step-up'ni butunlay chetlab o'tishi mumkin bo'ladi.
 - `workspace_tenant_index` jadvali — RLS'ning "tuxum-tovuq" muammosini hal
   qilish uchun ataylab RLS'siz qoldirilgan bootstrap jadval (faqat
   workspace_id→customer_id xaritasi, kontent yo'q). Faqat

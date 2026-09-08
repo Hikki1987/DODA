@@ -292,3 +292,97 @@ async def test_bare_customer_owner_can_approve_a_members_action_over_http(
     )
     assert consume.status_code == 200
     assert consume.json()["status"] == "READY"
+
+
+async def test_same_idempotency_key_in_different_workspaces_does_not_collide(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """Security regression: Action.idempotency_key used to be unique per
+    customer_id ONLY, so two different workspaces under the same customer
+    choosing the same caller-supplied key collided onto the SAME Action
+    row — propose_action's idempotent-replay path would then hand
+    Workspace A's caller Workspace B's action payload and pending
+    approval nonce. Fixed by scoping the uniqueness (and the replay
+    lookup) to (customer_id, workspace_id, idempotency_key) — each
+    workspace must get its OWN action for the same key, never a shared
+    one, let alone a leaked one.
+    """
+    import doda.db as doda_db
+    from doda.application.session_service import create_session
+    from doda.application.workspace_service import create_workspace
+    from doda.domain.customer.models import Customer, CustomerMembership
+    from doda.domain.identity.models import User
+    from doda.domain.workspace.models import WorkspaceMembership
+
+    customer_id = uuid.uuid4()
+    shared_key = "same-key-both-workspaces"
+    async with doda_db.tenant_scoped_session(customer_id) as db:
+        user_a = User(oidc_subject_hash=str(uuid.uuid4()), display_name="A")
+        user_b = User(oidc_subject_hash=str(uuid.uuid4()), display_name="B")
+        db.add_all([user_a, user_b])
+        await db.flush()
+
+        db.add(Customer(id=customer_id, name="Shared Customer"))
+        await db.flush()
+
+        membership_a = CustomerMembership(customer_id=customer_id, user_id=user_a.id, role="member")
+        membership_b = CustomerMembership(customer_id=customer_id, user_id=user_b.id, role="member")
+        db.add_all([membership_a, membership_b])
+        await db.flush()
+
+        workspace_a = await create_workspace(db, customer_id=customer_id, name="A")
+        workspace_b = await create_workspace(db, customer_id=customer_id, name="B")
+        db.add_all(
+            [
+                WorkspaceMembership(
+                    customer_id=customer_id,
+                    customer_membership_id=membership_a.id,
+                    workspace_id=workspace_a.id,
+                    role="member",
+                ),
+                WorkspaceMembership(
+                    customer_id=customer_id,
+                    customer_membership_id=membership_b.id,
+                    workspace_id=workspace_b.id,
+                    role="member",
+                ),
+            ]
+        )
+        await db.flush()
+
+        session_a = await create_session(db, user_id=user_a.id, auth_strength=AuthStrength.AAL1)
+        session_b = await create_session(db, user_id=user_b.id, auth_strength=AuthStrength.AAL1)
+
+    submit_a = await client.post(
+        f"/v1/workspaces/{workspace_a.id}/actions",
+        json={"tool_name": "email.send", "risk_level": "R3", "payload": {"to": "a-secret@example.com"}},
+        headers=_auth_headers(session_a.id, shared_key),
+    )
+    assert submit_a.status_code == 200
+    action_a = submit_a.json()["action"]
+
+    submit_b = await client.post(
+        f"/v1/workspaces/{workspace_b.id}/actions",
+        json={"tool_name": "email.send", "risk_level": "R3", "payload": {"to": "b-secret@example.com"}},
+        headers=_auth_headers(session_b.id, shared_key),
+    )
+    assert submit_b.status_code == 200
+    action_b = submit_b.json()["action"]
+
+    # The critical assertion: two SEPARATE actions, not the same row
+    # replayed across workspaces.
+    assert action_a["id"] != action_b["id"]
+    assert action_a["workspace_id"] == str(workspace_a.id)
+    assert action_b["workspace_id"] == str(workspace_b.id)
+
+    # And B's approval nonce must never surface via A's replay of the
+    # same key (the actual leak this regression test guards against).
+    approval_b = submit_b.json()["approval"]
+    replay_a = await client.post(
+        f"/v1/workspaces/{workspace_a.id}/actions",
+        json={"tool_name": "email.send", "risk_level": "R3", "payload": {"to": "a-secret@example.com"}},
+        headers=_auth_headers(session_a.id, shared_key),
+    )
+    assert replay_a.json()["action"]["id"] == action_a["id"]
+    if replay_a.json()["approval"] is not None:
+        assert replay_a.json()["approval"]["nonce"] != approval_b["nonce"]

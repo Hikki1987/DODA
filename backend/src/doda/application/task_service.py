@@ -32,6 +32,18 @@ class InvalidTaskTransition(Exception):
         super().__init__(f"{current.value} -> {target.value} is not an allowed task transition")
 
 
+class TaskParentNotFoundError(Exception):
+    """Raised when parent_task_id doesn't resolve to a task in the SAME
+    workspace. Postgres FK checks bypass RLS (referential integrity is
+    evaluated across the whole table, not just RLS-visible rows), so
+    relying on the FK alone would let a caller distinguish "this UUID is
+    some task somewhere, even in another tenant" from "this UUID doesn't
+    exist at all" via 200-vs-500 — a cross-tenant existence oracle
+    (NFR-ISO-002). This check closes that off with an explicit,
+    workspace-scoped lookup before the insert, same as
+    workspace_service.add_workspace_member's cross-customer guard."""
+
+
 async def create_task(
     session: AsyncSession,
     *,
@@ -42,6 +54,11 @@ async def create_task(
     due_date: datetime | None = None,
     parent_task_id: uuid.UUID | None = None,
 ) -> Task:
+    if parent_task_id is not None:
+        parent = await session.get(Task, parent_task_id)
+        if parent is None or parent.workspace_id != workspace_id:
+            raise TaskParentNotFoundError(f"parent task {parent_task_id} not found in this workspace")
+
     task = Task(
         customer_id=customer_id,
         workspace_id=workspace_id,

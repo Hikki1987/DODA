@@ -33,6 +33,13 @@ ham xavfsiz (FR-AUD-004, per-customer lock); sessiya faollik-belgisi
 (FR-AUTH-006 idle timeout) endi haqiqatda saqlanadi (avval jimgina
 saqlanmasdi — tuzatildi).
 
+Butun PR ustida xavfsizlik ko'rib chiqish o'tkazildi (tafsilot CLAUDE.md'da):
+ikkita haqiqiy tenant-izolyatsiya xatosi topildi va tuzatildi — Action
+idempotency-key workspace bo'ylab kesishishi (bir xil customer ostidagi
+ikkita workspace bir xil kalitni ishlatsa, biri ikkinchisining action
+payload'i va approval nonce'ini ko'rar edi) va `parent_task_id` orqali
+tenant-lararo mavjudlik oracle'i.
+
 
 ## Ishga tushirish (local dev)
 

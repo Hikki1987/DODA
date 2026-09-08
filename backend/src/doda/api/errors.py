@@ -16,7 +16,7 @@ from doda.application.customer_service import CustomerMembershipError
 from doda.application.kill_switch_service import KillSwitchEngagedError
 from doda.application.notification_service import NotificationPreferenceError
 from doda.application.session_service import SessionInvalidError
-from doda.application.task_service import InvalidTaskTransition
+from doda.application.task_service import InvalidTaskTransition, TaskParentNotFoundError
 from doda.application.workspace_service import WorkspaceMembershipError
 from doda.domain.action.state_machine import InvalidActionTransition
 from doda.domain.security.decisions import Decision
@@ -89,6 +89,18 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=_envelope(
                 code="INVALID_STATE",
                 message="Task holati bu amalni qabul qilmaydi.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(TaskParentNotFoundError)
+    async def _task_parent_not_found(request: Request, exc: TaskParentNotFoundError) -> JSONResponse:
+        return JSONResponse(
+            status_code=404,
+            content=_envelope(
+                code="NOT_FOUND",
+                message="Parent task topilmadi.",
                 trace_id=_trace_id(request),
                 retryable=False,
             ),

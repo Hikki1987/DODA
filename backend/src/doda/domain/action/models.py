@@ -6,9 +6,14 @@ never be assigned directly — always go through
 (doda.application.action_service), so an illegal transition raises instead
 of silently corrupting state, and every change gets audited.
 
-`idempotency_key` is unique per customer (FR-ACT-004): a duplicate propose
-call with the same key must return the existing Action, never create a
-second one — see doda.application.action_service.propose_action.
+`idempotency_key` is unique per (customer, workspace) (FR-ACT-004): a
+duplicate propose call with the same key, in the same workspace, must
+return the existing Action, never create a second one — see
+doda.application.action_service.propose_action. Scoped by workspace, not
+just customer: two different workspaces under the same customer choosing
+the same caller-supplied key must never collide onto the same Action —
+that would let a member of one workspace read another workspace's action
+payload and pending approval nonce via the idempotent-replay path.
 """
 
 import enum
@@ -55,7 +60,9 @@ class ActionStatus(enum.StrEnum):
 class Action(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __tablename__ = "action_actions"
     __table_args__ = (
-        UniqueConstraint("customer_id", "idempotency_key", name="uq_action_customer_idempotency_key"),
+        UniqueConstraint(
+            "customer_id", "workspace_id", "idempotency_key", name="uq_action_workspace_idempotency_key"
+        ),
     )
 
     customer_id: Mapped[uuid.UUID] = mapped_column(index=True)

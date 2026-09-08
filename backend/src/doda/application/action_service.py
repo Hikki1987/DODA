@@ -71,9 +71,15 @@ async def propose_action(
             session.add(action)
             await session.flush()
     except IntegrityError:
+        # Scoped by workspace_id too, matching the unique constraint
+        # (FR-ACT-004): two different workspaces choosing the same
+        # caller-supplied key must never collide onto the same Action —
+        # that would let a member of one workspace read another
+        # workspace's action payload and pending approval nonce.
         existing = await session.scalar(
             select(Action).where(
                 Action.customer_id == customer_id,
+                Action.workspace_id == workspace_id,
                 Action.idempotency_key == idempotency_key,
             )
         )

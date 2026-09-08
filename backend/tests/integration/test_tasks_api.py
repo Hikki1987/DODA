@@ -191,3 +191,108 @@ async def test_task_history_records_creation_and_transition(client: AsyncClient,
     assert [e["to_status"] for e in entries] == ["TODO", "IN_PROGRESS"]
     assert entries[0]["from_status"] is None
     assert entries[1]["from_status"] == "TODO"
+
+
+async def test_parent_task_id_from_another_workspace_in_the_same_customer_is_rejected(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """Security regression: create_task used to insert parent_task_id with
+    only a DB-level FK backing it, no application-level check that the
+    referenced task is in the caller's own workspace. A cross-CUSTOMER
+    reference already fails on its own here — FORCE ROW LEVEL SECURITY
+    applies to the FK check too when the acting role isn't a Postgres
+    superuser (this project's own doda_app role deliberately isn't, see
+    the RLS-bypass fix elsewhere in CLAUDE.md) — but RLS is scoped by
+    customer_id only, so a task in a DIFFERENT WORKSPACE under the SAME
+    customer was still FK-visible and would satisfy the constraint,
+    letting one workspace's task silently become another's parent, or
+    (for a genuinely nonexistent UUID) raising an unhandled 500 — a
+    200-vs-500 existence oracle. Fixed by looking the parent up in the
+    caller's own workspace first."""
+    import doda.db as doda_db
+    from doda.application.session_service import create_session
+    from doda.application.workspace_service import create_workspace
+    from doda.domain.customer.models import Customer, CustomerMembership
+    from doda.domain.identity.models import User
+    from doda.domain.workspace.models import WorkspaceMembership
+
+    customer_id = uuid.uuid4()
+    async with doda_db.tenant_scoped_session(customer_id) as db:
+        user = User(oidc_subject_hash=str(uuid.uuid4()), display_name="Multi-workspace user")
+        db.add(user)
+        await db.flush()
+
+        db.add(Customer(id=customer_id, name="Shared Customer"))
+        await db.flush()
+
+        membership = CustomerMembership(customer_id=customer_id, user_id=user.id, role="member")
+        db.add(membership)
+        await db.flush()
+
+        workspace_a = await create_workspace(db, customer_id=customer_id, name="A")
+        workspace_b = await create_workspace(db, customer_id=customer_id, name="B")
+        db.add_all(
+            [
+                WorkspaceMembership(
+                    customer_id=customer_id,
+                    customer_membership_id=membership.id,
+                    workspace_id=workspace_a.id,
+                    role="member",
+                ),
+                WorkspaceMembership(
+                    customer_id=customer_id,
+                    customer_membership_id=membership.id,
+                    workspace_id=workspace_b.id,
+                    role="member",
+                ),
+            ]
+        )
+        await db.flush()
+        session_record = await create_session(db, user_id=user.id, auth_strength=AuthStrength.AAL1)
+
+    session_headers = _auth_headers(session_record.id)
+
+    task_in_b = await client.post(
+        f"/v1/workspaces/{workspace_b.id}/tasks", json={"title": "Task in B"}, headers=session_headers
+    )
+    task_in_b_id = task_in_b.json()["id"]
+
+    response = await client.post(
+        f"/v1/workspaces/{workspace_a.id}/tasks",
+        json={"title": "Mine, in A", "parent_task_id": task_in_b_id},
+        headers=session_headers,
+    )
+    assert response.status_code == 404
+    assert response.json()["code"] == "NOT_FOUND"
+
+
+async def test_parent_task_id_within_the_same_workspace_succeeds(
+    client: AsyncClient, db_available: bool
+) -> None:
+    member = await seed_workspace_member()
+
+    parent = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks",
+        json={"title": "Parent"},
+        headers=_auth_headers(member.session_id),
+    )
+    parent_id = parent.json()["id"]
+
+    child = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks",
+        json={"title": "Child", "parent_task_id": parent_id},
+        headers=_auth_headers(member.session_id),
+    )
+    assert child.status_code == 200
+    assert child.json()["parent_task_id"] == parent_id
+
+
+async def test_nonexistent_parent_task_id_is_404_not_500(client: AsyncClient, db_available: bool) -> None:
+    member = await seed_workspace_member()
+
+    response = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks",
+        json={"title": "Orphan", "parent_task_id": str(uuid.uuid4())},
+        headers=_auth_headers(member.session_id),
+    )
+    assert response.status_code == 404
