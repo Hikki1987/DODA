@@ -386,3 +386,65 @@ async def test_same_idempotency_key_in_different_workspaces_does_not_collide(
     assert replay_a.json()["action"]["id"] == action_a["id"]
     if replay_a.json()["approval"] is not None:
         assert replay_a.json()["approval"]["nonce"] != approval_b["nonce"]
+
+
+async def test_list_workspace_actions_returns_all_actions_in_the_workspace(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """There was no way to list actions in a workspace at all before this —
+    only propose and get-by-id — the same class of discoverability gap
+    GET /v1/me/workspaces closed one level up."""
+    member = await seed_workspace_member()
+    for key in ("list-a", "list-b"):
+        await client.post(
+            f"/v1/workspaces/{member.workspace_id}/actions",
+            json={"tool_name": "knowledge.read", "risk_level": "R1", "payload": {}},
+            headers=_auth_headers(member.session_id, key),
+        )
+
+    response = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/actions", headers=_auth_headers(member.session_id)
+    )
+    assert response.status_code == 200
+    assert len(response.json()) == 2
+
+
+async def test_list_workspace_actions_filters_by_status(client: AsyncClient, db_available: bool) -> None:
+    member = await seed_workspace_member(auth_strength=AuthStrength.AAL2)
+    await client.post(
+        f"/v1/workspaces/{member.workspace_id}/actions",
+        json={"tool_name": "knowledge.read", "risk_level": "R1", "payload": {}},
+        headers=_auth_headers(member.session_id, "status-filter-ready"),
+    )
+    await client.post(
+        f"/v1/workspaces/{member.workspace_id}/actions",
+        json={"tool_name": "email.send", "risk_level": "R3", "payload": {"to": "x@example.com"}},
+        headers=_auth_headers(member.session_id, "status-filter-awaiting"),
+    )
+
+    response = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/actions?status=AWAITING_APPROVAL",
+        headers=_auth_headers(member.session_id),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["status"] == "AWAITING_APPROVAL"
+
+
+async def test_list_workspace_actions_does_not_leak_another_workspaces_actions(
+    client: AsyncClient, db_available: bool
+) -> None:
+    member = await seed_workspace_member()
+    other = await seed_workspace_member()
+    await client.post(
+        f"/v1/workspaces/{other.workspace_id}/actions",
+        json={"tool_name": "knowledge.read", "risk_level": "R1", "payload": {}},
+        headers=_auth_headers(other.session_id, "cross-workspace-list"),
+    )
+
+    response = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/actions", headers=_auth_headers(member.session_id)
+    )
+    assert response.status_code == 200
+    assert response.json() == []

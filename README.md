@@ -30,8 +30,10 @@ workspace'lardagi bildirishnomalar bitta joydan),
 SECURITY_ALERT'dan tashqari har bir turni yoqish/o'chirish), va
 session-scoped `/v1/me/workspaces` — login'dan keyin klient chaqiradigan
 birinchi endpoint, foydalanuvchi a'zo bo'lgan barcha customer/workspace'larni
-qaytaradi (avval bunday "kashfiyot" endpointi umuman yo'q edi). Audit
-hash-zanjiri endi concurrent yozuvlarda
+qaytaradi (avval bunday "kashfiyot" endpointi umuman yo'q edi). `GET
+/v1/workspaces/{id}/tasks` va `.../actions` (ro'yxatlash, `?status=` filtri
+bilan) ham qo'shildi — avval faqat yaratish va ID bo'yicha o'qish bor edi.
+Audit hash-zanjiri endi concurrent yozuvlarda
 ham xavfsiz (FR-AUD-004, per-customer lock); sessiya faollik-belgisi
 (FR-AUTH-006 idle timeout) endi haqiqatda saqlanadi (avval jimgina
 saqlanmasdi — tuzatildi).

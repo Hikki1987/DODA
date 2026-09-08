@@ -296,3 +296,74 @@ async def test_nonexistent_parent_task_id_is_404_not_500(client: AsyncClient, db
         headers=_auth_headers(member.session_id),
     )
     assert response.status_code == 404
+
+
+async def test_list_workspace_tasks_returns_all_tasks_in_the_workspace(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """There was no way to list tasks in a workspace at all before this —
+    only create and get-by-id — the same class of discoverability gap
+    GET /v1/me/workspaces closed one level up."""
+    member = await seed_workspace_member()
+    for title in ("First", "Second", "Third"):
+        await client.post(
+            f"/v1/workspaces/{member.workspace_id}/tasks",
+            json={"title": title},
+            headers=_auth_headers(member.session_id),
+        )
+
+    response = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/tasks", headers=_auth_headers(member.session_id)
+    )
+    assert response.status_code == 200
+    assert {task["title"] for task in response.json()} == {"First", "Second", "Third"}
+
+
+async def test_list_workspace_tasks_filters_by_status(client: AsyncClient, db_available: bool) -> None:
+    member = await seed_workspace_member()
+    done = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks",
+        json={"title": "Done one"},
+        headers=_auth_headers(member.session_id),
+    )
+    await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks",
+        json={"title": "Still todo"},
+        headers=_auth_headers(member.session_id),
+    )
+    await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{done.json()['id']}/status",
+        json={"target_status": "IN_PROGRESS"},
+        headers=_auth_headers(member.session_id),
+    )
+    await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{done.json()['id']}/status",
+        json={"target_status": "DONE"},
+        headers=_auth_headers(member.session_id),
+    )
+
+    response = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/tasks?status=DONE", headers=_auth_headers(member.session_id)
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["title"] == "Done one"
+
+
+async def test_list_workspace_tasks_does_not_leak_another_workspaces_tasks(
+    client: AsyncClient, db_available: bool
+) -> None:
+    member = await seed_workspace_member()
+    other = await seed_workspace_member()
+    await client.post(
+        f"/v1/workspaces/{other.workspace_id}/tasks",
+        json={"title": "Someone else's task"},
+        headers=_auth_headers(other.session_id),
+    )
+
+    response = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/tasks", headers=_auth_headers(member.session_id)
+    )
+    assert response.status_code == 200
+    assert response.json() == []

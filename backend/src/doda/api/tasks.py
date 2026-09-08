@@ -4,7 +4,7 @@ RequestContext, never from client-supplied customer_id/actor_id."""
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from doda.api.dependencies import RequestContext, get_request_context
 from doda.api.task_schemas import (
@@ -14,8 +14,13 @@ from doda.api.task_schemas import (
     TaskOut,
 )
 from doda.application.authz_service import authorize_create_task, authorize_task_mutation
-from doda.application.task_service import change_task_status, create_task, list_task_history
-from doda.domain.task.models import Task
+from doda.application.task_service import (
+    change_task_status,
+    create_task,
+    list_task_history,
+    list_tasks_for_workspace,
+)
+from doda.domain.task.models import Task, TaskStatus
 
 router = APIRouter(tags=["tasks"])
 
@@ -47,6 +52,18 @@ async def create_workspace_task(
         parent_task_id=body.parent_task_id,
     )
     return _to_task_out(task)
+
+
+@router.get("/v1/workspaces/{workspace_id}/tasks", response_model=list[TaskOut])
+async def list_workspace_tasks(
+    status: TaskStatus | None = None,
+    limit: int = Query(default=50, le=200),
+    ctx: RequestContext = Depends(get_request_context),
+) -> list[TaskOut]:
+    tasks = await list_tasks_for_workspace(
+        ctx.db, workspace_id=ctx.workspace.workspace_id, status=status, limit=limit
+    )
+    return [_to_task_out(task) for task in tasks]
 
 
 async def _get_owned_task(ctx: RequestContext, task_id: uuid.UUID) -> Task:

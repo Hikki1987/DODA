@@ -24,6 +24,8 @@ from doda.domain.action.state_machine import InvalidActionTransition, transition
 from doda.domain.base import utcnow
 from doda.domain.notification.models import NotificationType
 
+MAX_PAGE_SIZE = 200
+
 
 class ApprovalInvalidError(Exception):
     """Raised when an approval cannot be consumed as-is (9.2 invariants)."""
@@ -254,3 +256,23 @@ async def consume_approval(
         payload={"action_id": str(action.id), "tool_name": action.tool_name, "approval_id": str(approval.id)},
     )
     return action
+
+
+async def list_actions_for_workspace(
+    session: AsyncSession,
+    *,
+    workspace_id: uuid.UUID,
+    status: ActionStatus | None = None,
+    limit: int = 50,
+) -> list[Action]:
+    """Every workspace member may see every action in their own workspace —
+    the same visibility api/actions.py's existing get-by-id already grants
+    (it checks workspace membership only, never actor identity); this list
+    endpoint was simply missing until now, the same class of gap
+    GET /v1/me/workspaces closed one level up."""
+    query = select(Action).where(Action.workspace_id == workspace_id)
+    if status is not None:
+        query = query.where(Action.status == status)
+    query = query.order_by(Action.created_at.desc()).limit(min(limit, MAX_PAGE_SIZE))
+    result = await session.execute(query)
+    return list(result.scalars())

@@ -6,7 +6,7 @@ rules and the master instruction.
 
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy import select
 
 from doda.api.dependencies import RequestContext, get_request_context
@@ -19,6 +19,7 @@ from doda.api.schemas import (
 )
 from doda.application.action_service import (
     consume_approval,
+    list_actions_for_workspace,
     propose_action,
     submit_action_for_execution,
 )
@@ -98,6 +99,18 @@ async def get_action(action_id: uuid.UUID, ctx: RequestContext = Depends(get_req
     if action is None or action.workspace_id != ctx.workspace.workspace_id:
         raise HTTPException(status_code=404, detail="action not found")
     return _to_action_out(action)
+
+
+@router.get("/v1/workspaces/{workspace_id}/actions", response_model=list[ActionOut])
+async def list_workspace_actions(
+    status: ActionStatus | None = None,
+    limit: int = Query(default=50, le=200),
+    ctx: RequestContext = Depends(get_request_context),
+) -> list[ActionOut]:
+    actions = await list_actions_for_workspace(
+        ctx.db, workspace_id=ctx.workspace.workspace_id, status=status, limit=limit
+    )
+    return [_to_action_out(action) for action in actions]
 
 
 @router.post("/v1/workspaces/{workspace_id}/approvals/{approval_id}/consume", response_model=ActionOut)

@@ -17,6 +17,8 @@ from doda.application.notification_service import create_notification
 from doda.domain.notification.models import NotificationType
 from doda.domain.task.models import Task, TaskHistory, TaskStatus
 
+MAX_PAGE_SIZE = 200
+
 ALLOWED_TASK_TRANSITIONS: dict[TaskStatus, frozenset[TaskStatus]] = {
     TaskStatus.TODO: frozenset({TaskStatus.IN_PROGRESS, TaskStatus.CANCELLED}),
     TaskStatus.IN_PROGRESS: frozenset({TaskStatus.DONE, TaskStatus.CANCELLED}),
@@ -124,4 +126,24 @@ async def list_task_history(session: AsyncSession, task_id: uuid.UUID) -> list[T
     result = await session.execute(
         select(TaskHistory).where(TaskHistory.task_id == task_id).order_by(TaskHistory.created_at)
     )
+    return list(result.scalars())
+
+
+async def list_tasks_for_workspace(
+    session: AsyncSession,
+    *,
+    workspace_id: uuid.UUID,
+    status: TaskStatus | None = None,
+    limit: int = 50,
+) -> list[Task]:
+    """Every workspace member may see every task in their own workspace —
+    the same visibility api/tasks.py's existing get-by-id already grants
+    (it checks workspace membership only, never task ownership); this list
+    endpoint was simply missing until now, the same class of gap
+    GET /v1/me/workspaces closed one level up."""
+    query = select(Task).where(Task.workspace_id == workspace_id)
+    if status is not None:
+        query = query.where(Task.status == status)
+    query = query.order_by(Task.created_at.desc()).limit(min(limit, MAX_PAGE_SIZE))
+    result = await session.execute(query)
     return list(result.scalars())

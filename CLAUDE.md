@@ -403,6 +403,22 @@ alohida testda tekshirilgan.
 
 150 test, barchasi real Postgres'da.
 
+`GET /v1/me/workspaces`ni qurish jarayonida yana ikkita xuddi shunday
+"kashfiyot" bo'shlig'i aniqlandi: workspace ichida Task yoki Action'larni
+RO'YXATLASH uchun ENDPOINT UMUMAN YO'Q EDI — faqat yaratish (`POST`) va
+ID bo'yicha bitta-bitta o'qish (`GET .../{id}`) bor edi. Bu, masalan, task
+board yoki action inbox kabi har qanday oddiy UI ekranini butunlay
+qurib bo'lmaydigan qilardi (avvalgi barcha ID'larni allaqachon bilishni
+talab qiladi). `GET /v1/workspaces/{id}/tasks` va `GET /v1/workspaces/{id}/
+actions` qo'shildi (`?status=` filtri va `limit` bilan) — huquq darajasi
+mavjud bitta-ID endpointlar bilan bir xil (workspace a'zoligi yetarli,
+egalik/actor bo'yicha cheklov yo'q, chunki `get_task`/`get_action` ham
+shunday ishlaydi). 6 ta yangi test (ro'yxat to'g'ri qaytarilishi, `status`
+filtri, va boshqa workspace'ning yozuvlari sizib chiqmasligi — ikkalasi
+uchun ham).
+
+156 test, barchasi real Postgres'da.
+
 Keyingi qadam — S3 (17.2): Web product shell (login, workspace, chat, task)
 — bu yerda FR-AUTH-001'ning haqiqiy OIDC oqimi qurilishi kerak (hozir
 `session_service.create_session` faqat dev/test seam) va bu tashqi OIDC
