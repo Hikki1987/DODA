@@ -260,21 +260,17 @@ jobs:
         working-directory: frontend
         # --with-deps runs `apt-get update` under the hood, which refreshes
         # every apt source configured on the runner image -- including a
-        # pre-installed Google Chrome repo we don't need (we only want
-        # Chromium). That repo's mirror has intermittently served a
-        # Release/Packages.gz pair that fail apt's hash check ("Hash Sum
-        # mismatch"), which is entirely external and unrelated to this
-        # project, but still aborts the whole install step. Retry a few
-        # times with a short backoff rather than failing the whole job on
-        # a transient upstream mirror inconsistency.
+        # pre-installed Google Chrome repo we never use (this project only
+        # installs Chromium, not Chrome). That repo's mirror has been
+        # serving a Release/Packages.gz pair that consistently fails apt's
+        # hash check ("Hash Sum mismatch") -- confirmed NOT transient: 3
+        # retries in a row all failed against the exact same (wrong) hash,
+        # so retrying alone doesn't help. The actual fix is to never let
+        # apt touch that source at all, since we don't need anything from
+        # it -- remove the source file first.
         run: |
-          for attempt in 1 2 3; do
-            npx playwright install --with-deps chromium && exit 0
-            echo "playwright install attempt $attempt failed, retrying..." >&2
-            sleep 10
-          done
-          echo "playwright install failed after 3 attempts" >&2
-          exit 1
+          sudo rm -f /etc/apt/sources.list.d/google-chrome*.list
+          npx playwright install --with-deps chromium
       - name: Build frontend
         working-directory: frontend
         run: npm run build
