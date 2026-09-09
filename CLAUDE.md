@@ -1657,6 +1657,28 @@ vaqtincha olib tashlab test aynan kutilgan `IntegrityError` bilan
 muvaffaqiyatsiz bo'lishini ko'rsatdim, keyin tuzatishni qaytarib yashil
 ekanini tasdiqladim. 189 test, barchasi real Postgres'da.
 
+**Beshta TOCTOU tuzatishidan keyin `backend/src/doda/application/`dagi
+HAR BIR faylni (13 tasi) tizimli ravishda ko'rib chiqib, shu naqshning
+yana bir nusxasi qolmaganini tasdiqladim — bu qidiruv endi to'liq.**
+Natija: `action_service.py`, `audit_service.py` (eng birinchi, eng eski
+tuzatish — naqshning o'zi shu yerdan boshlangan), `customer_service.py`,
+`kill_switch_service.py`, `notification_service.py`, `task_service.py` —
+oltisi ham tuzatilgan yoki allaqachon to'g'ri qulflangan edi.
+`workspace_service.add_workspace_member` ham avvalgi sessiyada xuddi shu
+`begin_nested`/`IntegrityError` naqshi bilan tuzatilgan edi (unique
+constraint, 0012-migratsiya). Qolganlari tekshirilib, haqiqiy bo'shliq
+yo'qligi tasdiqlandi: `session_service.revoke_session` ataylab idempotent
+(`record.revoked_at is None` tekshiruvi — ikki marta revoke qilish xato
+emas, shunchaki no-op, chunki chaqiruvchining maqsadi — "bu sessiya
+ishlamasin" — allaqachon rost); `workspace_service.archive_workspace`/
+`restore_workspace` oddiy boolean flip, sanash invarianti yo'q;
+`change_workspace_member_role`/`remove_workspace_member`da "oxirgi
+workspace_admin" invarianti ATAYLAB yo'q (yuqoridagi "Eslatma (bug
+emas, kuzatuv)"ga qarang); `outbox_service.enqueue_outbox_message` har
+safar mustaqil yangi qator qo'shadi, unique constraint talab qilinmaydi;
+`authz_service.py`, `audit_query_service.py`, `export_service.py` hech
+qanday yozuv amalini bajarmaydi (faqat o'qish/qaror).
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,
