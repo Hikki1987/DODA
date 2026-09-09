@@ -88,6 +88,17 @@ async def create_task(
 
 
 async def change_task_status(session: AsyncSession, task: Task, *, target: TaskStatus, actor_id: str) -> Task:
+    # Re-lock and refresh `task` first (SELECT ... FOR UPDATE, same
+    # technique as audit_service's chain-tip row) — the caller already
+    # loaded `task` via a plain get() before this was called, so without
+    # this, two near-simultaneous requests that both loaded it while it
+    # was still e.g. TODO could both pass the transition check below and
+    # both write a TaskHistory row for the same TODO -> IN_PROGRESS move.
+    # populate_existing is required: a bare FOR UPDATE select does not by
+    # itself refresh an already identity-mapped instance's attributes.
+    await session.execute(
+        select(Task).where(Task.id == task.id).with_for_update().execution_options(populate_existing=True)
+    )
     if target not in ALLOWED_TASK_TRANSITIONS.get(task.status, frozenset()):
         raise InvalidTaskTransition(task.status, target)
 

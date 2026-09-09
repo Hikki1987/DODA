@@ -1473,6 +1473,89 @@ haqiqatda 401/`UNAUTHENTICATED` qaytarishini tekshiradi. Barcha 6 E2E
 spec birga qayta ishga tushirilib, regressiya yo'qligi tasdiqlandi.
 Backend o'zgarmadi, 183 test o'zgarishsiz.
 
+**Ikki real concurrency (race condition) xatosi topildi va tuzatildi — ikkalasi
+ham haqiqiy Postgres'ga qarshi, ataylab majburlangan interleaving bilan
+isbotlandi, sintetik emas.** Bu safar frontend emas, backend'ning o'z state
+machine'lari: `task_service.change_task_status` va
+`action_service.apply_transition` ikkalasi ham chaqiruvchi oldindan yuklab
+bergan obyektning xotiradagi (potentsial eski) holatiga ishonardi — birorta
+ham `SELECT ... FOR UPDATE` bilan qayta tekshirmasdan. `audit_service`ning
+o'z `audit_chain_tips` qulfi (FR-AUD-004, ancha oldin tuzatilgan) bu
+naqshning yagona nusxasi emas ekan — xuddi shu TOCTOU (time-of-check to
+time-of-use) bo'shlig'i ikkita boshqa, ancha muhim joyda ham bor edi.
+
+Buni qo'lda (haqiqiy ikkita mustaqil DB ulanishi/tranzaksiyasi bilan,
+`asyncio.gather` orqali) reproduktsiya qilishda muhim amaliy haqiqat
+aniqlandi: ikkita coroutine'ni shunchaki `asyncio.gather`ga berish odatda
+haqiqiy race hosil qilmaydi — har bir so'rov juda tez (lokal DB round-trip)
+bo'lgani uchun Python event loop ularni amalda ketma-ket bajarib qo'yadi.
+Haqiqiy racening oldini olish uchun ikkita sessiya ham MAQSAD qatorini
+(task/approval) O'QIB OLGANDAN keyin, lekin hali birontasi COMMIT
+qilmagandan oldin, ikkalasini BIR VAQTDA davom ettirish kerak bo'ldi — bu
+ikkita haqiqiy HTTP so'rovi bir-biridan bir necha millisekund farq bilan
+kelganda sodir bo'ladigan aniq stsenariy.
+
+1. **`change_task_status` — ikkita bir vaqtdagi so'rov bir xil task'ni
+   oldinga surib, ikkalasi ham muvaffaqiyatli bo'lib, BITTA haqiqiy
+   o'tishga IKKITA TaskHistory qatori yozardi.** Ikkalasi ham task'ni
+   TODO holatida yuklab oladi, ikkalasi ham TODO→IN_PROGRESS'ni ruxsat
+   etilgan deb topadi (o'z xotiradagi eski holatiga ko'ra), ikkalasi ham
+   yozadi — yakuniy status to'g'ri (IN_PROGRESS) bo'lsa ham, tarix ikki
+   marta "TODO → IN_PROGRESS" deb yolg'on guvohlik beradi.
+2. **`apply_transition` (demak `consume_approval`) — bundan ancha jiddiyroq:
+   BITTA bir martalik approval nonce'ini ikkita bir vaqtdagi
+   `POST .../approvals/{id}/consume` so'rovi IKKALASI HAM muvaffaqiyatli
+   iste'mol qila olardi.** Ikkalasi ham approval'ni PENDING holatida
+   yuklaydi, 9.2'ning barcha tekshiruvlaridan (nonce mos, muddati
+   o'tmagan, payload o'zgarmagan) ikkalasi ham o'tadi, ikkalasi ham
+   action'ni READY'ga o'tkazadi VA har biri o'ZINING outbox xabarini
+   navbatga qo'yadi. Bu 9.2'ning o'z "bir martalik nonce" invariantini
+   to'g'ridan-to'g'ri buzadi — S7'da birinchi connector qurilgandan keyin
+   bu haqiqiy tashqi ta'sirning (masalan email yuborish) IKKI MARTA
+   bajarilishiga olib kelardi, aynan FR-ACT-004 idempotentlik butun
+   mexanizmi oldini olishi kerak bo'lgan narsa.
+
+Tuzatish ikkalasida ham `audit_chain_tips`ning aynan o'zi ishlatgan
+naqsh: funksiya boshida `SELECT ... FOR UPDATE` bilan qatorni qulflab,
+keyin shu qulflangan, yangilangan holatga qarab tekshirish. Bitta muhim,
+amalda tajriba orqali aniqlangan SQLAlchemy nozikligi bor edi: chaqiruvchi
+obyektni (`task`/`action`) session identity map'ida ALLAQACHON ushlab
+turgani uchun, yalang'och `select(...).with_for_update()` xotiradagi
+atributlarni YANGILAMAYDI (Postgres darajasida to'g'ri qulflaydi, lekin
+Python obyekti eski qiymatni ko'rsatishda davom etadi) —
+`.execution_options(populate_existing=True)` ANIQ qo'shilmasa, qulf
+"ishlaydi", lekin tekshiruv hamon eski holatga asoslanib qoladi va
+tuzatish sukutan ishlamaydi. Buni alohida, kichik tajriba bilan (boshqa
+ulanish qatordagi qiymatni o'zgartirib commit qiladi, keyin joriy
+sessiya `FOR UPDATE` bilan qayta o'qiydi) isbotlab, keyin
+`populate_existing=True` bilan tuzatilganini ko'rsatib tasdiqladim.
+
+`apply_transition`ning o'zidagi tuzatish ayniqsa qiziq: u faqat `Action`
+qatorini qulflaydi, `Approval` qatorini emas — chunki `apply_transition`
+HAR BIR o'tish yo'lining (validate_action, consume_approval) yagona
+umumiy markazi (xuddi CustomerOwner-rezolyutsiya tuzatishidagi "bitta
+markazlashtirilgan joy" naqshi). Tekshirish shuni ko'rsatdi: ikkinchi
+(bloklangan, keyin ochilgan) `consume_approval` chaqiruvi `approval.status
+PENDING` tekshiruvini hamon eski holat bilan o'tib ketadi — lekin
+`apply_transition`ning o'z qulf+yangilash qadami endi action'ni
+ALLAQACHON READY deb ko'radi va READY→READY o'tishini rad etadi,
+bu esa butun tranzaksiyani (shu ichidagi `approval.status = APPROVED`
+yozuvi bilan birga) rollback qiladi. Demak faqat Action'ni qulflash
+Approval racening o'zini ham yopadi — alohida Approval-qulfi shart emas.
+
+Ikkalasi ham audit-zanjiri uslubida isbotlandi: avval real, majburlangan
+interleaving bilan repro skript yozib xato borligini (2 ta TaskHistory
+qatori; 2 ta outbox xabari) ko'rsatdim, keyin tuzatishni qo'shib xuddi shu
+skriptlar endi to'g'ri natija berishini tasdiqladim, keyin ikkala holat
+uchun ham doimiy regressiya testi yozdim
+(`test_task_status_concurrency.py`, `test_approval_consume_concurrency.py`
+— ikkalasi ham `test_audit_chain_concurrency.py`ning "ikkita mustaqil
+sessiya, majburlangan interleaving" naqshini takrorlaydi), keyin
+tuzatishni vaqtincha `git stash` bilan olib tashlab ikkala yangi test
+ham aynan kutilgan tarzda muvaffaqiyatsiz bo'lishini (`['ok', 'ok']` !=
+`['ok', 'rejected']`) ko'rsatdim, so'ng tuzatishni qaytarib ikkalasi ham
+yashil ekanini tasdiqladim. 185 test, barchasi real Postgres'da.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,

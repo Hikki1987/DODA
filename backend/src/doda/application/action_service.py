@@ -103,7 +103,30 @@ async def propose_action(
 async def apply_transition(
     session: AsyncSession, action: Action, target: ActionStatus, *, actor_id: str
 ) -> Action:
-    """Validate+apply a state transition and audit it either way (4.2)."""
+    """Validate+apply a state transition and audit it either way (4.2).
+
+    Re-locks and refreshes `action` first (SELECT ... FOR UPDATE, same
+    technique as audit_service's chain-tip row), since this is the single
+    chokepoint every transition path (validate_action, consume_approval)
+    goes through. Without this, two concurrent POST
+    /approvals/{id}/consume calls carrying the same nonce — each loading
+    `action`/`approval` before either committed — could both pass
+    consume_approval's `approval.status is PENDING` check and both reach
+    here, both (re)transitioning AWAITING_APPROVAL -> READY and each
+    enqueueing their own outbox message: a one-time approval nonce
+    consumed twice, with the resulting external side effect queued twice.
+    Locking here is sufficient even though the race starts on `approval`,
+    not `action`: the second call, once unblocked, sees the already-READY
+    action and fails transition()'s own state-machine check, raising and
+    rolling back that entire transaction — including its in-memory
+    `approval.status = APPROVED` write, which never commits.
+    """
+    await session.execute(
+        select(Action)
+        .where(Action.id == action.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     previous = action.status
     try:
         action.status = transition(previous, target)
