@@ -150,8 +150,22 @@ o'tkazishda). Butun TRD bo'yicha talab-traceability auditi o'tkazildi
 (audit yozuvlarida sezgir kontent bo'lmasligini statik tekshiradigan
 CI redaction scanner) qurildi.
 
-**190 test, barchasi real Postgres(+Redis)'da; 6 E2E spec, barchasi CI'da
-avtomatik.**
+Keyinroq Product Owner uchta haqiqiy qaror qabul qildi (`docs/
+open-decisions.md`): **OD-002 (birinchi konnektor) — Telegram**
+(shu bilan `domain/action/tool_policy.py` — `tool_name` → minimal
+`risk_level` siyosati — qurildi, `telegram.send_message` uchun R3);
+**OD-004 (o'zbek tilidagi ovoz) — kerak** (STT/TTS provayder tanlovi
+hali ochiq); **OD-001 (SaaS) qayta tasdiqlandi** (shaxsiy foydalanish +
+kelajakda boshqalarga taqdim etish). To'rtinchi `security-review` ham
+o'tkazildi — bu safar butun PR diff'iga (barcha 186 fayl) qarshi, 0
+topilma bilan. `config.py`ga CORS wildcard'ni rad etuvchi pydantic
+validator (NFR-SEC-001) qo'shildi, va CI'da haqiqiy infratuzilma xatosi
+(Google'ning o'z Chrome apt repo'sidagi doimiy buzilish E2E job'ini
+ikki marta qulatgan edi) diagnostika qilinib to'g'ri tuzatildi
+(apt manbani butunlay chetlab o'tish, vaqtinchalik retry emas).
+
+**200 test, barchasi real Postgres(+Redis)'da; 6 E2E spec, barchasi CI'da
+avtomatik; 4 marta security-review o'tkazilgan.**
 
 ## Ishga tushirish (local dev)
 
