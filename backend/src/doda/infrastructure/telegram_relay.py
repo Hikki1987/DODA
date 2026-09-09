@@ -38,7 +38,10 @@ re-sent, but also never resolved to SUCCEEDED without a separate
 reconciliation job). That reconciliation job is real future work, not
 solved here — recorded honestly rather than silently assumed away,
 since Telegram's Bot API itself has no request-level idempotency key to
-close it more directly.
+close it more directly. `scripts/find_stuck_running_actions.py` makes
+this gap observable (an Action stuck in RUNNING past a threshold is
+reported, exit code 1) without attempting to resolve it — resolving it
+still needs the design decision above, not a monitoring script.
 
 Honest limitation on THIS PR's own verification: no real Telegram bot
 token or chat is available in this environment, so the actual HTTP call

@@ -2385,3 +2385,73 @@ bo'limi endi connector haqiqatda qurilganini aks ettiradi (avval
 hamon qurilmagan (bugungi kunda bot tokeni to'g'ridan-to'g'ri
 `Settings`dan o'qiladi, broker orqali qisqa muddatli token sifatida
 emas) va bu aniq keyingi bo'shliq sifatida qayd etildi.
+
+**Ikkita alohida "eskirgan hujjat" xatosi topildi va tuzatildi — ikkalasi
+ham Telegram connector qurilishidan OLDIN, "connector hali yo'q"
+degan hozirgi vaqt bayonoti sifatida yozilgan, endi noto'g'ri
+bo'lib qolgan.** `domain/action/tool_policy.py`ning docstring'i "Not yet
+dangerous while no connector exists" derdi — endi Telegram connector
+haqiqatda `telegram.send_message` action'larini ishlatayotgani uchun bu
+himoya endi preventiv emas, JONLI mitigatsiya. `frontend/README.md`
+Action'lar bo'limida propose formasi qurilmaganining sababini "hali
+hech qanday haqiqiy tool/connector yo'q" deb ko'rsatardi — haqiqiy sabab
+tarraqroq: forma tool nomini erkin matn sifatida qabul qiladi, va
+ko'pchilik tool nomlari (Telegram'dan tashqari) hamon connector'ga ega
+emas. Ikkalasi ham to'g'ri sababga (jonli mitigatsiya / tor "erkin matn"
+muammosi) yangilandi. README.md'ning o'zi ham yangilandi (200→210 test,
+connector haqiqatda qurilgani, halol chegara bilan). Kod xulqi
+o'zgarmadi — sof hujjat aniqligi, `ruff`/`mypy`/210 test bilan
+tasdiqlandi.
+
+**FR-ACT/telegram_relay.py'ning o'z docstring'ida ochiq qoldirilgan
+"Action RUNNING holatida qotib qolishi mumkin" bo'shlig'ining
+KUZATISH (observability) yarmi yopildi — YECHISH yarmi emas.**
+`backend/scripts/find_stuck_running_actions.py` —
+`verify_audit_chain_job.py` bilan bir xil turkumdagi mustaqil skript
+(`UserCustomerIndex` orqali customer'larni topib, har birini
+tekshiradi, buzilish/bo'shliq topilsa stderr + exit code 1 — "alert" shu
+oqim). Har bir hozir RUNNING holatidagi Action uchun o'zining
+`action.running.v1` audit yozuvi (`apply_transition` RUNNING'ga
+o'tganda yozadigan) topiladi; agar shu yozuvning `occurred_at`'i
+belgilangan chegaradan (standart 15 daqiqa) eski bo'lsa — STUCK deb
+belgilanadi.
+
+**Ataylab YECHILMAYDI**: qaysi qotib qolgan Action'ni qanday
+tiklash (Telegram'ga xabar haqiqatda yuborilganmi yoki yo'qmi — Bot
+API'da so'rov darajasidagi idempotency key yo'qligi sababli buni
+ishonchli bilib bo'lmaydi) — bu haqiqiy arxitektura qarori, monitoring
+skripti qaror qabul qilishi kerak bo'lgan narsa emas. Skript faqat
+bo'shliqni KO'RINADIGAN qiladi, uni yopmaydi.
+
+Bu skript uchun (boshqa mustaqil skriptlar — `verify_audit_chain_job.py`,
+`load_test_api.py` — kabi) pytest test yozilmadi, xuddi shu ikkalasi
+kabi qo'lda, real Postgres'ga qarshi tekshirildi (kod bazasidagi
+o'rnatilgan konventsiya — bu skriptlar hech qachon pytest orqali emas,
+qo'lda ishga tushirib tasdiqlanadi). Tekshiruv: haqiqiy `telegram.send_
+message` action'ini to'liq propose→validate→approve→consume oqimi
+orqali READY'ga, keyin `telegram_relay._drive_to_running` orqali
+RUNNING'ga (hech qachon SUCCEEDED/FAILED'ga hal qilmasdan — aynan
+"crash o'rtada" stsenariysi) haqiqiy Postgres'da yaratildi. Standart
+15-daqiqalik chegara bilan bu YANGI action "running_ok" deb to'g'ri
+belgilandi (exit 0); `threshold=0` bilan esa aynan shu action haqiqiy
+`occurred_at`/yosh (`age`) bilan STUCK deb belgilandi (exit 1) — ikkala
+holat ham skriptning o'zi (import qilingan `main()` funksiyasi orqali)
+haqiqiy ishga tushirilib, keyin standalone `python scripts/find_stuck_
+running_actions.py` orqali ham qayta tasdiqlandi.
+
+Bu skriptni yozish/tekshirish jarayonida haqiqiy amaliy xato o'zida
+topildi va tuzatildi (commit qilinmasdan oldin): birinchi tekshiruv
+urinishi `customer_id = uuid.uuid4()`ni to'g'ridan-to'g'ri, hech qanday
+`UserCustomerIndex` qatorisiz ishlatgan edi — skript hech narsa
+topmadi (customer discovery bo'sh qaytardi), ikkala threshold bilan ham
+exit 0 berdi, garchi RUNNING action haqiqatda mavjud bo'lsa ham. Bu
+skriptning o'zidagi xato emas — `verify_audit_chain_job.py` bilan bir
+xil, to'g'ri customer-discovery konventsiyasini ishlatgani (haqiqiy
+customer'lar doim `UserCustomerIndex`da bo'ladi, `customer_service`
+orqali yaratilgani uchun) aniqlandi; tekshiruv skriptining o'zi
+tuzatilib (customer_id'ni `UserCustomerIndex`ga ham yozib), keyin
+to'g'ri natija berdi. `infrastructure/telegram_relay.py`ning o'z
+docstring'iga ham yangi skriptga havola qo'shildi.
+
+210 test, barchasi real Postgres+Redis'da (yangi skript uchun pytest
+test yo'q, o'rnatilgan konventsiyaga ko'ra — yuqoriga qarang).
