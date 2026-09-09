@@ -13,7 +13,7 @@ one-row-per-ADR table doesn't have room for.
 | [ADR-004](ADR-004-model-gateway.md) | Model gateway for AI provider abstraction | Accepted (not yet implemented) |
 | [ADR-005](ADR-005-rls-second-layer.md) | PostgreSQL RLS as tenant isolation's second, independent layer | Accepted, implemented — see the recorded incident |
 | [ADR-006](ADR-006-hosting-region-data-residency.md) | Hosting region and data residency | Open — see `docs/open-decisions.md` (OD-005) |
-| [ADR-007](ADR-007-first-connector.md) | First connector choice | Open — see `docs/open-decisions.md` (OD-002) |
+| [ADR-007](ADR-007-first-connector.md) | First connector choice | Accepted — Telegram (OD-002 resolved), integration not yet built |
 
 No ADR-008+ exists yet — a new architecturally-significant decision (e.g.
 introducing a `platform_owner` role for R5 dual control, per the gap
