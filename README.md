@@ -164,7 +164,24 @@ validator (NFR-SEC-001) qo'shildi, va CI'da haqiqiy infratuzilma xatosi
 ikki marta qulatgan edi) diagnostika qilinib to'g'ri tuzatildi
 (apt manbani butunlay chetlab o'tish, vaqtinchalik retry emas).
 
-**200 test, barchasi real Postgres(+Redis)'da; 6 E2E spec, barchasi CI'da
+Product Owner Telegram bot tokenini xavfsiz kanal (environment
+variable) orqali taqdim etgach, **OD-002'ning haqiqiy connector qismi
+qurildi**: `infrastructure/telegram_client.py` (Bot API `sendMessage`
+klienti, token URL yo'lida yurilgani uchun hech qanday xato yo'lida
+sizib chiqmaydi) va `infrastructure/telegram_relay.py` (outbox
+relay'ning Redis Stream'idagi `action.ready.v1` xabarlarini o'qib,
+`telegram.send_message` action'larini `apply_transition` orqali
+READY→RUNNING→SUCCEEDED/FAILED'gacha olib boradigan, ikki qatlamli
+idempotentlikka ega consumer). Bu `outbox_relay.py`ning "connector hali
+yo'q" degan eski holatini birinchi marta yopadi. Halol chegara: bu
+muhitda haqiqiy Telegram bot token/chat mavjud emas, shuning uchun
+Telegram'ning o'z API'siga haqiqiy HTTP chaqiruvi hech qachon real
+xizmatga qarshi ishga tushirilmagan — faqat outbox→Stream→consumer→DB
+pipeline'i real Postgres+Redis'ga qarshi isbotlangan, Telegram HTTP
+qismi test double bilan. Credential broker (9.3) hamon qurilmagan —
+bot tokeni hozircha to'g'ridan-to'g'ri `Settings`dan o'qiladi.
+
+**210 test, barchasi real Postgres(+Redis)'da; 6 E2E spec, barchasi CI'da
 avtomatik; 4 marta security-review o'tkazilgan.**
 
 ## Ishga tushirish (local dev)
