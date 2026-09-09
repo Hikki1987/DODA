@@ -1931,3 +1931,82 @@ customer, archive, kill-switch, logout, accessibility) haqiqiy backend+
 frontend'ga (production build) qarshi qayta ishga tushirilib, regressiya
 yo'qligi — xususan yangi `KillSwitchPanel` komponentining ikkala
 sahifada ham to'g'ri ishlashi — real brauzerda tasdiqlandi.
+
+**To'liq talab-traceability auditi o'tkazildi — QOIDA 2ning o'zi ("ID'siz
+talab yo'q") birinchi marta butun TRD'ga qarshi tekshirildi, parcha-
+parcha feature-bo'yicha qamrov o'rniga.** TRD'dan (`docs/DODA-TRD-
+v2.0.docx`, pandoc orqali) har bir FR-\*/NFR-\*/UC-\*/RISK-\*/OD-\*/ASM-\*
+ID'ni (jami 121 ta) chiqarib, har birini CLAUDE.md'ning to'liq matni va
+kod bazasining haqiqiy tuzilishi bilan solishtirib chiqildi. Natija:
+~68 ta **qurilgan**, ~23 ta (FR-CONV, FR-KNW, FR-ADM — butun oilalar)
+**ochiq ravishda kechiktirilgan** (CLAUDE.md'da aniq "ataylab qurilmagan"
+deb yozilgan), lekin **41 ta hech qayerda — na CLAUDE.md'da, na kodda —
+bironta marta ham tilga olinmagan**. Bu oxirgisi kutilganidan kattaroq
+bo'shliq: ayrim oilalar (FR-AUTH, FR-TASK, FR-CTL, NFR-\*) qisman qurilgan
+bo'lsa-da, o'z ichidagi ba'zi ID'lari hech qachon alohida tekshirilmagan
+edi.
+
+Eng muhim **haqiqiy, tekshirilgan** topilma — FR-ACT-001/002/005/006/
+007/009 (tool registry, dry-run preview, retry/circuit-breaker,
+connector credential isolation, provider-receipt confirmation, cancel/
+compensate oqimi): to'g'ridan-to'g'ri kodga qarab tasdiqlandi —
+`ActionStatus.RUNNING/SUCCEEDED/RETRYING/COMPENSATING/COMPENSATED`
+domain enum'da mavjud va `state_machine.py`da ruxsat etilgan o'tishlar
+sifatida belgilangan, lekin `grep`dan tasdiqlanganidek, **hech qanday
+kod yo'li hech qachon `apply_transition`ni shu besh holatning birortasi
+bilan chaqirmaydi** — `propose_action`/`validate_action`/`consume_approval`
+action'ni faqat DRAFT→VALIDATING→READY/AWAITING_APPROVAL/EXPIRED/
+REJECTED'gacha olib boradi, undan keyin (outbox'ga navbatga qo'yilgandan
+keyin) hech narsa yo'q. Bu **yangi xato emas** — "Bilingan cheklovlar"da
+allaqachon "Outbox relay hozircha connector'siz — faqat Redis Stream'ga
+yetkazishni isbotlaydi" deb to'g'ri qayd etilgan edi — lekin bu audit
+buni aniq FR-ACT ID'lariga bog'lab, qamrovning chegarasini ilgari
+qilingandan ancha aniqroq chizdi: Action'ning **bajarilishi**ning o'zi
+(connector chaqirish, RUNNING/SUCCEEDED holatlariga o'tish) hali umuman
+mavjud emas, faqat "navbatga qo'yish" qismi bor. Bu xuddi avvalroq qayd
+etilgan `risk_level` caller-supplied bo'shlig'i (pastda, "Bilingan
+cheklovlar") bilan bir xil oiladagi, undan kengroq bo'shliq — ikkalasi
+ham S7'da birinchi connector qurilishidan OLDIN yopilishi kerak bo'lgan
+siyosat/bajarilish qatlamlari, hozircha haqiqiy tashqi ta'sir yo'qligi
+sababli zararsiz.
+
+Ikkinchi muhim topilma: **RISK-\* (TRD 19.1, o'nta risk) — OD-\* uchun
+`docs/open-decisions.md` qurilgan bo'lsa-da, risk registrining o'ziga
+hech qachon mos tracker yozilmagan edi, birorta RISK ID CLAUDE.md'da
+hech qachon tilga olinmagan edi.** `docs/open-decisions.md`ning aynan
+bir xil formatida `docs/risk-register.md` yozildi — o'nta risk ham TRD
+19.1'dan to'g'ridan-to'g'ri o'qib (subagent xulosasiga emas, hujjatning
+o'ziga tayanib) olingan, har biriga haqiqiy kod bazasiga nisbatan
+holat berilgan: ba'zilari (RISK-006 "xavfsizlik illyuziyasi" — "DEMO ≠
+PRODUCTION" qoidasi va uch marta o'tkazilgan security-review bilan eng
+yaxshi yengillashtirilgan) haqiqatda allaqachon qisman yopilgan, lekin
+hech qachon ID bo'yicha bog'lanmagan edi; boshqalari (RISK-003/005/010)
+hali boshlanmagan domainlarga (memory, AI/model chaqiruvlari) bog'liq
+bo'lgani uchun "dormant" deb to'g'ri belgilandi, tasodifan yengillashmagan
+deb emas; RISK-009 (data residency kechikishi) esa TRD aynan
+bashorat qilgan tarzda materiallashayotgani ko'rsatildi — OD-005 hamon
+ochiq va muddatidan o'tgan. README.md'ga havola qo'shildi.
+
+Shu jarayonda yana bitta, alohida bo'shliq ham aniqlandi:
+**NFR-I18N-001** (uz/ru/en matnlari externalized, hardcode yo'q) hech
+qachon tekshirilmagan — bugungi frontend 100% hardcode qilingan o'zbek
+tilida, hech qanday i18n kutubxonasi yo'q. `docs/risk-register.md`ning
+RISK-010 qatoriga shu bilan bog'liq, lekin alohida eslatma sifatida
+yozildi (UI matnlarini tashqariga chiqarish vs AI javoblarining til
+sifati — ikki xil, lekin bog'liq masala).
+
+**Qolgan 41 ID'ning aksariyati ataylab hech narsa qilinmadi** — ular
+yoki hali qurilmagan domainlarga (Knowledge/memory, AI/chat, connector)
+bog'liq (FR-TASK-002/003/005/006, FR-CTL-004, NFR-PERF-002/003,
+NFR-ISO-003, NFR-PORT-001, NFR-REL-\*, NFR-DUR-001, NFR-SEC-001), yoki
+yangi, alohida mahsulot qarorini talab qiladigan funksiyalar (FR-AUTH-002
+MFA enrollment, FR-AUTH-007 anomalous-login alert, FR-AUTH-008 WebAuthn,
+FR-AUTH-009 Service Actor credential flow, FR-WKS-007 workspace
+settings, FR-CTL-005 undo, FR-AUD-003 redaction CI scanner, FR-AUD-005
+evidence package) — QOIDA 2'ga ko'ra bularning har biri so'ralmagan
+holda amalga oshirilmaydi, bu yerda faqat **ID bo'yicha ko'rinadigan**
+qilib qo'yildi (keyingi safar kimdir "bu qurilganmi" deb so'raganda,
+javob endi "tekshirilmagan" emas, aniq).
+
+Bu sof tekshiruv+hujjatlashtirish — kod o'zgarmadi, 189 test
+o'zgarishsiz qoladi.
