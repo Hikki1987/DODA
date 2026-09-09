@@ -2121,3 +2121,50 @@ ochiq savollarga real javob keldi, taxmin qilinmadi.** Uchalasi ham
    multi-tenant arxitekturaning aynan o'zi — kod o'zgarishi talab
    qilmadi, faqat `docs/open-decisions.md`dagi yozuv shu nuance bilan
    boyitildi.
+
+**Uchta konkret kirish (Telegram bot token, STT/TTS provayder, OIDC
+credential) hali kelmagani uchun keyingi bosqich (haqiqiy connector/
+ovoz/OIDC) hozircha bloklangan — shuning uchun TRD'ning qolgan
+tekshirilmagan NFR ID'lari (NFR-PERF-002/003, NFR-REL-001/002,
+NFR-DUR-001, NFR-SEC-001, NFR-ISO-003, NFR-PORT-001) yana bir marta
+ko'rib chiqildi: barchasi yoki hali qurilmagan domainlarga (Chat/
+Knowledge/AI) yoki hali qabul qilinmagan OD-005 (hosting) qaroriga
+bog'liq ekani tasdiqlandi — mustaqil bajarib bo'lmaydi.**
+
+Shu tekshiruv jarayonida **NFR-SEC-001ning bir qismi — "Konfiguratsiya
+skan" — haqiqiy, hech qanday infra yoki OD-005'ga bog'liq bo'lmagan
+gap sifatida topildi va yopildi.** `config.py`dagi
+`cors_allowed_origins` maydonining izohi har doim "hech qachon '*'
+emas" degan, chunki har bir so'rov bearer session token olib yuradi —
+lekin bu FAQAT izoh edi, kod darajasida HECH NARSA operatorni
+`DODA_CORS_ALLOWED_ORIGINS=*` o'rnatishdan to'xtatmasdi.
+`main.py`ning o'zi buni to'g'ridan-to'g'ri `CORSMiddleware(allow_origins=...,
+allow_credentials=True)`ga uzatadi — bu aniq, hujjatlashtirilgan CORS
+anti-pattern (wildcard + credentials). Amalda bugun buzilmagan (haqiqiy
+qiymat hamon `http://localhost:3000`), lekin hech narsa buni kelajakda
+xato konfiguratsiyadan saqlamas edi.
+
+Tuzatish: `Settings.cors_allowed_origins`ga pydantic `field_validator`
+qo'shildi — vergul bilan ajratilgan ro'yxatdagi HAR BIR elementni
+tekshirib, birortasi (bo'sh joylar olib tashlangandan keyin) aniq `"*"`
+ga teng bo'lsa, `Settings()` konstruksiyasining o'zida (ilova ishga
+tushishidan oldin) `ValidationError` ko'taradi — jimgina qabul qilish
+o'rniga darhol to'xtatadi. Bu birinchi `field_validator` ishlatilishi
+kod bazasida (boshqa joylarda pydantic schema'lar faqat oddiy
+`BaseModel`).
+
+Audit-zanjiri uslubida isbotlandi: validator vaqtincha olib tashlanib,
+yangi `tests/test_config.py`ning ikkita testi (`test_wildcard_cors_
+origin_is_rejected`, `test_wildcard_mixed_with_a_real_origin_is_still_
+rejected`) aynan kutilgan tarzda muvaffaqiyatsiz bo'lishi (`DID NOT
+RAISE ValidationError`) ko'rsatildi — ya'ni bugungi kodda
+`DODA_CORS_ALLOWED_ORIGINS=*` haqiqatda jimgina qabul qilinardi, bu
+faraz emas edi. Keyin validator qaytarilib, uchala test ham (uchinchisi
+— oddiy, to'g'ri qiymat rad etilmasligini tasdiqlaydi) yashil ekani
+ko'rsatildi. `ruff`/`mypy` toza, 199 test (196+3), barchasi real
+Postgres'da.
+
+DB TLS/encryption-at-rest (NFR-SEC-001ning ikkinchi yarmi) ataylab
+tegilmadi — bu haqiqiy managed Postgres/hosting infratuzilmasini
+(OD-005) talab qiladi, real TLS ulanishisiz assertion yozish
+"isbotlamasdan taxmin qilma" tamoyilini buzardi.

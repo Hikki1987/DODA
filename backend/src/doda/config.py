@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,6 +26,24 @@ class Settings(BaseSettings):
     # from. Never "*" — every request here already carries a bearer session
     # token, and a wildcard would let any origin's script read the response.
     cors_allowed_origins: str = "http://localhost:3000"
+
+    @field_validator("cors_allowed_origins")
+    @classmethod
+    def _reject_wildcard_origin(cls, value: str) -> str:
+        # NFR-SEC-001's "configuration scan" verification, made real: the
+        # comment above has said "never *" since CORS was first wired up
+        # (main.py passes this straight to CORSMiddleware's allow_origins),
+        # but nothing actually stopped an operator from setting
+        # DODA_CORS_ALLOWED_ORIGINS=* — combined with allow_credentials=True
+        # that's a wildcard-with-credentials misconfiguration, a well-known
+        # CORS anti-pattern. Fail fast at startup instead of accepting it.
+        if any(origin.strip() == "*" for origin in value.split(",")):
+            raise ValueError(
+                "DODA_CORS_ALLOWED_ORIGINS must not contain '*' — every "
+                "response here carries a bearer session token; list the "
+                "exact origin(s) allowed to read it instead"
+            )
+        return value
 
 
 @lru_cache
