@@ -10,6 +10,9 @@ of what that does and doesn't prove, and test_telegram_client.py for
 the client's own request/response handling in isolation.
 """
 
+import asyncio
+import os
+import signal
 import uuid
 
 import httpx
@@ -27,7 +30,15 @@ from doda.config import get_settings
 from doda.db import tenant_scoped_session
 from doda.domain.action.models import Action, ActionStatus, RiskLevel
 from doda.infrastructure.outbox_relay import relay_once as outbox_relay_once
-from doda.infrastructure.telegram_relay import process_entry, relay_once
+from doda.infrastructure.telegram_relay import (
+    CONSUMER_GROUP,
+    STREAM_NAME,
+    main,
+    process_entry,
+    relay_once,
+    run_forever,
+)
+from tests.integration.conftest import assert_worker_still_running_before_signaling
 
 
 @pytest.fixture
@@ -249,3 +260,151 @@ async def test_redelivery_of_an_already_succeeded_action_does_not_resend(db_avai
     assert call_count == 1  # Telegram was NOT called again
     action = await _get_action(customer_id, action_id)
     assert action.status is ActionStatus.SUCCEEDED  # unchanged
+
+
+async def test_malformed_payload_drives_action_to_failed_without_calling_telegram(
+    db_available: bool, redis_client: Redis
+) -> None:
+    """A telegram.send_message action whose payload doesn't carry a string
+    chat_id/text is a real possibility: `propose_action` takes an arbitrary
+    payload dict and nothing validates its shape per tool (FR-ACT-001's
+    full tool registry, with per-tool payload schemas, is deliberately not
+    built — see domain/action/tool_policy.py). The connector must fail such
+    an action explicitly rather than crash or send something malformed.
+    """
+    customer_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+
+    async with tenant_scoped_session(customer_id) as session:
+        action, _ = await propose_action(
+            session,
+            customer_id=customer_id,
+            workspace_id=workspace_id,
+            trace_id=uuid.uuid4(),
+            actor_id="user:alice",
+            tool_name="telegram.send_message",
+            risk_level=RiskLevel.R0,  # raised to R3 by tool_policy
+            payload={"recipient": "not-a-chat-id"},  # no chat_id/text at all
+            idempotency_key=f"idem-telegram-malformed-{uuid.uuid4()}",
+        )
+        await validate_action(session, action, actor_id="user:alice")
+        approval = await request_approval(session, action)
+        await consume_approval(session, action, approval, approver_id="user:approver", nonce=approval.nonce)
+        action_id = action.id
+
+    called = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 1}})
+
+    fields = {b"customer_id": str(customer_id).encode(), b"aggregate_id": str(action_id).encode()}
+    async with _mock_http_client(handler) as http_client:
+        await process_entry(http_client, fields=fields, bot_token="fake-test-token")
+
+    assert called is False  # never attempted a send with a malformed payload
+    action = await _get_action(customer_id, action_id)
+    assert action.status is ActionStatus.FAILED
+
+
+async def test_an_unprocessable_entry_is_left_unacked_in_the_pending_list(
+    db_available: bool, redis_client: Redis
+) -> None:
+    """relay_once's own comment claims an entry that raises is "left
+    un-ACK'd — stays in the PEL for reconciliation, not silently dropped".
+    That claim had never been verified. Inject a structurally broken entry
+    (no customer_id/aggregate_id fields at all, which is what a publisher
+    bug or a hand-written XADD would look like) and assert both halves:
+    relay_once survives it, and Redis still lists it as pending.
+    """
+    entry_id = await redis_client.xadd(STREAM_NAME, {"unexpected": "shape"})
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("must never reach Telegram for an unprocessable entry")
+
+    async with _mock_http_client(handler) as http_client:
+        # Does not raise, even though process_entry itself will KeyError.
+        await relay_once(redis_client, http_client, bot_token="fake-test-token")
+
+    try:
+        pending = await redis_client.xpending_range(
+            STREAM_NAME, CONSUMER_GROUP, min=entry_id, max=entry_id, count=10
+        )
+        assert len(pending) == 1, "a failed entry must stay in the PEL, not be silently ACK'd"
+    finally:
+        # Remove the probe entry from the STREAM, not just the group's PEL:
+        # this is a real shared Redis stream that other tests read in full
+        # (test_outbox_relay.py iterates every entry and indexes
+        # fields["aggregate_id"]), so an XACK alone — which clears the PEL
+        # but leaves the entry in the stream — makes this test poison its
+        # siblings. Caught exactly that way: the full suite failed with a
+        # KeyError in test_outbox_relay while this file alone passed. Same
+        # lesson as the E2E specs' separate seeds: never leave shared
+        # mutable state behind.
+        await redis_client.xack(STREAM_NAME, CONSUMER_GROUP, entry_id)
+        await redis_client.xdel(STREAM_NAME, entry_id)
+
+
+async def test_relay_once_returns_zero_when_nothing_new_is_pending(
+    db_available: bool, redis_client: Redis
+) -> None:
+    """The idle path: with the stream drained, xreadgroup blocks briefly and
+    then returns nothing, which relay_once reports as 0 processed rather
+    than treating an empty read as an error."""
+    async with _mock_http_client(
+        lambda request: httpx.Response(200, json={"ok": True, "result": {"message_id": 1}})
+    ) as http_client:
+        await relay_once(redis_client, http_client, bot_token="fake-test-token")  # drain first
+        assert await relay_once(redis_client, http_client, bot_token="fake-test-token") == 0
+
+
+async def test_run_forever_drives_an_action_then_stops_promptly_on_stop_event(
+    db_available: bool, redis_client: Redis
+) -> None:
+    """`run_forever` is the actual worker loop — the same gap outbox_relay.py
+    had before its own run_forever test existed: every other test here calls
+    `relay_once` directly, so the loop that a real deployment runs was never
+    exercised. Proves it drives a real action to SUCCEEDED AND honors a
+    shutdown signal (xreadgroup's own block bounds each iteration, so this
+    must not wait on anything longer).
+    """
+    customer_id, action_id = await _seed_ready_telegram_action()
+    await outbox_relay_once(redis_client)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 1}})
+
+    stop_event = asyncio.Event()
+    async with _mock_http_client(handler) as http_client:
+        task = asyncio.create_task(
+            run_forever(redis_client, http_client, stop_event=stop_event, bot_token="fake-test-token")
+        )
+        try:
+            for _ in range(100):
+                action = await _get_action(customer_id, action_id)
+                if action.status is not ActionStatus.READY:
+                    break
+                await asyncio.sleep(0.1)
+            else:
+                pytest.fail("run_forever never drove the action out of READY")
+        finally:
+            stop_event.set()
+            # Generous vs. DEFAULT_BLOCK_MS (1s): the loop can only notice
+            # the event between blocking reads. A regression that ignored
+            # stop_event entirely would hang here instead.
+            await asyncio.wait_for(task, timeout=10)
+
+    assert action.status is ActionStatus.SUCCEEDED
+
+
+async def test_main_stops_cleanly_on_sigterm(db_available: bool, redis_client: Redis) -> None:
+    """The real worker entrypoint (`python -m doda.infrastructure.telegram_relay`):
+    registers SIGTERM/SIGINT handlers, opens its own Redis + httpx clients,
+    and exits on signal rather than needing a hard kill. Mirrors
+    test_outbox_relay.py's identical test for the sibling worker."""
+    task = asyncio.create_task(main())
+    await asyncio.sleep(0.3)  # let it start and register the signal handlers
+    assert_worker_still_running_before_signaling(task)
+    os.kill(os.getpid(), signal.SIGTERM)
+    await asyncio.wait_for(task, timeout=10)

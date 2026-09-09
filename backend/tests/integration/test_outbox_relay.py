@@ -24,6 +24,7 @@ from doda.config import get_settings
 from doda.db import tenant_scoped_session
 from doda.domain.action.models import RiskLevel
 from doda.infrastructure.outbox_relay import main, relay_once, run_forever
+from tests.integration.conftest import assert_worker_still_running_before_signaling
 
 
 @pytest.fixture
@@ -175,10 +176,11 @@ async def test_run_forever_notices_stop_event_promptly_while_idle(
     await asyncio.wait_for(task, timeout=1)
 
 
-async def test_main_stops_cleanly_on_sigterm(db_available: bool) -> None:
+async def test_main_stops_cleanly_on_sigterm(db_available: bool, redis_client: Redis) -> None:
     """The real worker entrypoint: registers SIGTERM/SIGINT handlers and
     exits `main()` when signaled, rather than requiring a hard kill."""
     task = asyncio.create_task(main())
     await asyncio.sleep(0.2)  # let it start and register the signal handlers
+    assert_worker_still_running_before_signaling(task)
     os.kill(os.getpid(), signal.SIGTERM)
     await asyncio.wait_for(task, timeout=5)

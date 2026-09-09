@@ -1,3 +1,4 @@
+import asyncio
 import dataclasses
 import uuid
 
@@ -14,10 +15,24 @@ from doda.domain.workspace.models import WorkspaceMembership
 
 @pytest.fixture
 async def db_available() -> bool:
+    """Skip (don't error) when Postgres isn't running locally.
+
+    Catches OSError alongside SQLAlchemy's OperationalError: the most common
+    case by far — nothing listening on the port at all — surfaces as a bare
+    ConnectionRefusedError (an OSError) straight from asyncpg's connect, which
+    SQLAlchemy never gets to wrap. With only OperationalError caught, that case
+    produced a screen of identical tracebacks instead of this fixture's whole
+    point, one clear "start Postgres" skip message per test (observed for real:
+    a crashed local Postgres turned one run into 128 errors).
+
+    Safe in CI despite hiding a dead database: the workflow's postgres/redis
+    service containers have health checks, so the job never reaches pytest
+    unless they are actually accepting connections.
+    """
     try:
         async with async_session_factory() as session:
             await session.connection()
-    except OperationalError:
+    except (OperationalError, OSError):
         pytest.skip("Postgres not reachable — start it with `docker compose up -d postgres`")
     return True
 
@@ -68,6 +83,26 @@ async def commit_and_return(cm, coro):
     result = await coro
     await cm.__aexit__(None, None, None)
     return result
+
+
+def assert_worker_still_running_before_signaling(task: asyncio.Task) -> None:
+    """Guard for the worker-entrypoint tests that signal their own process.
+
+    Both worker `main()`s register a SIGTERM handler on entry and remove it
+    in their `finally`. So if `main()` has already exited when the test fires
+    `os.kill(os.getpid(), SIGTERM)`, that signal lands on Python's DEFAULT
+    handler and kills the pytest process outright — no failure, no output,
+    the run simply vanishes. Observed for real: with Redis stopped, the
+    Telegram worker's main() raises on its first command and the test it was
+    copied from silently terminated the whole run.
+
+    Calling this first converts that into a normal failure that names the
+    real cause (`await task` re-raises it) before any signal is sent.
+    """
+    if not task.done():
+        return
+    task.result()  # re-raises whatever made main() exit, if anything
+    pytest.fail("worker main() exited on its own before the test could signal it")
 
 
 @dataclasses.dataclass(frozen=True)

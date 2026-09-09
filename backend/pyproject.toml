@@ -23,6 +23,7 @@ dependencies = [
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
+    "pytest-cov>=5.0",
     "ruff>=0.7",
     "mypy>=1.13",
     "pip-audit>=2.7",
@@ -37,6 +38,17 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["doda"]
+# MANDATORY for this codebase, not a tuning knob: without greenlet+thread
+# tracing, coverage silently misses code executed inside SQLAlchemy's
+# greenlet bridge and the async request path, and every FastAPI route
+# handler body reads as unexecuted. Measured: api/tasks.py reported 72%
+# with tests that demonstrably exercise those exact lines, and 97% once
+# this is set — a ~25-point error, in the direction that invents phantom
+# test gaps (and would excuse real ones as "probably just the artifact").
+concurrency = ["thread", "greenlet"]
 
 [build-system]
 requires = ["setuptools>=68"]
