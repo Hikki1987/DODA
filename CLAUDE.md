@@ -2218,3 +2218,32 @@ etildi — bugun aniq buzuqlik yo'q, shuning uchun tuzatish (masalan
 pattern'iga o'tkazish) so'ralmagan holda amalga oshirilmadi.
 
 200 test, barchasi real Postgres'da.
+
+**To'rtinchi `security-review` o'tkazildi — bu safar avvalgi uchtasidan farqli,
+qisman diff emas, BUTUN PR (main'ga nisbatan barcha 186 fayl) qamrovida.**
+Jarayon bir xil: (1) topish subagent'i butun kod bazasini (authz zanjiri,
+session, Action/Approval state machine, kill switch, audit hash-zanjiri,
+RLS/migratsiyalar, CORS/config, frontend) qayta ko'rib chiqdi, (2) faqat
+haqiqiy nomzod topilsa har biri uchun alohida false-positive filtrlash
+subagent'i, (3) faqat ishonch darajasi >=8 rasmiy hisobotga kiritiladi.
+
+**Natija: 0 topilma.** Topish subagent'i bir nechta ehtimoliy nomzodni
+alohida tekshirib, hech biri haqiqiy ekspluatatsiya yo'liga ega emasligini
+tasdiqladi: (1) `get_workspace_context`/`get_customer_context` RLS GUC'iga
+emas, aniq `CustomerMembership`/`WorkspaceMembership` join'lariga tayanadi —
+demak RLS qayta ishlamay qolsa ham (ADR-005 incident'i kabi), bu authz
+zanjiri o'zi mustaqil qoladi; (2) `list_tasks_for_workspace`/`list_actions_
+for_workspace`/`list_workspace_members` faqat `workspace_id` bo'yicha
+filtrlaydi, aniq `customer_id` predikati yo'q — bu uchinchi security-review'da
+tuzatilgan `list_my_workspaces` bo'shlig'iga o'xshab ko'rinadi, lekin
+`workspace_id`ning o'zi allaqachon global, taxmin qilib bo'lmaydigan noyob
+kalit bo'lgani uchun cross-tenant sizib chiqish yo'q; (3) `risk_level`ning
+caller-supplied ekanligi (bilingan cheklov, yuqoriga qarang) — real, lekin
+hech qanday connector `READY` action'larni hali iste'mol qilmagani uchun
+hozircha ekspluatatsiya qilinadigan tashqi ta'sir yo'q.
+
+Bu safar hech qanday nomzod filtrlash bosqichiga o'tmadi (rasmiy hisobot
+bo'sh) — avvalgi uchta review'dan farqli, bu safar chindan ham "toza" natija,
+zo'rma-zo'raki chegara-usti (ishonch 7) topilma ham yo'q edi.
+
+200 test, barchasi real Postgres'da (kod o'zgarmadi — sof tekshiruv).
