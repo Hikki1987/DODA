@@ -1747,6 +1747,11 @@ seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,
 issuer URL) talab qiladi, Product Owner'dan kelishi kerak. Yoki OD-002
 (connector tanlovi) S6'dan oldin hal qilinishi kerak.
 
+*(Bu paragraf yozilgan vaqtda ikkalasi ham ochiq edi — xronologik
+yozuv, o'zgartirilmaydi. OD-002 keyinroq shu faylning davomida
+haqiqatda hal qilindi VA qurildi — Telegram, pastga qarang; OIDC
+hamon ochiq, yagona qolgan blokator.)*
+
 **Bilingan cheklovlar (keyingi ishlarda hisobga olinsin):**
 - ~~Audit hash-zanjiri concurrent yozuvlarda xavfsiz emas~~ — **tuzatildi**:
   `audit_chain_tips` (0005-migratsiya) har customer uchun `SELECT ... FOR
