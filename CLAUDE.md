@@ -2010,3 +2010,44 @@ javob endi "tekshirilmagan" emas, aniq).
 
 Bu sof tekshiruv+hujjatlashtirish — kod o'zgarmadi, 189 test
 o'zgarishsiz qoladi.
+
+**Traceability auditda topilgan 41 bo'shliqdan bittasi — FR-AUD-003
+("Audit yozuvida secret, token, PII yoki prompt kontenti bo'lmaydi",
+Must, qabul mezoni "Redaction scanner CI'da 0 topilma") — qurildi,
+chunki u boshqalaridan farqli, hech qanday yangi domain yoki Product
+Owner qaroriga bog'liq emas edi: bu sof statik tekshiruv, xuddi
+`test_domain_isolation.py` kabi.** `tests/unit/test_audit_redaction.py`
+— `record_audit_event(...)`ning barcha chaqiruv nuqtalarini (AST orqali,
+DB shart emas) topib, har birining `safe_metadata=` lug'atidagi
+kalitlarini bitta, qo'lda ko'rib chiqilgan ro'yxat (`ALLOWED_SAFE_
+METADATA_KEYS`) bilan solishtiradi. Kelajakda kimdir audit yozuviga
+`"email": user.email` yoki `"password": token` kabi yangi kalit qo'shsa,
+bu test CI'da darhol qizaradi — append-only audit trail'ga (0001-
+migratsiyadagi `audit_events_no_update_delete` trigger tufayli) yozilgan
+narsa keyin hech qachon tuzatib bo'lmaydi, shuning uchun bu tekshiruv
+yozilishdan OLDIN bo'lishi kerak.
+
+Ro'yxatning o'zi kod bazasidagi HAR BIR mavjud chaqiruvni (audit.py,
+export_service.py, action_service.py, customer_service.py, workspace_
+service.py, notification_service.py, kill_switch_service.py — sakkiz
+fayl, ~20 chaqiruv nuqtasi) qo'lda o'qib chiqib tuzildi, taxmin qilinmadi.
+Ikkita erkin-matn maydoni (`reason` — kill switch sababi, `name` —
+customer/workspace nomi) ataylab ro'yxatda qoldirildi, lekin docstring'da
+aniq yozilgan: bu test ularning QIYMATINI statik tekshira olmaydi (inson
+kiritgan matn ichida nazariy jihatdan sezgir narsa bo'lishi mumkin) —
+bu ikkala maydonning o'zi audit uchun ma'noli bo'lishining tabiiy
+narxi (masalan "nima uchun kill switch yoqildi" degan savolga javob
+o'qilmaydigan bo'lsa, audit yozuvining ma'nosi yo'qoladi). Test nimani
+KAFOLATLAYDI: hech qanday yangi maydon nomi ko'rib chiqilmasdan audit
+yozuviga qo'shilib qolmaydi.
+
+Testning chinakam narsani tutishi isbotlandi (audit-zanjiri uslubida):
+`customer_service.py`dagi bitta chaqiruvga vaqtincha `"owner_email":
+"leaked@example.com"` qo'shib test aniq shu kalitni ko'rsatib
+muvaffaqiyatsiz bo'lishini tasdiqladim, qaytarib yashil ekanini
+ko'rsatdim; keyin alohida, `export_service.py`dagi bitta chaqiruvni
+vaqtincha o'zgaruvchiga (`safe_metadata=some_dynamic_metadata`)
+almashtirib, testning "faqat literal lug'atni statik tekshira olaman"
+himoya yo'lining ham ishlashini (aniq xato xabari bilan) tasdiqladim,
+so'ng qaytarib yashil ekanini ko'rsatdim. 190 test, barchasi real
+Postgres'da.
