@@ -1587,6 +1587,42 @@ bilan muvaffaqiyatsiz bo'lishini ko'rsatdim, keyin tuzatishni qaytarib
 ikkalasi ham yashil ekanini tasdiqladim. 187 test, barchasi real
 Postgres'da.
 
+**Xuddi shu TOCTOU naqshini qidirishda to'rtinchi, bu safargisi eng
+jiddiy nusxasi topildi va tuzatildi: FR-WKS-005ning "oxirgi Owner'ni
+chiqarib/pasaytirib bo'lmaydi" invarianti concurrency ostida haqiqatda
+buzilishi mumkin edi — natijada customer NOLTA owner bilan qolishi
+mumkin edi, hech qanday API orqali tiklash yo'li yo'q holda.**
+`customer_service._count_customer_owners` — `change_customer_member_role`
+va `remove_customer_member`ning ikkalasi ham shu bitta funksiyaga tayanadi
+— hech qanday qulflashsiz oddiy `SELECT` edi. Aynan ikkita owner (A va B)
+bor customer'da A B'ni chiqarsa VA B (bir vaqtda) A'ni chiqarsa: ikkalasi
+ham hali "2 owner bor" deb hisoblab tekshiruvdan o'tadi, ikkalasi ham
+bajariladi — natija: 0 owner. Bu nazariy emas, qo'lda (haqiqiy ikkita
+mustaqil sessiya, majburlangan interleaving) reproduktsiya qilinganda
+aynan shu holat ko'rsatildi: `remaining owners: 0`.
+
+Bu avvalgi uchtasidan (task history, approval nonce, kill switch)
+farqli — bu yerda qulflanadigan BITTA tabiiy qator yo'q, chunki tekshiruv
+bir nechta qatorni (customer'ning barcha owner'lari) sanaydi. Yechim:
+`_count_customer_owners`ning o'z SELECT'iga `.with_for_update()`
+qo'shish — bu customer'ning BARCHA owner-rol CustomerMembership
+qatorlarini qulflaydi, shuning uchun ikkinchi (bloklangan, keyin
+ochilgan) chaqiruv g'olib tranzaksiya o'chirgan qatorni endi ko'rmaydi va
+to'g'ri "faqat 1 owner qoldi" deb sanaydi — `change_customer_member_role`
+ham, `remove_customer_member` ham bitta markazlashtirilgan tuzatishdan
+avtomatik foyda ko'radi, chunki ikkalasi ham shu yordamchi funksiyaga
+murojaat qiladi.
+
+Audit-zanjiri uslubida isbotlandi: avval real, majburlangan interleaving
+bilan repro yozib 0 owner qolishini ko'rsatdim, tuzatishni qo'shib endi
+bittasi muvaffaqiyatli, ikkinchisi `CustomerMembershipError` bilan rad
+etilishini (1 owner qolib) tasdiqladim, keyin
+`test_last_owner_invariant_concurrency.py` yozdim, `git stash` bilan
+vaqtincha olib tashlab test aynan kutilgan tarzda (`['ok', 'ok']` emas,
+`['ok', 'rejected']` kutilgan edi) muvaffaqiyatsiz bo'lishini ko'rsatdim,
+keyin tuzatishni qaytarib yashil ekanini tasdiqladim. 188 test, barchasi
+real Postgres'da.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,

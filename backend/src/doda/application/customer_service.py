@@ -75,11 +75,22 @@ async def create_customer_with_owner(
 
 
 async def _count_customer_owners(session: AsyncSession, customer_id: uuid.UUID) -> int:
+    # with_for_update(): two owners concurrently removing/demoting EACH
+    # OTHER (e.g. both acting at once while a customer still has exactly
+    # two owners) would otherwise both count 2, both pass the "more than
+    # one left" check below, and both proceed — leaving zero owners, with
+    # no customer_owner left to ever invite a new one. Locking these rows
+    # serializes the two calls: the second one, once unblocked, re-counts
+    # under the first call's already-committed change and correctly sees
+    # only one owner left. Same technique as the Task/Action/kill-switch
+    # concurrency fixes above — SELECT ... FOR UPDATE before the check.
     result = await session.execute(
-        select(CustomerMembership).where(
+        select(CustomerMembership)
+        .where(
             CustomerMembership.customer_id == customer_id,
             CustomerMembership.role == CustomerRole.CUSTOMER_OWNER.value,
         )
+        .with_for_update()
     )
     return len(result.scalars().all())
 
