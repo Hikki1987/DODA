@@ -2460,3 +2460,93 @@ docstring'iga ham yangi skriptga havola qo'shildi.
 
 210 test, barchasi real Postgres+Redis'da (yangi skript uchun pytest
 test yo'q, o'rnatilgan konventsiyaga ko'ra — yuqoriga qarang).
+
+**Test qamrovi (coverage) bu loyihada hech qachon o'lchanmagan edi — birinchi
+marta o'lchandi, va o'lchashning o'zi uchta narsani ochib berdi: bitta haqiqiy
+qamrov bo'shlig'i va ikkita test-infratuzilma nuqsoni (ikkalasi ham xatoni
+ko'rsatish o'rniga YASHIRADI).**
+
+**Coverage konfiguratsiyasi bu kod bazasi uchun majburiy, "sozlash" emas.**
+`concurrency = ["thread", "greenlet"]`siz coverage SQLAlchemy'ning greenlet
+ko'prigi va async so'rov yo'li orqali bajarilgan kodni ko'rmaydi — natijada
+HAR BIR FastAPI route handler'ining tanasi "bajarilmagan" deb ko'rinadi.
+O'lchangan: `api/tasks.py` aynan shu qatorlarni haqiqatda ishlatadigan
+testlar bilan **72%** deb ko'rsatildi, shu sozlama bilan esa **97%** —
+~25 punktlik xato, va aynan xavfli yo'nalishda: yo'q bo'lgan bo'shliqlarni
+o'ylab chiqaradi, HAQIQIY bo'shliqlarni esa "bu shunchaki artifakt-da"
+deb kechirishga asos beradi. `pyproject.toml`ga `pytest-cov` (dev) va
+`[tool.coverage.run]` qo'shildi. **CI gate sifatida ataylab ulanmadi** —
+chegara (threshold) tanlash siyosat qarori, o'lchovni tuzatish emas
+(QOIDA 2).
+
+**Haqiqiy bo'shliq**: `infrastructure/telegram_relay.py` — 73%, holbuki
+uning egizagi `outbox_relay.py` — 98%. Sabab aniq: `outbox_relay`da
+worker-lifecycle testlari bor (`run_forever`, `main()`ning SIGTERM'da
+to'xtashi), men Telegram connector'ini yozganda esa shu naqshni
+takrorlamaganman. Beshta test qo'shildi: `run_forever` haqiqiy action'ni
+SUCCEEDED'ga olib borishi va `stop_event`da darhol to'xtashi; `main()`ning
+real SIGTERM bilan toza chiqishi; malformed payload (chat_id/text yo'q)
+→ FAILED, Telegram'ga umuman murojaat qilmasdan; bo'sh (idle) yo'l —
+`relay_once` 0 qaytarishi; va `relay_once`ning o'z izohidagi, hech qachon
+tekshirilmagan da'vo — "xato bergan entry PEL'da qoladi, jimgina
+ACK qilinmaydi". Oxirgisi audit-zanjiri uslubida isbotlandi: kodga
+vaqtincha "xato bergan entry'ni ham XACK qil" regressiyasi kiritilib,
+test aynan kutilgan xabar bilan (`assert 0 == 1 — a failed entry must
+stay in the PEL`) qizardi, keyin qaytarilib yashil ekani ko'rsatildi.
+`telegram_relay.py` endi **98%** — egizagi bilan bir darajada; umumiy
+qamrov **98%**.
+
+**Nuqson 1 — `db_available` fixture'i toza "skip" va'da qilib, uni
+bajarmasdi.** U faqat SQLAlchemy'ning `OperationalError`ini tutardi, lekin
+eng keng tarqalgan holat (portda hech narsa tinglamayapti) asyncpg'dan
+to'g'ridan-to'g'ri yalang'och `ConnectionRefusedError` sifatida keladi —
+SQLAlchemy uni o'rashga ulgurmaydi. Bu haqiqatda kuzatildi (faraz emas):
+shu sessiya davomida mahalliy Postgres qulab tushdi va bitta ishga
+tushirish fixture'ning o'z maqsadi bo'lgan 128 ta "Postgres'ni ishga
+tushiring" skip'i O'RNIGA 128 ta bir xil traceback berdi. Endi `OSError`
+ham tutiladi — Postgres'ni haqiqatan to'xtatib tekshirildi: **128 xato →
+133 toza skip**. CI'da bu xavfli emas: workflow'ning postgres/redis
+service konteynerlari health-check bilan, shuning uchun o'lik DB bilan
+pytest umuman boshlanmaydi (ya'ni "hammasi skip bo'lib, CI yashil"
+stsenariysi mumkin emas).
+
+**Nuqson 2 — worker-entrypoint testlari o'z jarayoniga signal yuboradi.**
+Ikkala worker'ning `main()`i SIGTERM handler'ini `finally`da olib
+tashlaydi. Demak `main()` allaqachon chiqib ketgan bo'lsa, testning
+`os.kill(os.getpid(), SIGTERM)`i Python'ning STANDART handler'iga tushadi
+va pytest jarayonini butunlay o'ldiradi: xato yo'q, chiqish yo'q, ishga
+tushirish shunchaki yo'qoladi. Bu yangi Telegram testini Redis
+o'chirilgan holda ishga tushirganda topildi (jarayon indamay o'ldi).
+Tuzatish ikkala joyda ham — yangi testda VA u ko'chirilgan eski
+`test_outbox_relay.py`dagi testda (bir xil nuqson, ikkala nusxa ham;
+"buzuq naqshning har bir nusxasini tuzat" tamoyili, `<p>`→`<li>`
+holatidagi kabi): umumiy `assert_worker_still_running_before_signaling`
+yordamchisi `main()`ni chiqishga majbur qilgan haqiqiy xatoni qayta
+ko'taradi (signal yuborilishidan OLDIN), va ikkala test endi
+`redis_client` fixture'ini ham oladi — shuning uchun Redis o'chirilganda
+ular boshqa har bir Redis-ga bog'liq test kabi toza skip bo'ladi.
+
+**Yo'l-yo'lakay o'zimning kiritgan xatom topildi va tuzatildi**: yangi PEL
+testi stream'ga ataylab buzuq entry XADD qiladi, lekin `XACK` faqat
+pending ro'yxatini tozalaydi, stream'ning O'ZIDAN o'chirmaydi — natijada
+u `test_outbox_relay`ni zaharladi (u stream'ning har bir entry'sini
+aylanib, `fields["aggregate_id"]`ni indekslaydi). Fayl yolg'iz
+ishga tushirilganda 10 test o'tdi, TO'LIQ suite esa `KeyError` bilan
+qizardi — aynan shuning uchun har doim to'liq suite ishga tushiriladi.
+Endi `finally` blokida `XDEL` ham qiladi; to'liq suite ketma-ket ikki
+marta ishga tushirilib, stream'da hech qanday qoldiq qolmagani
+tasdiqlandi (`malformed: 0 of 1001`). Bu E2E spec'larning alohida seed
+ishlatishi bilan bir xil dars — umumiy mutable holatni ortda qoldirma.
+
+`.gitignore`ga `.coverage`/`htmlcov/` qo'shildi (yangi artefakt, repo'ga
+tushmasligi kerak). 215 test (210 + 5), `ruff`/`mypy` toza, barchasi
+real Postgres+Redis'da.
+
+**Eslatma — sandbox muhiti haqida, kod haqida emas**: shu ish davomida
+mahalliy Postgres ham, Redis ham qulab tushdi (xotira yetarli edi —
+OOM emas, ehtimol sandbox darajasidagi reclaim). Ikkalasi ham qo'lda
+qayta ishga tushirildi (`pg_ctlcluster 16 main start` "stale pid file"
+bilan — ya'ni toza to'xtamagan, qulagan) va butun suite qayta yashil
+ekani tasdiqlandi. Bu kod bazasidagi muammo emas, lekin yuqoridagi
+1-nuqsonni aynan shu voqea ochib berdi — o'lik DB bilan suite'ning
+xatti-harakati endi to'g'ri (toza skip).
