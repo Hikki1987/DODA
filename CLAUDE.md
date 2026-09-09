@@ -1679,6 +1679,40 @@ safar mustaqil yangi qator qo'shadi, unique constraint talab qilinmaydi;
 `authz_service.py`, `audit_query_service.py`, `export_service.py` hech
 qanday yozuv amalini bajarmaydi (faqat o'qish/qaror).
 
+**Uchinchi `security-review` o'tkazildi — bu safar ikkinchisidan keyingi
+~10 commit'ga qarshi (beshta concurrency tuzatishi, archive-listing
+frontend, observability, FR-CTL-002 eksport, "Chiqish" tuzatishi).**
+Jarayon bir xil uch bosqich: (1) topish subagent'i, (2) har bir nomzod
+uchun alohida false-positive filtrlash subagent'i, (3) faqat ishonch
+darajasi >=8 (10 balldan) qoldiriladi. Bu safar avvalgi ikkitadan farqli
+— bitta nomzod topildi va u filtrlashdan **o'tmadi** (ishonch darajasi 3):
+
+`action_service.propose_action`ning idempotency-key replay qidiruvi
+(`IntegrityError` tutilgandan keyin) `(customer_id, workspace_id,
+idempotency_key)` bo'yicha moslashtiradi, `actor_id` bo'yicha emas —
+demak nazariy jihatdan bir xil workspace'dagi boshqa a'zo Alice'ning
+aniq `Idempotency-Key`sini bilsa/taxmin qilsa, Bob uning action
+payload'ini va (agar AWAITING_APPROVAL bo'lsa) pending approval'ning bir
+martalik nonce'ini qaytarib olishi mumkin edi. Filtrlash subagent'i
+kodni chuqur tekshirib, bu HAQIQIY zaiflik emasligini ko'rsatdi:
+(1) payload allaqachon `GET /v1/workspaces/{id}/actions`/`{id}` orqali
+HAR BIR workspace a'zosiga ochiq (workspace a'zoligi yetarli, actor
+tekshiruvi yo'q — bu ataylab shunday, yuqoriga qarang), shuning uchun
+"payload sizib chiqishi" yangi narsa emas; (2) `Idempotency-Key`ning
+yagona real generatsiya konvensiyasi `uuid.uuid4()` (frontend'da bu
+endpoint uchun chaqiruvchi umuman yo'q) — Bob Alice'ning aniq kalitini
+"taxmin qilishi" amalda real emas; (3) nonce'ni bilish ham hech qanday
+yangi huquq bermaydi — `authorize_consume_approval` rol/self-check'ni
+(WORKSPACE_ADMIN yoki action'ning o'z actor'i) nonce tekshiruvidan OLDIN
+va undan MUSTAQIL bajaradi, shuning uchun oddiy a'zo nonce'ni bilsa ham
+hech narsa qila olmaydi, WORKSPACE_ADMIN esa bu huquqqa roli orqali
+allaqachon ega (supervisor override, ataylab shunday loyihalangan).
+Demak bu "amaliy bajariladigan zaiflik" emas, balki kelajakdagi
+mustahkamlash imkoniyati (replay qidiruvini `actor_id` bilan ham
+cheklash) — rasmiy hisobotda "False positive" deb belgilandi.
+
+189 test, barchasi real Postgres'da (kod o'zgarmadi — sof tekshiruv).
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,
