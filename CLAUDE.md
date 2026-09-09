@@ -1754,11 +1754,11 @@ issuer URL) talab qiladi, Product Owner'dan kelishi kerak. Yoki OD-002
   qaytarib, `test_audit_chain_concurrency.py` 3 martalik urinishda ham
   aynan shu xatoni (11/12 yozuv bitta prev_hash'ga fork bo'lishi) ushlashi
   tasdiqlandi — keyin tuzatilgan versiya bilan qayta tekshirildi.
-- Outbox relay hozircha connector'siz — faqat Redis Stream'ga yetkazishni
-  isbotlaydi. Haqiqiy tashqi effekt (S7, birinchi konnektor) connector'ning
-  o'zi ham idempotent bo'lishini talab qiladi. (Worker jarayonining o'zi —
-  uzluksiz ishga tushirish, graceful shutdown — endi bor va testlangan,
-  yuqoriga qarang; qolgan bo'shliq faqat connector'ning o'zi.)
+- ~~Outbox relay hozircha connector'siz — faqat Redis Stream'ga yetkazishni
+  isbotlaydi~~ — **birinchi connector qurildi (Telegram, OD-002)**: pastdagi,
+  session oxiridagi yozuvga qarang. Boshqa har qanday `tool_name`
+  (Telegram'dan tashqari) hamon hech qanday connector tomonidan iste'mol
+  qilinmaydi — bu bo'shliq faqat bitta tool uchun yopildi, umuman emas.
 - `pytest` `asyncio_default_fixture_loop_scope = "session"` talab qiladi —
   `doda.db`dagi global `engine` bitta event loop'ga bog'lanadi; buni servis
   darajasida (masalan har-request engine) hal qilish keyingi bosqichda
@@ -1831,15 +1831,18 @@ issuer URL) talab qiladi, Product Owner'dan kelishi kerak. Yoki OD-002
   qulfni yumshatish audit-zanjiri fork xatosini (yuqorida tuzatilgan)
   qayta ochadi; haqiqiy tuzatish (masalan, o'z-audit yozuvini so'rov
   yo'lidan asinxron ajratish) alohida arxitektura qarori talab qiladi.
-- `risk_level` (Action propose qilishda) to'liq caller-supplied — `tool_name`
-  qanday risk darajasiga loyiqligini aniqlaydigan server-side siyosat hali
-  yo'q (9.1'ning "risk-based routing"i risk_level QIYMATIGA ishonadi, uni
-  chiqarmaydi). Xavfsizlik ko'rib chiqishda topildi; bugungi kunda haqiqiy
-  tashqi ta'sir yo'qligi sababli (connector hali qurilmagan) darhol xato
-  emas, lekin **S7'da birinchi connector qurilishidan oldin** bu siyosat
-  qatlami (tool_name → minimal risk_level xaritasi) albatta qo'shilishi
-  kerak — aks holda har qanday member o'zi tanlagan tool'ni R0 deb
-  e'lon qilib, approval/step-up'ni butunlay chetlab o'tishi mumkin bo'ladi.
+- ~~`risk_level` (Action propose qilishda) to'liq caller-supplied~~ —
+  **qisman tuzatildi**: `domain/action/tool_policy.py`'ning
+  `TOOL_MINIMUM_RISK_LEVEL` ro'yxati va `propose_action`'ning
+  `enforce_minimum_risk_level` chaqiruvi (yuqoriga qarang, OD-002 yozuvi)
+  hozircha faqat ro'yxatga OLINGAN tool'lar (bugungi kunda: bitta —
+  `telegram.send_message`, R3) uchun caller-supplied qiymatni minimal
+  darajaga ko'taradi. Ro'yxatga kiritilMAGAN har qanday `tool_name` hamon
+  to'liq caller-supplied — bu ataylab shunday (ro'yxat faqat real,
+  qaror qilingan tool'lar uchun to'ldiriladi, spekulyativ keng ro'yxat
+  emas), lekin degani: kelajakda qo'shiladigan har bir yangi real tool
+  ham xuddi shu ro'yxatga qo'shilishi SHART, aks holda shu tool uchun
+  bo'shliq ochiq qoladi.
 - `workspace_tenant_index` jadvali — RLS'ning "tuxum-tovuq" muammosini hal
   qilish uchun ataylab RLS'siz qoldirilgan bootstrap jadval (faqat
   workspace_id→customer_id xaritasi, kontent yo'q). Faqat
@@ -2277,3 +2280,108 @@ haqiqiy ildiz sababni topdim. Ikkala urinish ham PR'ga ochiq
 izoh sifatida hujjatlashtirildi (nima ishlamadi, nega, va nihoyat
 nima ishladi) — CI'ning o'zi ham `get_job_logs` orqali tasdiqlandi,
 taxmin qilinmadi.
+
+**Product Owner haqiqiy Telegram bot tokenini xavfsiz kanal orqali
+(environment variable, hech qachon chat matniga yozmasdan) taqdim etdi
+— shundan keyin OD-002'ning haqiqiy connector qismi (ADR-007'ning o'z
+"Status note"i "hali qurilmagan" deb belgilagan qism) qurildi.** Bu
+`outbox_relay.py`ning o'z, sessiya boshidan buyon takrorlangan
+da'vosini ("connector hali yo'q (S7)") birinchi marta yopadi — 176-test
+atrofida topilgan FR-ACT traceability bo'shlig'i (RUNNING/SUCCEEDED/
+FAILED `state_machine.py`da ruxsat etilgan o'tish sifatida bor edi,
+lekin hech qanday kod yo'li ularni hech qachon chaqirmasdi) ham shu
+bilan bir vaqtda yopiladi — ikkalasi ham aynan bir xil bo'shliqning
+ikki tomoni edi.
+
+`infrastructure/telegram_client.py` — minimal Bot API `sendMessage`
+klienti. Xavfsizlik nozikligi: Telegram bot tokeni URL YO'LIDA
+yuriladi (`/bot<token>/sendMessage`), header'da emas — demak xom
+`str(exc)` yoki log'langan URL orqali token sizib chiqishi mumkin edi.
+Shuning uchun har bir xato yo'li faqat `type(exc).__name__`dan
+foydalanadi, hech qachon `httpx` xatosining o'z matn shaklidan emas —
+bu maxsus test bilan tasdiqlangan
+(`test_network_error_raises_telegram_send_error_without_leaking_the_token`,
+tokenni ataylab "super-secret-token" qilib, natijadagi xato matnida
+hech qachon ko'rinmasligini tekshiradi).
+
+`infrastructure/telegram_relay.py` — outbox relay'ning
+`doda:outbox:action.ready.v1` Redis Stream'idagi haqiqiy BIRINCHI
+iste'molchi. Redis Streams consumer group (`XGROUP CREATE`/
+`XREADGROUP`/`XACK`) orqali o'qiydi, faqat `tool_name ==
+telegram.send_message` bo'lgan action'larga tegadi (boshqa har qanday
+tool — hozircha hammasi — XACK qilinib, tegilmasdan qoldiriladi, bu
+umumiy action executor emas). Har bir action'ni mavjud
+`apply_transition` chokepoint'i orqali READY → RUNNING →
+SUCCEEDED/FAILED'ga olib boradi — qulflash/audit/bildirishnoma
+mantig'ini qayta yozmasdan, xuddi shu kodni qayta ishlatib.
+
+**Ikki qatlamli idempotentlik, ikkalasi ham alohida isbotlangan**
+(qayta yetkazish — consumer XACK'dan oldin qulab tushishi — nazariy
+emas, Redis consumer group semantikasining o'zi): (1)
+`_drive_to_running`ning aniq status tekshiruvi — READY'dan boshqa
+har qanday holat "avvalgi yetkazish allaqachon bu bilan shug'ullangan"
+deb toza (xatosiz, qayta yubormasdan) o'tkazib yuboriladi; (2) hatto
+shu tekshiruv olib tashlansa ham, `apply_transition`ning o'z state
+machine'i mustaqil ravishda SUCCEEDED→RUNNING kabi o'tishlarni rad
+etadi (`InvalidActionTransition`) — demak qayta yetkazilgan yozuv
+baribir `send_message`ga ikkinchi marta yetib borolmaydi, faqat
+tinchroq emas (ushlanmagan xato, PEL'da ushlanib qoladi) yo'l bilan.
+Bu audit-zanjiri uslubida isbotlandi: `_drive_to_running`ning aniq
+tekshiruvini vaqtincha olib tashlab, kutilgan natija (jimgina ikki
+marta yuborish) O'RNIGA `InvalidActionTransition` chiqishini kuzatdim
+— bu ikkinchi qatlamning haqiqiy, mustaqil backstop ekanini
+tasdiqladi (ADR-005'ning "ikkinchi, mustaqil qatlam" naqshining
+takrori), keyin tekshiruvni qaytarib yashil ekanini ko'rsatdim.
+
+**Halol qolgan bo'shliq (yechilmagan, aniq yozilgan)**: muvaffaqiyatli
+Telegram chaqiruvi bilan shu jarayonning SUCCEEDED'ga commit qilishi
+orasida qulab tushish action'ni RUNNING holatida qotirib qo'yishi
+mumkin (qayta yetkazish uni RUNNING != READY deb ko'rib o'tkazib
+yuboradi — qayta yuborilmaydi, lekin alohida reconciliation job'siz
+SUCCEEDED'ga ham hech qachon yetmaydi). Bu haqiqiy, kelajakdagi ish
+sifatida `telegram_relay.py`ning o'z docstring'ida ochiq qoldirildi —
+Telegram Bot API'ning o'zida so'rov darajasidagi idempotency key yo'q,
+shuning uchun buni to'g'ridan-to'g'ri yopib bo'lmaydi.
+
+**Bu PR'ning o'z tekshiruvidagi halol chegara**: bu muhitda haqiqiy
+Telegram bot token yoki chat mavjud emas, shuning uchun Telegram'ning
+o'z API'siga qilingan HAQIQIY HTTP chaqiruvi hech qachon real xizmatga
+qarshi ishga tushirilmagan — faqat outbox → Redis Stream → consumer →
+DB holat o'tishi pipeline'i real Postgres+Redis'ga qarshi isbotlangan,
+Telegram HTTP qismining o'zi test double (`httpx.MockTransport`) bilan
+almashtirilgan (5 unit test — klientning o'z so'rov/javob mantig'i;
+5 integration test — real Postgres+Redis'ga qarshi to'liq pipeline,
+shu jumladan qayta yetkazish stsenariysi). "Real integratsiya
+bajarilmagan bo'lsa PASS deb yozma" qoidasiga qat'iy rioya qilindi —
+bu haqiqat har uchta yangi fayl (modul docstring, test docstring,
+ADR-007'ning "Status note"i)da ochiq yozilgan, yashirilmagan.
+
+Ishlab chiqish jarayonida ikkita amaliy xato topilib tuzatildi: (1)
+`relay_once` `ensure_consumer_group`ni chaqirmasdan `XREADGROUP`ga
+murojaat qilardi — birinchi test ishga tushishida `NOGROUP` xatosi
+bilan darhol aniqlandi, `ensure_consumer_group`ni `relay_once`ning
+o'ziga (har chaqiruvda, BUSYGROUP-toqat qiluvchi) ko'chirib tuzatildi;
+(2) bu sessiyaning Redis'i butun uzoq sessiya davomida saqlanib
+qolgani uchun `doda:outbox:action.ready.v1` stream'ida yuzlab eski
+yozuv (`lag: 234` `XINFO GROUPS` orqali kuzatilgan) to'planib qolgan
+edi — yangi urug'lantirilgan action shu backlog ORQASIDA qolib,
+`relay_once`ning bitta chaqiruvi (batch=50) unga yetmasdi. Test
+tomonidan qo'shilgan `_drain_until_resolved` (backlog tugagunga yoki
+maqsad action READY'dan chiqquncha `relay_once`ni qayta-qayta
+chaqiradi) bilan tuzatildi — `test_outbox_relay.py`ning o'zidagi
+mavjud naqshning aynan takrori, yangi ixtiro emas.
+
+`ruff`/`mypy` toza (redis-py'ning `xreadgroup` stub'lari haqiqiy
+runtime shaklidan ancha bo'sh tiplangani uchun `cast()` qo'shildi).
+`outbox_relay.py`ning o'z docstring'i ham yangilandi — endi "connector
+hali yo'q" deb yolg'on da'vo qilmaydi, `telegram_relay.py`ga havola
+beradi va boshqa tool'lar uchun bo'shliq hamon ochiqligini aniq
+belgilaydi. 210 test, barchasi real Postgres+Redis'da.
+
+Hujjatlashtirish ham yangilandi: `docs/open-decisions.md`ning OD-002
+qatori va `docs/adr/ADR-007-first-connector.md`ning "Status note"
+bo'limi endi connector haqiqatda qurilganini aks ettiradi (avval
+"hali qurilmagan" deb yozilgan edi) — credential broker (9.3) esa
+hamon qurilmagan (bugungi kunda bot tokeni to'g'ridan-to'g'ri
+`Settings`dan o'qiladi, broker orqali qisqa muddatli token sifatida
+emas) va bu aniq keyingi bo'shliq sifatida qayd etildi.

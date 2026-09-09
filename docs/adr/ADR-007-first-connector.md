@@ -23,19 +23,21 @@ itself isn't lost.
 
 ## Current state of the codebase relative to this decision
 
-No connector exists yet. `infrastructure/outbox_relay.py` currently
-delivers only to a Redis Stream — a real connector call is exactly what's
-missing to prove the outbox pattern (ADR-003) end-to-end, per the
-`outbox_relay.py` docstring's own "connector hali yo'q" note.
+**The connector now exists.** `infrastructure/telegram_client.py` (Bot
+API `sendMessage` client) and `infrastructure/telegram_relay.py` (the
+Redis Stream consumer, scoped to `tool_name == telegram.send_message`,
+driving `Action`s READY → RUNNING → SUCCEEDED/FAILED through the
+existing `apply_transition` chokepoint) are built and tested. This
+closes `outbox_relay.py`'s own former "connector hali yo'q" note — see
+its updated docstring, which now points at `telegram_relay.py` as the
+first real consumer of its Redis Stream output.
 
-Also blocking on this decision, independently of which connector is
-chosen: per CLAUDE.md's security-review finding, a server-side
-`tool_name → minimum risk_level` policy must be designed and built
-**before** any connector lands — right now `risk_level` on a proposed
-`Action` is entirely caller-supplied, so without this policy layer a
-member could declare a sensitive tool call as `R0` and skip
-approval/step-up entirely. That policy can't be designed against a real
-tool taxonomy until this ADR's connector is chosen.
+Independently of which connector was chosen, the server-side
+`tool_name → minimum risk_level` policy this ADR's own text demanded
+(per CLAUDE.md's security-review finding — without it, `risk_level` on a
+proposed `Action` was entirely caller-supplied, letting a member declare
+a sensitive tool call as `R0` and skip approval/step-up entirely) is
+also built — see the Status note below.
 
 ## Decision
 
@@ -45,9 +47,6 @@ two options TRD 2.3 named for the single v1 pilot connector (email or
 calendar; Telegram is the "boshqa" option 2.3 also allows for).
 
 ## Status note (post-decision)
-
-The connector choice being made does **not** mean the connector itself is
-built. As of this decision:
 
 - The `tool_name → minimum risk_level` policy this ADR's own text
   demanded *before* any connector lands now has a real target: a
@@ -59,13 +58,36 @@ built. As of this decision:
   `risk_level` up to this floor rather than trusting it outright — see
   CLAUDE.md for the full writeup and the regression test proving a
   member can no longer self-declare a registered tool as R0.
-- The actual Telegram Bot API client, the credential broker (9.3) that
-  hands it a short-lived token without the domain layer ever seeing the
-  raw bot token, and the outbox relay's real transport (today it only
-  proves delivery to a Redis Stream, per ADR-003) are **still not
-  built**. This requires a real Telegram bot token, which must come from
-  the Product Owner through a secure secret-management channel (e.g. an
-  environment variable / secrets manager entry) — never pasted into a
-  chat prompt or committed to the repository, per the Master
-  Instruction's "Secret, token... log yoki auditga yozma" rule extended
-  to source control generally.
+- **The connector itself is now built.** The Product Owner supplied a
+  real Telegram bot token through an environment variable
+  (`DODA_TELEGRAM_BOT_TOKEN`, `config.py`) — never pasted into chat or
+  committed to the repository, per the Master Instruction's "Secret,
+  token... log yoki auditga yozma" rule extended to source control
+  generally. `infrastructure/telegram_client.py` is the Bot API
+  `sendMessage` client (token stays out of every log/exception message —
+  it lives in the URL path per Telegram's own API design, so every error
+  path avoids `str()` on the underlying httpx exception).
+  `infrastructure/telegram_relay.py` is the outbox relay's real
+  transport for this one tool: it consumes `doda:outbox:action.ready.v1`
+  via a Redis Streams consumer group and drives the matching `Action`
+  through `apply_transition` (READY → RUNNING → SUCCEEDED/FAILED),
+  reusing the existing locking/audit/notification chokepoint rather than
+  building a parallel one. Two independent idempotency layers guard
+  against stream redelivery (proven via revert-test-restore — see
+  `telegram_relay.py`'s own docstring and
+  `test_telegram_relay.py::test_redelivery_of_an_already_succeeded_action_does_not_resend`).
+- **Not yet built**: the credential broker (9.3) — today the bot token
+  is read directly from `Settings` by the connector process itself, not
+  fetched as a short-lived token from a broker that keeps the domain
+  layer from ever seeing a raw credential. This is a smaller gap than it
+  was before this connector existed (there was no credential of any kind
+  to broker previously), but it remains real: today's `telegram_bot_token`
+  is a long-lived static secret, not a broker-issued short-lived one.
+- **Not yet verified**: no real Telegram bot token or chat is reachable
+  from this development/CI environment, so the actual HTTP call to
+  Telegram's live API has never been exercised here — only the
+  outbox → Redis Stream → consumer → DB state pipeline is proven against
+  real Postgres+Redis, with the Telegram HTTP leg itself under test
+  doubles (`httpx.MockTransport`). The Product Owner's own deployment,
+  where the real token lives, has not yet had this connector's live
+  behavior confirmed against Telegram's actual service.
