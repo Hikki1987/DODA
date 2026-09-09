@@ -1556,6 +1556,37 @@ ham aynan kutilgan tarzda muvaffaqiyatsiz bo'lishini (`['ok', 'ok']` !=
 `['ok', 'rejected']`) ko'rsatdim, so'ng tuzatishni qaytarib ikkalasi ham
 yashil ekanini tasdiqladim. 185 test, barchasi real Postgres'da.
 
+**Yuqoridagi ikkita concurrency tuzatishidan keyin xuddi shu TOCTOU
+naqshini butun kod bazasi bo'ylab qidirishda uchinchi, kichikroq nusxasi
+topildi va tuzatildi: kill switch'ni ENGAGE qilish.** `engage_workspace_
+kill_switch`/`engage_customer_kill_switch` ikkalasi ham avval
+`session.get(...)`ni `None` deb topib, keyin yangi qator qo'shardi —
+PK'ga tayangan himoyasiz insert. Bu holatda haqiqiy "duplicate row"
+xavfi yo'q (workspace_id/customer_id PRIMARY KEY, Postgres o'zi
+to'qnashuvni bloklaydi), lekin ikkita admin bir vaqtda (aynan haqiqiy
+incident paytida, ikkalasi ham "yoqish" tugmasini bosganda) engage qilsa,
+ikkinchisi xom, ushlanmagan `IntegrityError` (500) olardi — bu esa aynan
+eng yomon daqiqada tushunarsiz xato ko'rsatardi.
+
+Bu ikkinchisidan farqli: "bir martalik nonce"ga o'xshash xavfsizlik
+invarianti emas — ikkala chaqiruvchi ham bitta xohlagan natijaga
+(switch engaged) erishadi, shuning uchun tuzatish `invite_customer_
+member`ning "bu haqiqiy biznes xatosi" yondashuvidan farqli,
+`propose_action`ning idempotent-replay semantikasiga o'xshaydi: insert'ni
+`session.begin_nested()` ichiga olib, `IntegrityError`ni tutib, allaqachon
+g'alaba qozongan qatorni jimgina qaytaradi — xato emas, chunki chaqiruvchi
+xohlagan holat (engaged) allaqachon rost.
+
+Xuddi avvalgi ikkita tuzatish kabi: avval real, majburlangan interleaving
+bilan repro yozib xom `IntegrityError`ni ko'rsatdim, tuzatishni qo'shib
+ikkalasi ham (`engaged_by` ustida kelishgan holda) muvaffaqiyatli
+bo'lishini tasdiqladim, keyin `test_kill_switch_engage_concurrency.py`
+(ikkalasi uchun ham — workspace va customer) yozdim, `git stash` bilan
+vaqtincha olib tashlab ikkala test ham aynan kutilgan `IntegrityError`
+bilan muvaffaqiyatsiz bo'lishini ko'rsatdim, keyin tuzatishni qaytarib
+ikkalasi ham yashil ekanini tasdiqladim. 187 test, barchasi real
+Postgres'da.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,

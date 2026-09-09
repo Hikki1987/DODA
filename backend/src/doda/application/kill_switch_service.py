@@ -9,6 +9,7 @@ undo, a separate, Should-priority concern).
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.application.audit_service import record_audit_event
@@ -62,8 +63,23 @@ async def engage_workspace_kill_switch(
             engaged_by=actor_id,
             reason=reason,
         )
-        session.add(switch)
-        await session.flush()
+        try:
+            async with session.begin_nested():
+                session.add(switch)
+                await session.flush()
+        except IntegrityError:
+            # Two admins hitting "engage" for the same incident at the same
+            # moment both got switch=None (neither had committed yet). The
+            # primary key is the actual race-safe guard; this turns the
+            # loser's raw 500 into the outcome it actually wants — the
+            # switch IS engaged, just by the other request — rather than a
+            # confusing error during what is, by definition, an active
+            # incident. Unlike invite_customer_member's duplicate-invite
+            # case, there's no meaningful "business error" here: both
+            # callers asked for the same end state and got it.
+            existing = await session.get(WorkspaceKillSwitch, workspace_id)
+            assert existing is not None
+            return existing
         await record_audit_event(
             session,
             customer_id=customer_id,
@@ -125,8 +141,17 @@ async def engage_customer_kill_switch(
         switch = CustomerKillSwitch(
             customer_id=customer_id, engaged_at=utcnow(), engaged_by=actor_id, reason=reason
         )
-        session.add(switch)
-        await session.flush()
+        try:
+            async with session.begin_nested():
+                session.add(switch)
+                await session.flush()
+        except IntegrityError:
+            # Same race as engage_workspace_kill_switch above — two
+            # concurrent engages both want "engaged", and one of them
+            # already made it so.
+            existing = await session.get(CustomerKillSwitch, customer_id)
+            assert existing is not None
+            return existing
         await record_audit_event(
             session,
             customer_id=customer_id,
