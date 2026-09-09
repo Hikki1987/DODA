@@ -1860,3 +1860,74 @@ issuer URL) talab qiladi, Product Owner'dan kelishi kerak. Yoki OD-002
   bo'lmagan ko'rish (kill switch, audit) allaqachon CustomerOwner-only
   precedentini o'rnatgan edi, shuning uchun bu yangi qaror emas, mavjud
   naqshning takrori edi.
+
+**Kod sifati ko'rib chiqish (`simplify` skill) o'tkazildi — bu safar xato
+qidirish emas, shu sessiyadagi beshta concurrency-tuzatish davri
+(`f156c30^...HEAD`, ~1840 qator diff) ustida reuse/simplification/
+efficiency/altitude to'rt burchakdan, 4 ta parallel subagent bilan.** Har
+biri diff'ning o'z burchagidan topilmalarini qaytardi, keyin dublikatlar
+olib tashlanib, xavfsiz bo'lganlari to'g'ridan-to'g'ri tuzatildi:
+
+- **Reuse**: `customer_admin.py`dagi `_to_workspace_out` funksiyasi
+  `workspace_admin.py`dagi aynan bir xil funksiyaning nusxasi edi —
+  import qilishga o'tkazildi, ikkinchi nusxa o'chirildi.
+  `test_kill_switch_api.py`dagi ikkita joyda (mahalliy `class _Member`)
+  conftest.py'da allaqachon bor `SeededMember` dataclass'ining arzimas
+  qayta ixtiro qilingan nusxasi bor edi — ikkalasi ham `SeededMember`ga
+  almashtirildi. Frontend'da workspace va customer sahifalarining kill
+  switch formasi (state, handler, JSX) deyarli qator-baqator bir xil
+  nusxa edi — yangi `frontend/src/components/KillSwitchPanel.tsx`
+  komponentiga chiqarildi, ikkala sahifa ham shu komponentni chaqiradi
+  (workspace sahifasida qo'shimcha `blockedNote` prop bilan, chunki u
+  yerdagi matn "Yangi action'lar bloklangan" deb qo'shimcha gapni ham
+  ko'rsatadi).
+- **Simplification**: beshta yangi concurrency testi
+  (`test_task_status_concurrency.py`, `test_approval_consume_
+  concurrency.py`, `test_last_owner_invariant_concurrency.py`,
+  `test_kill_switch_engage_concurrency.py`,
+  `test_notification_preference_concurrency.py`) har biri "ikkita
+  mustaqil tenant_scoped_session ochish, ikkalasini ham commit qilmasdan
+  o'qish" degan bir xil 4 qatorli bootstrap'ni va "natijani kutish, kutilgan
+  xatoda rollback+\"rejected\", aks holda commit+\"ok\"" degan bir xil
+  try/except naqshini qaytarardi. `conftest.py`ga ikkita kichik yordamchi
+  qo'shildi — `two_racing_sessions` (bootstrap) va `race_outcome`
+  (bitta g'olib kutiladigan race uchun commit/rollback+natija) — va
+  uchinchisi, `commit_and_return` (ikkalasi ham g'olib bo'ladigan race
+  uchun, masalan kill switch engage yoki bildirishnoma sozlamasi
+  o'rnatish). Beshta test fayli ham shu yordamchilarni ishlatishga
+  o'tkazildi — assertion'lar o'zgarmadi, faqat takrorlangan scaffolding
+  olib tashlandi. `test_kill_switch_engage_concurrency.py`dagi workspace
+  va customer variantlari uchun ikkita deyarli bir xil test funksiyasi
+  `@pytest.mark.parametrize("scope", ["workspace", "customer"])` bilan
+  bitta funksiyaga birlashtirildi.
+- **Altitude**: `customer_service._count_customer_owners`ning docstring'i
+  o'z tuzatish texnikasini noto'g'ri ta'riflagan edi ("Same technique as
+  the Task/Action/kill-switch concurrency fixes" — lekin kill switch
+  aslida `begin_nested`+`IntegrityError` ishlatadi, `FOR UPDATE` emas,
+  chunki u insert race, mavjud qatorni tekshirish emas) — izoh to'g'ri
+  texnikaga (faqat Task/Action) aniqlashtirildi.
+- **Efficiency**: ikki nomzod (Task status o'zgarishi va Approval
+  consume'da bir xil qatorning ikki marta — avval qulfsiz authz uchun,
+  keyin qulflab — o'qilishi; customer sahifasining arxivlangan
+  workspace'lar so'rovi CustomerOwner bo'lmagan har bir ko'ruvchi uchun
+  ham shartsiz chaqirilib, doim 403 qaytarishi) ataylab **tuzatilmadi** —
+  ikkinchisi butun ilova bo'ylab qabul qilingan "rol asosida UI-gating
+  yo'q, backend 403 qaytaradi" konventsiyasiga zid bo'lardi; birinchisi
+  esa authz zanjiridagi umumiy funksiyalarni (`_get_owned_task` va hk.)
+  qayta tuzishni talab qiladi — Master Instruction aniq ogohlantirgan
+  zanjir, va haqiqiy foyda NFR-PERF-001'ning o'lchangan P95 (bir necha
+  millisekund) yonida ahamiyatsiz. Ikkinchi, pastroq ishonchli nomzod
+  (kill_switch_service'ning ikkita engage funksiyasi va notification_
+  service'ning bittasi bir xil `begin_nested`/`IntegrityError`
+  qayta tiklash naqshini uch xil qaytarish siyosati bilan takrorlaydi) —
+  subagent'ning o'zi buni "majburan bitta abstraksiyaga solish uch xil
+  semantikani haddan tashqari umumlashtirib qo'yishi mumkin" deb
+  ogohlantirgani uchun ataylab **tuzatilmadi**.
+
+Tuzatishlardan keyin: 189 test (backend, real Postgres'da) o'zgarishsiz
+o'tdi; `ruff format`/`ruff check`/`mypy src` toza; frontend ESLint/
+`tsc --noEmit`/production build toza; barcha 6 E2E spec (workspace,
+customer, archive, kill-switch, logout, accessibility) haqiqiy backend+
+frontend'ga (production build) qarshi qayta ishga tushirilib, regressiya
+yo'qligi — xususan yangi `KillSwitchPanel` komponentining ikkala
+sahifada ham to'g'ri ishlashi — real brauzerda tasdiqlandi.

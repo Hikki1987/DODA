@@ -16,7 +16,7 @@ from doda.db import tenant_scoped_session
 from doda.domain.identity.models import AuthStrength, User
 from doda.domain.security.roles import CustomerRole
 from doda.main import app
-from tests.integration.conftest import seed_workspace_member
+from tests.integration.conftest import SeededMember, seed_workspace_member
 
 KILL_SWITCH_SLA_SECONDS = 60.0
 
@@ -129,12 +129,9 @@ async def test_customer_kill_switch_drill_blocks_within_sla(client: AsyncClient,
         )
         owner_session = await create_session(session, user_id=owner_user_id, auth_strength=AuthStrength.AAL1)
 
-    class _Member:
-        def __init__(self, workspace_id, session_id):
-            self.workspace_id = workspace_id
-            self.session_id = session_id
-
-    member = _Member(workspace.id, owner_session.id)
+    member = SeededMember(
+        user_id=owner_user_id, customer_id=customer_id, workspace_id=workspace.id, session_id=owner_session.id
+    )
 
     engage_started_at = time.monotonic()
     engage = await client.post(
@@ -183,13 +180,18 @@ async def test_customer_kill_switch_blocks_every_workspace_under_it(
         )
         owner_session = await create_session(session, user_id=owner_user_id, auth_strength=AuthStrength.AAL1)
 
-    class _Member:
-        def __init__(self, workspace_id, session_id):
-            self.workspace_id = workspace_id
-            self.session_id = session_id
-
-    member_a = _Member(workspace_a.id, owner_session.id)
-    member_b = _Member(workspace_b.id, owner_session.id)
+    member_a = SeededMember(
+        user_id=owner_user_id,
+        customer_id=customer_id,
+        workspace_id=workspace_a.id,
+        session_id=owner_session.id,
+    )
+    member_b = SeededMember(
+        user_id=owner_user_id,
+        customer_id=customer_id,
+        workspace_id=workspace_b.id,
+        session_id=owner_session.id,
+    )
 
     assert (await _propose_action(client, member_a, "cust-a-before")).status_code == 200
     assert (await _propose_action(client, member_b, "cust-b-before")).status_code == 200

@@ -29,6 +29,7 @@ from doda.domain.action.approval import Approval, ApprovalStatus
 from doda.domain.action.models import Action, ActionStatus, RiskLevel
 from doda.domain.action.state_machine import InvalidActionTransition
 from doda.domain.outbox.models import OutboxMessage
+from tests.integration.conftest import race_outcome, two_racing_sessions
 
 
 async def test_two_concurrent_consumes_of_the_same_nonce_do_not_both_succeed(
@@ -53,10 +54,7 @@ async def test_two_concurrent_consumes_of_the_same_nonce_do_not_both_succeed(
         assert approval is not None
         action_id, approval_id, nonce = action.id, approval.id, approval.nonce
 
-    cm1 = tenant_scoped_session(customer_id)
-    cm2 = tenant_scoped_session(customer_id)
-    session1 = await cm1.__aenter__()
-    session2 = await cm2.__aenter__()
+    cm1, session1, cm2, session2 = await two_racing_sessions(customer_id)
 
     # Both "requests" load the still-PENDING approval before either one
     # has committed — the actual race window.
@@ -65,24 +63,23 @@ async def test_two_concurrent_consumes_of_the_same_nonce_do_not_both_succeed(
     assert approval1.status is ApprovalStatus.PENDING
     assert approval2.status is ApprovalStatus.PENDING
 
-    async def consume(cm, session, action, approval, approver):
-        try:
-            await consume_approval(session, action, approval, approver_id=approver, nonce=nonce)
-        except InvalidActionTransition as exc:
-            # The second, unblocked consume sees the approval as still
-            # PENDING (9.2's own check never re-validates it under lock),
-            # but apply_transition's own re-lock-and-refresh then finds the
-            # action already READY and rejects READY -> READY — the race
-            # is closed one layer down, at the shared transition chokepoint.
-            await cm.__aexit__(type(exc), exc, exc.__traceback__)
-            return "rejected"
-        else:
-            await cm.__aexit__(None, None, None)
-            return "ok"
-
+    # The second, unblocked consume sees the approval as still PENDING
+    # (9.2's own check never re-validates it under lock), but
+    # apply_transition's own re-lock-and-refresh then finds the action
+    # already READY and rejects READY -> READY — the race is closed one
+    # layer down, at the shared transition chokepoint, hence
+    # InvalidActionTransition rather than an ApprovalInvalidError.
     results = await asyncio.gather(
-        consume(cm1, session1, action1, approval1, "user:approver1"),
-        consume(cm2, session2, action2, approval2, "user:approver2"),
+        race_outcome(
+            cm1,
+            consume_approval(session1, action1, approval1, approver_id="user:approver1", nonce=nonce),
+            expected_exc=InvalidActionTransition,
+        ),
+        race_outcome(
+            cm2,
+            consume_approval(session2, action2, approval2, approver_id="user:approver2", nonce=nonce),
+            expected_exc=InvalidActionTransition,
+        ),
     )
 
     assert sorted(results) == ["ok", "rejected"]

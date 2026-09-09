@@ -20,33 +20,30 @@ from sqlalchemy import select
 from doda.application.notification_service import set_notification_preference
 from doda.db import tenant_scoped_session
 from doda.domain.notification.models import NotificationPreference, NotificationType
+from tests.integration.conftest import commit_and_return, two_racing_sessions
 
 
 async def test_two_concurrent_sets_for_the_same_preference_both_succeed(db_available: bool) -> None:
     customer_id = uuid.uuid4()
     recipient_id = "user:racer"
 
-    cm1 = tenant_scoped_session(customer_id)
-    cm2 = tenant_scoped_session(customer_id)
-    session1 = await cm1.__aenter__()
-    session2 = await cm2.__aenter__()
+    cm1, session1, cm2, session2 = await two_racing_sessions(customer_id)
 
-    async def toggle(cm, session, enabled):
-        preference = await set_notification_preference(
+    def set_preference(session, enabled):
+        return set_notification_preference(
             session,
             customer_id=customer_id,
             recipient_id=recipient_id,
             notification_type=NotificationType.FAILED_ACTION,
             enabled=enabled,
         )
-        await cm.__aexit__(None, None, None)
-        return preference.enabled
 
     # Neither call raises — no IntegrityError reaches the caller.
-    reported = await asyncio.gather(
-        toggle(cm1, session1, False),
-        toggle(cm2, session2, True),
+    preferences = await asyncio.gather(
+        commit_and_return(cm1, set_preference(session1, False)),
+        commit_and_return(cm2, set_preference(session2, True)),
     )
+    reported = [preference.enabled for preference in preferences]
     assert reported == [False, True]  # each call reports its own intended value
 
     async with tenant_scoped_session(customer_id) as session:

@@ -31,6 +31,7 @@ import {
   type NotificationType,
   type WorkspaceOut,
 } from "@/lib/api";
+import { KillSwitchPanel } from "@/components/KillSwitchPanel";
 import { useSession } from "@/lib/useSession";
 
 const CUSTOMER_ROLES: CustomerRole[] = ["customer_owner", "member", "auditor"];
@@ -204,39 +205,14 @@ export default function CustomerPage() {
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      <section>
-        <h2 className="mb-3 text-lg font-semibold">Kill switch</h2>
-        {killSwitch?.engaged ? (
-          <div className="space-y-2 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900">
-            <p>
-              <strong>Faol.</strong> Sabab: {killSwitch.reason}
-            </p>
-            <button
-              onClick={handleDisengageKillSwitch}
-              className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white"
-            >
-              O&apos;chirish
-            </button>
-          </div>
-        ) : (
-          <form onSubmit={handleEngageKillSwitch} className="flex gap-2">
-            <input
-              type="text"
-              value={killSwitchReason}
-              onChange={(event) => setKillSwitchReason(event.target.value)}
-              placeholder="Sabab"
-              className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-black focus:outline-none"
-            />
-            <button
-              type="submit"
-              disabled={killSwitchReason.trim().length === 0 || engagingKillSwitch}
-              className="rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              Yoqish
-            </button>
-          </form>
-        )}
-      </section>
+      <KillSwitchPanel
+        killSwitch={killSwitch}
+        reason={killSwitchReason}
+        onReasonChange={setKillSwitchReason}
+        engaging={engagingKillSwitch}
+        onEngage={handleEngageKillSwitch}
+        onDisengage={handleDisengageKillSwitch}
+      />
 
       <section>
         <h2 className="mb-3 text-lg font-semibold">A&apos;zolar</h2>

@@ -23,6 +23,7 @@ from sqlalchemy import select
 from doda.application.task_service import InvalidTaskTransition, change_task_status, create_task
 from doda.db import tenant_scoped_session
 from doda.domain.task.models import Task, TaskHistory, TaskStatus
+from tests.integration.conftest import race_outcome, two_racing_sessions
 
 
 async def test_two_concurrent_requests_advancing_the_same_task_do_not_double_write_history(
@@ -41,10 +42,7 @@ async def test_two_concurrent_requests_advancing_the_same_task_do_not_double_wri
         )
         task_id = task.id
 
-    cm1 = tenant_scoped_session(customer_id)
-    cm2 = tenant_scoped_session(customer_id)
-    session1 = await cm1.__aenter__()
-    session2 = await cm2.__aenter__()
+    cm1, session1, cm2, session2 = await two_racing_sessions(customer_id)
 
     # Both "requests" load the task while it's still TODO, before either
     # one has committed a transition — the actual race window.
@@ -53,19 +51,17 @@ async def test_two_concurrent_requests_advancing_the_same_task_do_not_double_wri
     assert t1.status is TaskStatus.TODO
     assert t2.status is TaskStatus.TODO
 
-    async def advance(cm, session, task, actor):
-        try:
-            await change_task_status(session, task, target=TaskStatus.IN_PROGRESS, actor_id=actor)
-        except InvalidTaskTransition as exc:
-            await cm.__aexit__(type(exc), exc, exc.__traceback__)
-            return "rejected"
-        else:
-            await cm.__aexit__(None, None, None)
-            return "ok"
-
     results = await asyncio.gather(
-        advance(cm1, session1, t1, "user:w1"),
-        advance(cm2, session2, t2, "user:w2"),
+        race_outcome(
+            cm1,
+            change_task_status(session1, t1, target=TaskStatus.IN_PROGRESS, actor_id="user:w1"),
+            expected_exc=InvalidTaskTransition,
+        ),
+        race_outcome(
+            cm2,
+            change_task_status(session2, t2, target=TaskStatus.IN_PROGRESS, actor_id="user:w2"),
+            expected_exc=InvalidTaskTransition,
+        ),
     )
 
     # Exactly one of the two racing requests wins; the other is correctly

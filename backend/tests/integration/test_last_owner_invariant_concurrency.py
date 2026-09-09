@@ -27,6 +27,7 @@ from doda.db import tenant_scoped_session
 from doda.domain.customer.models import CustomerMembership
 from doda.domain.identity.models import User
 from doda.domain.security.roles import CustomerRole
+from tests.integration.conftest import race_outcome, two_racing_sessions
 
 
 async def test_two_owners_cannot_both_remove_each_other_down_to_zero(db_available: bool) -> None:
@@ -51,29 +52,24 @@ async def test_two_owners_cannot_both_remove_each_other_down_to_zero(db_availabl
         )
         membership_a_id, membership_b_id = membership_a.id, membership_b.id
 
-    cm1 = tenant_scoped_session(customer_id)
-    cm2 = tenant_scoped_session(customer_id)
-    session1 = await cm1.__aenter__()
-    session2 = await cm2.__aenter__()
+    cm1, session1, cm2, session2 = await two_racing_sessions(customer_id)
 
     # Both "requests" load their target membership while both owners are
     # still present — the actual race window.
     b_as_seen_by_1 = await session1.get(CustomerMembership, membership_b_id)
     a_as_seen_by_2 = await session2.get(CustomerMembership, membership_a_id)
 
-    async def remove(cm, session, membership, actor):
-        try:
-            await remove_customer_member(session, membership, actor_id=actor)
-        except CustomerMembershipError as exc:
-            await cm.__aexit__(type(exc), exc, exc.__traceback__)
-            return "rejected"
-        else:
-            await cm.__aexit__(None, None, None)
-            return "ok"
-
     results = await asyncio.gather(
-        remove(cm1, session1, b_as_seen_by_1, "user:a"),  # A removes B
-        remove(cm2, session2, a_as_seen_by_2, "user:b"),  # B removes A
+        race_outcome(  # A removes B
+            cm1,
+            remove_customer_member(session1, b_as_seen_by_1, actor_id="user:a"),
+            expected_exc=CustomerMembershipError,
+        ),
+        race_outcome(  # B removes A
+            cm2,
+            remove_customer_member(session2, a_as_seen_by_2, actor_id="user:b"),
+            expected_exc=CustomerMembershipError,
+        ),
     )
 
     # Exactly one removal wins; the other is correctly rejected once it

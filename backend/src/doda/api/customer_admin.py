@@ -16,6 +16,7 @@ from doda.api.customer_admin_schemas import (
     InviteCustomerMemberRequest,
 )
 from doda.api.dependencies import CustomerRequestContext, get_customer_request_context
+from doda.api.workspace_admin import _to_workspace_out
 from doda.api.workspace_admin_schemas import WorkspaceOut
 from doda.application.authz_service import (
     authorize_manage_customer_members,
@@ -30,7 +31,6 @@ from doda.application.customer_service import (
 from doda.application.workspace_service import list_archived_workspaces
 from doda.domain.customer.models import CustomerMembership
 from doda.domain.identity.models import User
-from doda.domain.workspace.models import Workspace
 
 router = APIRouter(tags=["customer-admin"])
 
@@ -118,15 +118,6 @@ async def remove_member(
     authorize_manage_customer_members(ctx.customer)
     membership = await _get_customer_membership(ctx, membership_id)
     await remove_customer_member(ctx.db, membership, actor_id=f"user:{ctx.customer.user_id}")
-
-
-def _to_workspace_out(workspace: Workspace) -> WorkspaceOut:
-    return WorkspaceOut(
-        id=workspace.id,
-        customer_id=workspace.customer_id,
-        name=workspace.name,
-        archived_at=workspace.archived_at,
-    )
 
 
 @router.get("/v1/customers/{customer_id}/workspaces/archived", response_model=list[WorkspaceOut])

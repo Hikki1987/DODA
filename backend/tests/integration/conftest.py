@@ -29,6 +29,47 @@ async def tenant_session(db_available: bool):
         yield customer_id, session
 
 
+async def two_racing_sessions(customer_id: uuid.UUID):
+    """Open two independent tenant_scoped_session()s for the same customer
+    and enter both without committing either — the setup every forced-
+    interleaving concurrency test in this directory needs (see
+    test_audit_chain_concurrency.py, the original instance of this
+    pattern): both "requests" read their target row(s) before either one
+    commits, so they genuinely race rather than accidentally serializing.
+    Caller reads/mutates via session1/session2, then resolves each side
+    with race_outcome or commit_and_return below."""
+    cm1 = tenant_scoped_session(customer_id)
+    cm2 = tenant_scoped_session(customer_id)
+    session1 = await cm1.__aenter__()
+    session2 = await cm2.__aenter__()
+    return cm1, session1, cm2, session2
+
+
+async def race_outcome(cm, coro, *, expected_exc: type[Exception]) -> str:
+    """Run one side of a two_racing_sessions race where exactly one side is
+    expected to win: await `coro`, then commit `cm` and return "ok", or on
+    `expected_exc` roll `cm` back and return "rejected". Any other
+    exception propagates uncaught."""
+    try:
+        await coro
+    except expected_exc as exc:
+        await cm.__aexit__(type(exc), exc, exc.__traceback__)
+        return "rejected"
+    else:
+        await cm.__aexit__(None, None, None)
+        return "ok"
+
+
+async def commit_and_return(cm, coro):
+    """Run one side of a two_racing_sessions race where BOTH sides are
+    expected to succeed (e.g. idempotent engage, last-write-wins preference
+    set) rather than one winning and one losing: await `coro`, commit `cm`,
+    and return `coro`'s result."""
+    result = await coro
+    await cm.__aexit__(None, None, None)
+    return result
+
+
 @dataclasses.dataclass(frozen=True)
 class SeededMember:
     user_id: uuid.UUID
