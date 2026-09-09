@@ -93,6 +93,48 @@ async def test_cannot_revoke_someone_elses_session(client: AsyncClient, db_avail
     assert still_works.status_code == 200
 
 
+async def test_listing_does_not_refresh_a_different_sessions_last_seen_at(
+    db_available: bool,
+) -> None:
+    """list_active_sessions_for_user's own docstring warns: 'listing must
+    never itself touch last_seen_at, or just looking at your session list
+    would silently keep every one of them alive forever.'
+
+    This calls the service function directly with an explicit commit,
+    deliberately NOT going through GET /v1/sessions: that endpoint
+    (api/sessions.py) happens to open its DB session without ever
+    committing, since today it has nothing else to persist — which would
+    silently mask a regression here too (any accidental write would just
+    roll back on scope exit, the same way FR-AUTH-006's real last_seen_at
+    bug once silently discarded a write that WAS supposed to persist,
+    documented above). Testing the service function against a session
+    that unambiguously commits is what actually proves this contract,
+    independent of the endpoint's own, incidental session handling.
+    """
+    member = await seed_workspace_member()
+
+    from doda.application.session_service import create_session, list_active_sessions_for_user
+    from doda.domain.identity.models import AuthStrength
+
+    stale_time = utcnow() - timedelta(minutes=10)
+    async with async_session_factory() as db:
+        second = await create_session(db, user_id=member.user_id, auth_strength=AuthStrength.AAL1)
+        await db.flush()
+        second.last_seen_at = stale_time
+        await db.commit()
+        second_id = second.id
+
+    async with async_session_factory() as db:
+        sessions = await list_active_sessions_for_user(db, member.user_id)
+        await db.commit()
+    assert {s.id for s in sessions} == {member.session_id, second_id}
+
+    async with async_session_factory() as verify_db:
+        untouched = await verify_db.get(Session, second_id)
+        assert untouched is not None
+        assert untouched.last_seen_at == stale_time
+
+
 async def test_revoked_session_disappears_from_the_active_list(
     client: AsyncClient, db_available: bool
 ) -> None:

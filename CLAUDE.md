@@ -2168,3 +2168,53 @@ DB TLS/encryption-at-rest (NFR-SEC-001ning ikkinchi yarmi) ataylab
 tegilmadi — bu haqiqiy managed Postgres/hosting infratuzilmasini
 (OD-005) talab qiladi, real TLS ulanishisiz assertion yozish
 "isbotlamasdan taxmin qilma" tamoyilini buzardi.
+
+**Xuddi shu "izohda da'vo bor, kod darajasida tekshirilmagan" naqshini
+qidirishda `session_service.list_active_sessions_for_user`ning o'z
+docstring'idagi da'vosi ("listing must never itself touch
+last_seen_at, or just looking at your session list would silently
+keep every one of them alive forever") hech qachon boshqa (chaqiruvchining
+o'zinikidan farqli) sessiya uchun test qilinmaganini topdim.**
+Mavjud `test_authenticated_request_persists_the_session_activity_touch`
+faqat chaqiruvchining O'Z sessiyasi auth-resolution qadamida
+yangilanishini tasdiqlaydi — bu boshqa (ro'yxatda ko'ringan, lekin
+so'rov qilmagan) sessiyaning `last_seen_at`'i ham chetdan
+yangilanmasligini yashirib qo'yishi mumkin edi.
+
+Yangi `test_listing_does_not_refresh_a_different_sessions_last_seen_at`
+qo'shildi. Buni yozish jarayonida ikki bosqichli, o'rganarli xato
+chiqdi: birinchi versiya HTTP endpoint (`GET /v1/sessions`) orqali
+sinalgan edi — funksiyaga ataylab in-memory "bug" (`row.last_seen_at =
+now`) kiritib ko'rganimda, test **hamon yashil qoldi**, garchi xato
+haqiqatda kod ichida bo'lsa ham. Sabab: `api/sessions.py`ning
+`list_my_sessions` handler'i o'z DB sessiyasini `session.begin()`siz,
+hech qachon commit qilmasdan ochadi (bugungi kunda bu to'g'ri — sof
+o'qish uchun yozish shart emas) — bu esa istalgan tasodifiy yozuvni
+chiqishda jimgina rollback qilib, mening in-memory tekshiruv-testimni
+ma'nosiz qilib qo'yardi (aynan FR-AUTH-006'ning ASL xatosi — kerakli
+yozuv jimgina yo'qolgan — bilan bir xil mexanizm, faqat teskari
+yo'nalishda: bu safar kerak BO'LMAGAN yozuv "tasodifan" saqlanmay
+qolgani uchun test yolg'on yashil bo'lardi). Testni to'g'ri qildim:
+endi `list_active_sessions_for_user`ni to'g'ridan-to'g'ri, ANIQ commit
+qiluvchi sessiya bilan chaqiradi — endpoint'ning tasodifiy
+commit-yo'qligi holatiga bog'liq emas. Xuddi shu in-memory bug qayta
+kiritilganda test endi to'g'ri, kutilgan tarzda muvaffaqiyatsiz bo'ldi
+(`assert <yangi vaqt> == <eski vaqt>`), qaytarilganda yashil.
+
+Bu haqiqiy xato TOPILMADI — `list_active_sessions_for_user`ning o'zi
+har doim to'g'ri bo'lgan (sof `SELECT`, hech qanday yozuv yo'q). Lekin
+bu ish shu bilan bir xil, muhimroq narsani ochib berdi: `api/
+sessions.py`ning ikkita handler'i (`list_my_sessions`,
+`revoke_my_session`) hamon `api/dependencies.py`da uch joyda allaqachon
+tuzatilgan eski naqshni (`async with async_session_factory()`, aniq
+`session.begin()`siz) ishlatadi — `revoke_my_session` o'zi qo'lda aniq
+`db.commit()` chaqirgani uchun xavfsiz, `list_my_sessions` esa yozuv
+qilmagani uchun xavfsiz, lekin kelajakda kimdir shu ikkalasidan birini
+kengaytirib (masalan revoke'ga yana bir yozuv qo'shib) `commit()`ni
+unutsa, bu ANIQ xuddi FR-AUTH-006'ning asl xatosini takrorlaydi. Bu
+o'zi alohida, kelajakdagi ehtiyotkorlik eslatmasi sifatida qayd
+etildi — bugun aniq buzuqlik yo'q, shuning uchun tuzatish (masalan
+`get_current_identity`dagi kabi umumiy commit-qiluvchi dependency
+pattern'iga o'tkazish) so'ralmagan holda amalga oshirilmadi.
+
+200 test, barchasi real Postgres'da.
