@@ -1,6 +1,7 @@
 # ADR-007: First connector choice
 
-**Status:** Open — blocked on OD-002 (see `docs/open-decisions.md`)
+**Status:** Accepted — Telegram (Product Owner decision, OD-002 resolved; see
+`docs/open-decisions.md`)
 
 ## Context
 
@@ -38,4 +39,33 @@ tool taxonomy until this ADR's connector is chosen.
 
 ## Decision
 
-Not yet made. See `docs/open-decisions.md`.
+**Telegram**, per Product Owner decision (OD-002, resolved). No specific
+reason was recorded beyond the choice itself — Telegram is one of the
+two options TRD 2.3 named for the single v1 pilot connector (email or
+calendar; Telegram is the "boshqa" option 2.3 also allows for).
+
+## Status note (post-decision)
+
+The connector choice being made does **not** mean the connector itself is
+built. As of this decision:
+
+- The `tool_name → minimum risk_level` policy this ADR's own text
+  demanded *before* any connector lands now has a real target: a
+  `telegram.send_message` tool name was registered in
+  `domain/action/tool_policy.py` at a minimum of R3 (matching the
+  existing `send_email` precedent already used throughout the test
+  suite — sending an external message is a meaningful, hard-to-undo
+  side effect). `propose_action` now clamps any caller-supplied
+  `risk_level` up to this floor rather than trusting it outright — see
+  CLAUDE.md for the full writeup and the regression test proving a
+  member can no longer self-declare a registered tool as R0.
+- The actual Telegram Bot API client, the credential broker (9.3) that
+  hands it a short-lived token without the domain layer ever seeing the
+  raw bot token, and the outbox relay's real transport (today it only
+  proves delivery to a Redis Stream, per ADR-003) are **still not
+  built**. This requires a real Telegram bot token, which must come from
+  the Product Owner through a secure secret-management channel (e.g. an
+  environment variable / secrets manager entry) — never pasted into a
+  chat prompt or committed to the repository, per the Master
+  Instruction's "Secret, token... log yoki auditga yozma" rule extended
+  to source control generally.

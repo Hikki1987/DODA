@@ -2051,3 +2051,73 @@ almashtirib, testning "faqat literal lug'atni statik tekshira olaman"
 himoya yo'lining ham ishlashini (aniq xato xabari bilan) tasdiqladim,
 so'ng qaytarib yashil ekanini ko'rsatdim. 190 test, barchasi real
 Postgres'da.
+
+**Product Owner uchta haqiqiy qaror qabul qildi — birinchi marta bu
+sessiyada CLAUDE.md/docs/open-decisions.md faqat kuzatib turgan
+ochiq savollarga real javob keldi, taxmin qilinmadi.** Uchalasi ham
+`docs/open-decisions.md`ga to'g'ridan-to'g'ri yozildi:
+
+1. **OD-002 (birinchi konnektor) — Telegram.** `docs/adr/
+   ADR-007-first-connector.md` "Open"dan "Accepted"ga o'tkazildi. Bu
+   qaror avvalroq xavfsizlik ko'rib chiqishda topilgan, "birinchi
+   connector'dan OLDIN qurilishi kerak" deb bir necha marta qayd
+   etilgan bo'shliqni — `risk_level`ning to'liq caller-supplied
+   ekanligini — endi haqiqiy, spekulyativ bo'lmagan zaruratga
+   aylantirdi: aniq, real maqsadli tool nomi (`telegram.send_message`)
+   paydo bo'ldi. Shuning uchun **shu sessiyada qurildi**:
+   `domain/action/tool_policy.py` — `TOOL_MINIMUM_RISK_LEVEL` ro'yxati
+   (hozircha faqat bitta yozuv: `telegram.send_message` → R3, xuddi
+   testlarda allaqachon ishlatilgan `send_email`/`email.send`
+   precedenti bilan bir xil asosda — tashqi odamga xabar yuborish
+   jiddiy, qaytarib bo'lmaydigan ta'sir) va `enforce_minimum_risk_level`
+   funksiyasi. `action_service.propose_action` endi chaqiruvchi
+   yuborgan `risk_level`ni shu minimal darajaga ko'taradi (hech qachon
+   pasaytirmaydi — R3 tool uchun R5 so'ralsa, R5 qoladi), Action qatori
+   yaratilishidan OLDIN. **Ataylab FR-ACT-001ning to'liq tool
+   registri EMAS** — ro'yxatga kiritilmagan `tool_name` (hozircha
+   ko'pchilik, chunki haqiqiy connector'lar hali yo'q) hech qanday
+   cheklovga uchramaydi, xuddi avvalgidek — faqat ro'yxatga kiritilgan,
+   real qaror bilan tasdiqlangan bitta tool uchun haqiqiy minimal
+   himoya qo'shildi, spekulyativ keng qamrovli o'zgarish emas.
+
+   Tuzatish (aniqrog'i, yangi himoya qatlami) audit-zanjiri uslubida
+   isbotlandi: `enforce_minimum_risk_level` chaqiruvini vaqtincha
+   izohga olib, yangi integratsiya testi (`test_registered_tool_
+   cannot_be_under_declared_below_its_minimum_risk`) aynan kutilgan
+   tarzda muvaffaqiyatsiz bo'lishini (`assert R0 is R3` xatosi bilan)
+   ko'rsatdim — sof funksiya darajasidagi testlar (`tests/unit/
+   test_tool_policy.py`) shu paytda ham yashil qolishini alohida
+   tasdiqladim, chunki ular `propose_action`ni emas, funksiyaning
+   o'zini sinaydi. Keyin himoyani qaytarib, barchasi yashil ekanini
+   ko'rsatdim. 196 test, barchasi real Postgres'da.
+
+   Haqiqiy Telegram Bot API integratsiyasi (bot token, broker orqali
+   qisqa muddatli credential — 9.3, real xabar yuborish) hali
+   qurilmagan — bu haqiqiy bot token talab qiladi, uni Product Owner
+   xavfsiz kanal orqali (environment variable / secrets manager,
+   hech qachon chat matniga yoki repo'ga yozib emas) taqdim etishi
+   kerak. Bu ADR-007'ning yangi "Status note" bo'limida aniq yozilgan.
+
+2. **OD-004 (o'zbek tilidagi ovoz) — KERAK, avvalgi baho bekor
+   qilindi.** TRD 2.3 ovozni "OUT OF SCOPE" deb ro'yxatlagan edi, va
+   bu sessiyaning o'zi avvalroq buni "de facto resolved (out of
+   scope)" deb baholagan edi — Product Owner endi buni aniq bekor
+   qildi. Bu TRD 19.4'ning o'z mantig'iga mos: yakuniy so'z doim
+   Product Owner'niki, hujjat matni emas. **Amalga oshirish hali
+   BOSHLANMAGAN va yangi ochiq savol tug'diradi**: qaysi STT/TTS
+   provayder (RISK-010 — "o'zbek tilida sifat pariteti past
+   bo'lishi" xavfi ayni shu yerda dolzarb: ko'pchilik ovoz
+   provayderlari o'zbek tilini kuchsiz qo'llab-quvvatlaydi), va
+   qanday UI oqimi (odatda ovoz Chat/FR-CONV ustiga quriladi, u
+   hali qurilmagan). `docs/open-decisions.md`ga to'liq yozildi —
+   provayder tanlanmasdan ovoz UI'sini qurish spekulyativ bo'lardi,
+   shuning uchun ataylab hali boshlanmadi (QOIDA 2: bu o'z
+   navbatida yana bitta Product Owner qarorini talab qiladi).
+
+3. **OD-001 (SaaS) — qayta tasdiqlandi, nuance bilan.** Product
+   Owner aniq qildi: hozircha shaxsiy foydalanish uchun, lekin
+   kelajakda boshqa odamlarga taqdim eta olish (sotish) qobiliyati
+   bilan. Bu allaqachon qurilgan Customer→Workspace→Membership
+   multi-tenant arxitekturaning aynan o'zi — kod o'zgarishi talab
+   qilmadi, faqat `docs/open-decisions.md`dagi yozuv shu nuance bilan
+   boyitildi.

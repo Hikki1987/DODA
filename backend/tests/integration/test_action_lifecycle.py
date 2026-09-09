@@ -97,6 +97,39 @@ async def test_high_risk_action_requires_approval_before_ready(tenant_session) -
     assert any(row.event_type == "action.ready.v1" for row in outbox_rows)
 
 
+async def test_registered_tool_cannot_be_under_declared_below_its_minimum_risk(
+    tenant_session,
+) -> None:
+    """OD-002 (Telegram, first connector): a member proposing
+    telegram.send_message with a self-declared R0 must not skip
+    approval/step-up — domain.action.tool_policy raises it to the
+    registered R3 floor before the Action row is even created, so this
+    proves the real, DB-backed propose_action call applies it, not just
+    the pure policy function in isolation."""
+    customer_id, session = tenant_session
+    workspace_id, trace_id = uuid.uuid4(), uuid.uuid4()
+
+    action, _ = await propose_action(
+        session,
+        customer_id=customer_id,
+        workspace_id=workspace_id,
+        trace_id=trace_id,
+        actor_id="user:alice",
+        tool_name="telegram.send_message",
+        risk_level=RiskLevel.R0,  # under-declared — must be raised to R3
+        payload={"chat_id": "123", "text": "hello"},
+        idempotency_key="idem-telegram-1",
+    )
+
+    assert action.risk_level is RiskLevel.R3
+
+    await validate_action(session, action, actor_id="user:alice")
+
+    # R3 requires approval — the under-declared R0 must not have let this
+    # auto-advance straight to READY.
+    assert action.status is ActionStatus.AWAITING_APPROVAL
+
+
 async def test_approval_rejected_if_payload_changed_after_approval_requested(
     tenant_session,
 ) -> None:

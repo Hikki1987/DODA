@@ -21,6 +21,7 @@ from doda.application.outbox_service import enqueue_outbox_message
 from doda.domain.action.approval import DEFAULT_APPROVAL_TTL, Approval, ApprovalStatus
 from doda.domain.action.models import AUTO_APPROVED_RISK_LEVELS, Action, ActionStatus, RiskLevel
 from doda.domain.action.state_machine import InvalidActionTransition, transition
+from doda.domain.action.tool_policy import enforce_minimum_risk_level
 from doda.domain.base import utcnow
 from doda.domain.notification.models import NotificationType
 
@@ -52,8 +53,15 @@ async def propose_action(
     FR-CTL-003: checked first, before even a DRAFT row is created — an
     engaged kill switch means no new action exists at all, not one that
     exists but is stuck.
+
+    `risk_level` is raised to `tool_name`'s registered minimum, if any,
+    before the row is created (`domain.action.tool_policy`) — a caller
+    can request a HIGHER tier than a tool's floor, never a lower one, so
+    a registered tool's approval/step-up requirement can't be skipped by
+    under-declaring risk_level in the request body.
     """
     await assert_not_killed(session, customer_id=customer_id, workspace_id=workspace_id)
+    risk_level = enforce_minimum_risk_level(tool_name, risk_level)
 
     action = Action(
         customer_id=customer_id,
