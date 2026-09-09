@@ -1623,6 +1623,40 @@ vaqtincha olib tashlab test aynan kutilgan tarzda (`['ok', 'ok']` emas,
 keyin tuzatishni qaytarib yashil ekanini tasdiqladim. 188 test, barchasi
 real Postgres'da.
 
+**Beshinchi nusxasi — bu safar duplicate-row xavfisiz, faqat xom
+`IntegrityError`ning o'zi: `set_notification_preference` (FR-NTF-004).**
+`notification_preferences` jadvalida allaqachon `uq_notification_
+preferences_scope` (0009-migratsiya) unique constraint mavjud edi — demak
+duplicate qator xavfi yo'q, audit-zanjiri/membership holatlaridan farqli.
+Lekin `set_notification_preference`ning o'zi hamon avval `session.
+scalar(select(...))` bilan `None`ni tekshirib, keyin insert qilardi —
+`begin_nested`/`IntegrityError` tutish yo'q edi. Ikkita bir vaqtdagi so'rov
+(bitta foydalanuvchi ikkita qurilmadan bir xil turni o'zgartirsa, yoki
+oddiy ikki marta bosish) bir xil (customer, recipient, type) uchun
+sozlama o'rnatsa — ikkalasi ham `preference=None` ko'radi, ikkalasi ham
+insert qilishga urinadi, ikkinchisi xom `IntegrityError` (500) oladi.
+
+Bu kill switch racedan farqli bir nuance bor: u yerda ikkala chaqiruvchi
+ham BIR XIL xohlagan natijaga (engaged) erishadi, shuning uchun
+"g'olibni qaytarish" to'g'ri edi. Bu yerda bu "X qiymatini o'rnatish"
+amali — ikkala chaqiruvchi turli qiymat xohlashi mumkin (masalan bitta
+qurilma o'chirmoqchi, ikkinchisi yoqmoqchi), shuning uchun tuzatish
+boshqacha: `IntegrityError`ni tutib, endi mavjud (boshqa tranzaksiya
+yozgan) qatorni qayta o'qib, SHU chaqiruvchining o'z `enabled` qiymatini
+unga qo'llab flush qiladi — "oxirgi yozuvchi g'olib" semantikasi, kill
+switch'ning "birinchi g'olib qoladi" semantikasidan farqli, lekin bu
+aynan "sozlamani o'rnatish" amali uchun to'g'ri va kutilgan xulq.
+
+Audit-zanjiri uslubida isbotlandi: avval real, majburlangan interleaving
+bilan repro yozib xom `IntegrityError`ni ko'rsatdim (duplicate qator
+yo'q ekanini ham tasdiqladim — constraint allaqachon ishlayotgan edi),
+tuzatishni qo'shib ikkalasi ham (har biri o'z qiymatini qaytarib)
+muvaffaqiyatli bo'lishini tasdiqladim, keyin
+`test_notification_preference_concurrency.py` yozdim, `git stash` bilan
+vaqtincha olib tashlab test aynan kutilgan `IntegrityError` bilan
+muvaffaqiyatsiz bo'lishini ko'rsatdim, keyin tuzatishni qaytarib yashil
+ekanini tasdiqladim. 189 test, barchasi real Postgres'da.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,

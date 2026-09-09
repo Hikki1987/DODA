@@ -10,6 +10,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.application.audit_service import record_audit_event
@@ -86,10 +87,34 @@ async def set_notification_preference(
             notification_type=notification_type,
             enabled=enabled,
         )
-        session.add(preference)
+        try:
+            async with session.begin_nested():
+                session.add(preference)
+                await session.flush()
+        except IntegrityError:
+            # Two requests setting the same (customer, recipient, type)
+            # preference at once (a double-click, or the same person on
+            # two devices) both saw preference=None and both tried to
+            # insert — uq_notification_preferences_scope (0009-migration)
+            # is the actual race-safe guard. Unlike the kill-switch engage
+            # race, this is a "set X" operation, not "ensure true": each
+            # caller has its own intended value, so the recovery re-fetches
+            # the row the other request just committed and applies THIS
+            # caller's value to it (last write wins) rather than silently
+            # keeping the other caller's value.
+            preference = await session.scalar(
+                select(NotificationPreference).where(
+                    NotificationPreference.customer_id == customer_id,
+                    NotificationPreference.recipient_id == recipient_id,
+                    NotificationPreference.notification_type == notification_type,
+                )
+            )
+            assert preference is not None
+            preference.enabled = enabled
+            await session.flush()
     else:
         preference.enabled = enabled
-    await session.flush()
+        await session.flush()
     return preference
 
 
