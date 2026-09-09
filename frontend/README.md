@@ -52,30 +52,43 @@ cd frontend && npm run dev
 cd backend
 python scripts/seed_e2e_demo.py --prefix E2E_ >> /tmp/e2e.env
 python scripts/seed_e2e_demo.py --prefix E2E_CUSTOMER_ >> /tmp/e2e.env
+python scripts/seed_e2e_demo.py --prefix E2E_A11Y_ >> /tmp/e2e.env
+python scripts/seed_e2e_demo.py --prefix E2E_ARCHIVE_ >> /tmp/e2e.env
+python scripts/seed_e2e_demo.py --prefix E2E_KILLSWITCH_ >> /tmp/e2e.env
+python scripts/seed_e2e_demo.py --prefix E2E_LOGOUT_ >> /tmp/e2e.env
 cd ../frontend
 set -a && source /tmp/e2e.env && set +a
 npm run e2e
 ```
 
-Ikkita alohida `--prefix` bilan urug'lash ataylab: `customer.spec.ts`
-customer-keng kill switch'ni yoqadi, bu esa SECURITY_ALERT bildirishnomasini
-customer'ning BARCHA a'zolariga (jumladan workspace egasi) yuboradi — agar
-ikkala spec bitta seed'dan foydalansa, bu `workspace.spec.ts`ning
-bildirishnoma-sonini tekshiruvchi assertion'ini buzardi (`e2e/customer.spec.ts`
-ichidagi izohga qarang). `backend/scripts/seed_e2e_demo.py` xuddi
+Har bir spec o'z mustaqil `--prefix`i bilan urug'lanadi — bu boshida
+ikkita spec uchun aniqlangan naqsh edi (`customer.spec.ts`ning customer-
+keng kill switch'ni yoqishi SECURITY_ALERT bildirishnomasini customer'ning
+BARCHA a'zolariga yuboradi, bu `workspace.spec.ts`ning bildirishnoma-sonini
+tekshiruvchi assertion'ini buzardi — `e2e/customer.spec.ts` ichidagi izohga
+qarang), keyingi har bir yangi spec ham xuddi shu ehtiyot chorasini
+takrorladi. Hozir 6 ta mustaqil spec bor: `workspace.spec.ts`,
+`customer.spec.ts`, `workspace-archive.spec.ts`, `workspace-kill-switch.spec.ts`,
+`logout.spec.ts`, `accessibility.spec.ts` (`@axe-core/playwright` — har bir
+sahifada WCAG 2.2 AA `serious`/`critical` buzilishlarning nolga teng
+bo'lishini talab qiladi). `backend/scripts/seed_e2e_demo.py` xuddi
 `tests/integration/conftest.py`dagi `seed_workspace_member` bilan bir xil
 dev/test seam'dan foydalanadi (haqiqiy OIDC hali yo'q — yuqoriga qarang).
 
 CI (`.github/workflows/ci.yml`ning `e2e` job'i) xuddi shu ketma-ketlikni
 avtomatik bajaradi: real Postgres+Redis, backend `uvicorn` orqali,
 frontend `next build && next start` orqali (dev server emas — production
-build'ning o'zi ishlashini tekshiradi), ikkita mustaqil seed, va
+build'ning o'zi ishlashini tekshiradi), barcha 6 ta mustaqil seed, va
 `npx playwright test`.
 
 ## Qamrov
 
 Login (dev seam) → `/v1/me/workspaces` orqali workspace tanlash →
-workspace ichida: kill-switch holati, task'lar (ro'yxat/yaratish/holat
+workspace ichida: kill-switch (haqiqatda yoqish/sabab bilan/o'chirish —
+`KillSwitchPanel` komponenti, customer sahifasi bilan bir xil, faqat
+birida qo'shimcha "Yangi action'lar bloklangan" matni bor), workspace'ni
+arxivlash tugmasi (`window.confirm` bilan — qaytarish endi faqat customer
+sahifasidan, pastga qarang), task'lar (ro'yxat/yaratish/holat
 o'zgartirish/"Tarix" tugmasi bilan status o'tishlari tarixi —
 `GET .../tasks/{id}/history`, FR-TASK-007), action'lar (ro'yxat —
 tool_name/risk_level/status, faqat o'qish uchun), bildirishnomalar
@@ -86,11 +99,15 @@ event_type/actor/vaqt, faqat o'qish, FR-AUD-002). `/sessions` (workspace'lar sah
 "Sessiyalar" havolasi) — foydalanuvchi darajasida, workspace'ga bog'liq
 emas: barcha faol sessiyalarni (joriysi belgilangan holda) ko'rsatadi va
 boshqa qurilmadagi sessiyani uzoqdan yopish imkonini beradi (FR-CTL-001/002,
-`GET`/`DELETE /v1/sessions`). Joriy sessiyani shu sahifadan yopib
-bo'lmaydi — buning uchun "Chiqish" ishlatiladi. Chat (FR-CONV) va
-Knowledge/RAG (2-bosqich) qurilmagan — backend'da ham hali yo'q, shuning
-uchun bu yerda ham yo'q (soxta UI qurish "DEMO ≠ PRODUCTION" qoidasini
-buzardi).
+`GET`/`DELETE /v1/sessions`) — "Chiqish" endi shu sessiyani haqiqatda
+serverda revoke qiladi (avval faqat localStorage'ni tozalardi, haqiqiy
+xato edi, tuzatildi); shu sahifada "Ma'lumotlarimni eksport qilish"
+(`GET /v1/me/export`, FR-CTL-002) tugmasi ham bor — JSON faylni haqiqiy
+brauzer yuklab olish orqali beradi. Joriy sessiyani shu sahifadan
+tugma bilan yopib bo'lmaydi — buning uchun "Chiqish" ishlatiladi. Chat
+(FR-CONV) va Knowledge/RAG (2-bosqich) qurilmagan — backend'da ham hali
+yo'q, shuning uchun bu yerda ham yo'q (soxta UI qurish "DEMO ≠
+PRODUCTION" qoidasini buzardi).
 
 Action'lar bo'limi ataylab faqat o'qish uchun: yangi action taklif qilish
 (propose) formasi qurilmadi, chunki hali hech qanday haqiqiy tool/connector
@@ -121,8 +138,9 @@ customer_id'ni bilmagani uchun ilgari qurib bo'lmagan customer-darajasidagi
 hamma narsa endi shu yerda:
 
 - **Kill switch**: holat + yoqish (sabab bilan)/o'chirish tugmalari
-  (FR-CTL-003, `.../kill-switch/engage|disengage`) — workspace sahifasidagi
-  banner'dan farqli, bu yerda haqiqatda ishlatish mumkin.
+  (FR-CTL-003, `.../kill-switch/engage|disengage`) — xuddi workspace
+  sahifasidagi bilan bir xil `KillSwitchPanel` komponenti, faqat
+  customer-darajasidagi API'ga ulangan.
 - **A'zolar**: ro'yxat + **yangi a'zo qo'shish** (User ID + rol), rol
   almashtirish, chiqarish (FR-WKS-005, `POST/PATCH/DELETE .../members`).
   Workspace-darajasidan farqli, bu yerda "qo'shish" mumkin — customer-level
@@ -140,7 +158,17 @@ hamma narsa endi shu yerda:
   `workspace_id` filtri yo'q).
 - **Audit**: customer-darajasidagi audit (`GET .../audit`, FR-AUD-002) —
   CustomerOwner/Auditor uchun butun customer, workspace sahifasidagi
-  audit esa faqat o'sha bitta workspace uchun edi.
+  audit esa faqat o'sha bitta workspace uchun edi. "Zanjirni tekshirish"
+  tugmasi ham bor (`GET .../audit/verify`, FR-AUD-004) — natijani yashil
+  ("Zanjir sog'lom") yoki qizil (buzilish soni) banner sifatida
+  ko'rsatadi; tekshirishning o'zi ham audit qilinadi
+  (`audit.chain_verified.v1`).
+- **Arxivlangan workspace'lar**: ro'yxat + "Tiklash" tugmasi
+  (`GET .../workspaces/archived`, FR-WKS-006, CustomerOwner-only) — faqat
+  ro'yxat bo'sh bo'lmaganda ko'rinadi. Workspace sahifasidagi "Arxivlash"
+  tugmasidan keyingi yagona qaytarish yo'li shu — arxivlash bir tomonlama
+  UI harakat (workspace arxivlangandan keyin o'sha sahifaga kira
+  bo'lmaydi).
 
 Rol asosidagi tugmalarni (masalan faqat CustomerOwner qila oladigan
 amallar) client tomonda yashirish yo'q — boshqa sahifalar bilan bir xil
