@@ -121,6 +121,38 @@ avtomatik ishga tushadigan ikkita spec (`workspace.spec.ts`,
 `customer.spec.ts`), bugungacha qo'lda tekshirilgan HAR BIR oqimni
 qamrab oladi. Tafsilot `frontend/README.md`da.
 
+Bosqich **S3/S4 davomida** (163 testdan beri) yana bir qator ish
+qilindi — to'liq tafsilot CLAUDE.md'da, bu yerda faqat xulosa: workspace
+archive/restore va workspace-darajasidagi kill switch engage/disengage
+frontend'ga ulandi (avval faqat customer sahifasida bor edi);
+`GET /v1/me/export` (FR-CTL-002) `/sessions` sahifasiga ulandi; "Chiqish"
+tugmasi haqiqatda serverda sessiyani revoke qilmasligi (faqat
+localStorage'ni tozalashi) aniqlanib tuzatildi. To'rt ta yangi, mustaqil
+E2E spec qo'shildi (archive, workspace-kill-switch, logout, accessibility
+— jami 6 ta), shu jumladan `@axe-core/playwright` orqali WCAG 2.2 AA
+avtomatik tekshiruvi (2 ta real buzilish topilib tuzatildi). Observability
+qatlami haqiqatda ishlaydigan qilindi — tracing avval jimgina yo'qolib
+ketardi, endi eksport qilinadi; Prometheus `/metrics` qo'shildi;
+action↔HTTP trace_id korrelyatsiyasi (NFR-OBS-001) 0%'dan 100%'ga
+tuzatildi.
+
+Butun `application/` qatlami bo'ylab tizimli TOCTOU (check-then-act race
+condition) qidiruvi o'tkazildi — 5 ta haqiqiy concurrency xatosi topildi
+va tuzatildi (task status/approval nonce ikki marta bajarilishi, kill
+switch engage race'i, customer "oxirgi Owner" invarianti nolga tushib
+qolishi mumkinligi, bildirishnoma sozlamasi race'i), har biri real
+Postgres'ga qarshi majburlangan interleaving bilan isbotlangan. Yana
+ikkita `security-review` o'tkazildi (jami 3 ta) — real xatolar topilib
+tuzatilgan (workspace bo'ylab Action idempotency-key kesishishi,
+`parent_task_id` orqali tenant-lararo mavjudlik oracle'i — birinchi
+o'tkazishda). Butun TRD bo'yicha talab-traceability auditi o'tkazildi
+(121 ID, `docs/risk-register.md`ning kelib chiqishi) va FR-AUD-003
+(audit yozuvlarida sezgir kontent bo'lmasligini statik tekshiradigan
+CI redaction scanner) qurildi.
+
+**190 test, barchasi real Postgres(+Redis)'da; 6 E2E spec, barchasi CI'da
+avtomatik.**
+
 ## Ishga tushirish (local dev)
 
 ```bash
