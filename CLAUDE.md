@@ -1713,6 +1713,34 @@ cheklash) — rasmiy hisobotda "False positive" deb belgilandi.
 
 189 test, barchasi real Postgres'da (kod o'zgarmadi — sof tekshiruv).
 
+**Beshta concurrency tuzatishining o'zi NFR-PERF-001'ni buzmaganini
+haqiqatda o'lchab tasdiqladim — taxmin qilib emas.** `load_test_api.py`
+faqat o'qish endpointlarini (`/v1/me/workspaces`, audit, va h.k.)
+o'lchagan edi; yangi `SELECT ... FOR UPDATE`/`begin_nested` qo'shilgan
+to'rtta yozish yo'li (`change_task_status`, `engage_workspace_kill_switch`,
+`set_notification_preference`, `remove_customer_member`ning owner-count
+tekshiruvi) hech qachon o'lchanmagan edi — "qulf arzon, sezilarli emas"
+degan taxmin shu paytgacha tasdiqlanmagan edi.
+
+Ishlab chiqilmagan holatda (N=100, majburlangan interleaving yo'q,
+oddiy ketma-ket chaqiriqlar — haqiqiy bitta foydalanuvchining holatini
+aks ettiradi) to'rttasi ham 500ms NFR-PERF-001 chegarasidan ancha past:
+`change_task_status` P95=2.34ms, `set_notification_preference`
+P95=2.24ms, `remove_customer_member` (owner-count yo'li) P95=7.54ms,
+`engage_workspace_kill_switch` P95=5.56ms — barchasida max ham 50ms'dan
+past, 0 ta "spike" (>50ms). Bitta dastlabki o'lchovda `engage_workspace_
+kill_switch`ning max qiymati 1.1 soniyagacha chiqdi — bu raqamni
+e'tiborsiz qoldirmasdan tekshirdim: engage/disengage'ni alohida va
+birga (interleaved, N=100) qayta o'lchab, bu spike takrorlanmasligini
+(keyingi ikkita to'liq ishga tushirishda 0 ta spike) ko'rsatdim — demak
+bu kod yo'lining o'zi emas, balki sandbox muhitining bir martalik
+shovqini edi (xuddi NFR-PERF-001'ning ilgarigi `/v1/me/workspaces`
+tekshiruvidagi kabi — "isbotlamasdan taxmin qilma" tamoyiliga ko'ra shu
+izni oxirigacha tekshirib, keyin rad etdim, darhol yo'q deb hisoblamadim).
+
+Kod o'zgarmadi — bu sof o'lchov, mavjud himoyalarning haqiqatda arzon
+ekanini tasdiqlaydi.
+
 Keyingi qadam — S3'ning qolgan qismi: haqiqiy OIDC oqimi
 (FR-AUTH-001, hozir `session_service.create_session` faqat dev/test
 seam) — bu tashqi OIDC provayder ma'lumotlarini (client_id/secret,
