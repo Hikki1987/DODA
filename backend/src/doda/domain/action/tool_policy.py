@@ -2,12 +2,16 @@
 review of this branch (see CLAUDE.md) found `risk_level` on a proposed
 Action was entirely caller-supplied: without a server-side floor, a
 member could declare a sensitive tool call as R0 and skip approval/
-step-up (9.1) entirely. Not yet dangerous while no connector exists, but
-flagged as required before one lands.
+step-up (9.1) entirely. At the time this was flagged, it wasn't yet
+dangerous because no connector existed to act on a READY Action.
 
 OD-002 (first connector = Telegram, Product Owner decision) made that
-real: this module registers a minimum risk level for the one tool a
-connector now actually targets.
+real: `infrastructure/telegram_relay.py` now actually consumes READY
+`telegram.send_message` Actions and calls the real Telegram Bot API, so
+this module's floor for that one tool is a live mitigation, not a
+preemptive one. Any future connector for a tool NOT registered here
+would reopen the same caller-under-declared-risk gap for that tool —
+see this module's own registration note below.
 
 This is deliberately NOT the full tool registry FR-ACT-001 describes (an
 allowlist that rejects any unregistered tool_name outright) — most

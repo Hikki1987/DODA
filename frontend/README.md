@@ -110,9 +110,11 @@ yo'q, shuning uchun bu yerda ham yo'q (soxta UI qurish "DEMO ≠
 PRODUCTION" qoidasini buzardi).
 
 Action'lar bo'limi ataylab faqat o'qish uchun: yangi action taklif qilish
-(propose) formasi qurilmadi, chunki hali hech qanday haqiqiy tool/connector
-yo'q (S7, OD-002) — mavjud bo'lmagan tool nomlarini erkin kiritish
-imkoniyatini berish "DEMO ≠ PRODUCTION" qoidasini buzardi. Approval
+(propose) formasi qurilmadi. OD-002 (Telegram) endi bitta real connector
+(`telegram.send_message`) qurilgan bo'lsa-da, propose formasi tool
+nomini erkin matn sifatida kiritishga ruxsat beradi — foydalanuvchi hali
+mavjud bo'lmagan (yoki noto'g'ri yozilgan) tool nomini kiritishi mumkin
+bo'lardi, bu "DEMO ≠ PRODUCTION" qoidasini buzardi. Approval
 (tasdiqlash) tugmasi ham qurilmadi: `nonce` (bir martalik tasdiqlash
 kaliti, 9.2) faqat action taklif qilingan paytdagi HTTP javobida bir marta
 qaytariladi va boshqa hech qanday joyda (jumladan shu ro'yxatlash
