@@ -9,8 +9,14 @@ without double-processing a row. `published_at` is only set after a
 successful publish, so a crash between publish and commit can redeliver
 (at-least-once) — the eventual connector consumer must itself be
 idempotent on the message id, matching FR-ACT-004's spirit for outbound
-delivery too. That connector does not exist yet (S7); this module only
-proves the outbox -> transport leg of the pattern.
+delivery too.
+
+The first such connector now exists (OD-002: Telegram) —
+see infrastructure/telegram_relay.py, which reads this module's own
+`doda:outbox:action.ready.v1` output stream and is itself idempotent on
+redelivery. Every other tool_name still has no connector consuming its
+READY actions; this module alone still only proves the outbox ->
+transport leg for those.
 
 `run_forever`/`main` are the actual worker entrypoint (ADR-001's "alohida
 worker"): until this was added, `relay_once` was only ever called from

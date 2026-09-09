@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     object_storage_endpoint: str = "http://localhost:9000"
     object_storage_bucket: str = "doda-files"
     otel_service_name: str = "doda-backend"
+    # OD-002: first real connector. Read only by infrastructure/telegram_*
+    # (the connector itself) -- never by domain/application code, never
+    # logged, never put in an audit safe_metadata dict. Optional (None) so
+    # every environment that doesn't run the Telegram connector (tests, CI,
+    # local dev without it configured) is unaffected.
+    telegram_bot_token: str | None = None
     # Comma-separated origins the Experience layer (web frontend) is served
     # from. Never "*" — every request here already carries a bearer session
     # token, and a wildcard would let any origin's script read the response.
