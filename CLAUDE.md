@@ -2247,3 +2247,33 @@ bo'sh) — avvalgi uchta review'dan farqli, bu safar chindan ham "toza" natija,
 zo'rma-zo'raki chegara-usti (ishonch 7) topilma ham yo'q edi.
 
 200 test, barchasi real Postgres'da (kod o'zgarmadi — sof tekshiruv).
+
+**CI'da haqiqiy, ikki bosqichli tuzatish talab qilgan infratuzilma xatosi
+topildi va yopildi — E2E job Google'ning o'z Chrome APT repo'sidagi doimiy
+buzuqlik tufayli ikki marta ketma-ket muvaffaqiyatsiz bo'ldi.**
+`npx playwright install --with-deps chromium` `apt-get update`ni
+ishga tushiradi — bu runner image'dagi BARCHA apt manbalarni, jumladan
+loyihaga umuman aloqasi yo'q, oldindan o'rnatilgan Google Chrome
+repo'sini (`dl.google.com`) ham yangilaydi. Bu repo'ning mirror'i
+`Packages.gz` uchun noto'g'ri hash qaytarardi ("Hash Sum mismatch").
+
+Birinchi urinish (3 martalik retry+backoff) noto'g'ri diagnozga
+asoslangan edi — "vaqtinchalik shovqin" deb taxmin qilingan edi.
+Lekin retry ham muvaffaqiyatsiz bo'lgach, log'larni solishtirib
+ANIQ bir xil hash qiymatlari (SHA256/SHA1/MD5) uchta urinishning
+barchasida takrorlanayotganini ko'rdim — bu mirror'ning **doimiy**
+buzuq holatda ekanini isbotladi, vaqtinchalik emas. Demak retry
+hech qachon yordam bermas edi. To'g'ri tuzatish: loyiha Google
+Chrome'ni umuman ishlatmaydi (faqat Chromium), shuning uchun
+`sudo rm -f /etc/apt/sources.list.d/google-chrome*.list`ni
+`playwright install`dan OLDIN qo'shib, apt bu buzuq repo'ga
+umuman murojaat qilmasligini ta'minladim.
+
+Bu ikki bosqichli jarayonning o'zi ham professional namunasi:
+birinchi (noto'g'ri) tuzatish push qilinib, xuddi shu xato bilan
+qayta muvaffaqiyatsiz bo'lgach, buni "yana bir flake" deb
+e'tiborsiz qoldirmasdan, log'larni diqqat bilan solishtirib
+haqiqiy ildiz sababni topdim. Ikkala urinish ham PR'ga ochiq
+izoh sifatida hujjatlashtirildi (nima ishlamadi, nega, va nihoyat
+nima ishladi) — CI'ning o'zi ham `get_job_logs` orqali tasdiqlandi,
+taxmin qilinmadi.
