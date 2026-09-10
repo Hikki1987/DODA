@@ -3125,3 +3125,39 @@ qo'yilishi kerak, so'rov ishlovchisiga ulanmasligi. Isbotlandi:
 test aniq fayl nomi bilan qizardi, qaytarilgandan keyin yashil.
 
 249 test, barchasi real Postgres'da.
+
+**6.2-bo'limning BIRINCHI qoidasi ("Repository qatlamida `customer_id`'siz
+so'rov mavjud emas") uchun ham statik tekshiruv yozish mumkinmi — o'lchab
+ko'rildi, va ataylab YOZILMADI.** Avval taxmin qilish o'rniga o'lchov
+qilindi: `customer_id` ustuni bor har bir model uchun (13 ta) butun
+`src/doda` bo'ylab `select(...)` chaqiruvlari AST orqali topilib, o'z
+statement zanjirida `customer_id`/`workspace_id` predikati bo'lmaganlari
+sanaldi. Natija — butun kod bazasida faqat **5 ta**, va har birini o'qib
+chiqqanda hammasi to'g'ri ekani aniqlandi, lekin **to'rt xil turli sababga
+ko'ra**:
+1. `action_service.apply_transition` va `task_service.change_task_status`
+   — `select(X).where(X.id == x.id).with_for_update()`: authz zanjiri
+   allaqachon rezolyutsiya qilgan obyektning PK bo'yicha qayta
+   qulflanishi (concurrency tuzatishlari).
+2. `customer_service.remove_customer_member` —
+   `where(customer_membership_id == membership.id)`: tasdiqlangan
+   customer'ga tegishli membership ID bo'yicha farzand qatorlar.
+3. `task_service.list_task_history` — chaqiruvchisi
+   (`api/tasks.py:get_task_history`) avval `_get_owned_task` bilan
+   workspace tekshiruvidan o'tkazadi ("404s before revealing any history
+   exists" — kodda aniq shunday yozilgan).
+4. `outbox_relay.relay_once` — ataylab platform-keng (ADR-003,
+   RLS'dan ozod jadval).
+
+Demak statik test 5 qatorli istisno ro'yxatini talab qilar edi, va u
+ro'yxat mexanik qoida emas, to'rt xil MULOHAZAni kodlashtirgan bo'lardi —
+bundan tashqari har bir kelajakdagi PK-qayta-qulflash (concurrency
+tuzatishlarining asosiy naqshi) ham "buzilish" deb belgilanardi, ya'ni
+istisno ro'yxatiga o'ylamasdan qo'shish odatiga olib kelardi, bu esa
+testsiz holatdan ham yomonroq. Shuning uchun yozilmadi — lekin o'lchovning
+o'zi qimmatli natija berdi: bu qoida bugungi kod bazasida **haqiqatda
+buzilmagan** (taxmin emas, 13 model × butun kod bazasi bo'ylab
+tekshirilgan), va "6.2 qoidalari CI'da tekshiriladi" degan bayonot endi
+aniqroq: to'rttasidan uchtasi haqiqatda tekshiriladi (domain izolyatsiyasi,
+RLS qamrovi, tashqi side effect chegarasi), birinchisi esa ikkita mustaqil
+qatlam (aniq predikatlar + RLS) va ko'rib chiqish bilan ta'minlanadi.
