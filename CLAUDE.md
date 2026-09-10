@@ -3007,3 +3007,29 @@ ham yaratadi (`*_AUDITOR_SESSION_ID`), ataylab `WorkspaceMembership`siz
 Barcha 7 E2E spec (workspace, customer, archive, kill-switch, logout,
 accessibility, auditor) real backend+frontend'ga (production build)
 qarshi yashil; CI'ning seed qadamiga yangi prefiks qo'shildi.
+
+**Auditor tuzatishidan keyin avtorizatsiya zanjiri tizimli ravishda qayta
+ko'rib chiqildi (subagent'siz, qo'lda — o'z diff'iga qarshi), uchta aniq
+savol bilan:**
+1. **`WorkspaceContext` boshqa joyda qurilmaydimi?** — agar qurilsa,
+   markazlashtirilgan auditor tekshiruvi chetlab o'tilgan bo'lardi. Grep:
+   butun kod bazasida faqat IKKITA qurilish nuqtasi bor, ikkalasi ham
+   `get_workspace_context`ning ichida (biri CustomerOwner erta qaytishi,
+   ikkinchisi — yangi tekshiruvdan KEYIN). `CustomerContext` ham bitta
+   joyda. Ya'ni chetlab o'tish yo'li yo'q.
+2. **Customer-darajasidagi har bir YOZISH endpointi rol bilan
+   himoyalanganmi?** — `customer_admin.py`ning uchta a'zolik endpointi
+   ham `authorize_manage_customer_members` (CustomerOwner-only),
+   kill switch engage/disengage `authorize_engage_customer_kill_switch`
+   (CustomerOwner-only). Haqiqiy auditor sessiyasi bilan jonli backend'ga
+   qarshi tasdiqlandi: kill switch engage → **403 DENY**, a'zo taklif
+   qilish → **403 DENY**; uning hujjatlashtirilgan o'qishlari esa ishlaydi
+   (`/audit/verify` → 200, `/notification-preferences` → 200).
+3. **`notifications.py`ning yozish endpointlarida `authorize_*` yo'q —
+   bu bo'shliqmi?** — yo'q, ataylab: ikkalasi ham FAQAT chaqiruvchining
+   o'z qatorlari ustida ishlaydi (`recipient_id == user:<caller>`,
+   sozlama ham caller'ga kalitlangan). Auditor ham SECURITY_ALERT
+   broadcast'ini oladi (kill switch customer'ning BARCHA a'zolariga
+   yuboradi), demak uni o'qildi deb belgilay olishi kerak — 10.2'ning
+   "read-only"si customer MA'LUMOTI/amallari haqida, foydalanuvchining
+   o'z holati haqida emas. Bu yerda hech narsa o'zgartirilmadi.
