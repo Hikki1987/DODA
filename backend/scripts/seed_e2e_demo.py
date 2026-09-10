@@ -79,10 +79,24 @@ async def main(prefix: str) -> None:
         db.add(invitee)
         await db.flush()
 
+        # A real read-only auditor on the same customer: a CustomerRole.AUDITOR
+        # holds no workspace role by design (10.2), so this is the one seeded
+        # identity whose entire access lives on the customer page — what
+        # e2e/auditor.spec.ts checks. Deliberately NOT given a
+        # WorkspaceMembership: add_workspace_member refuses that pairing now.
+        auditor = User(oidc_subject_hash=str(uuid.uuid4()), display_name="Audit Reviewer")
+        db.add(auditor)
+        await db.flush()
+        db.add(CustomerMembership(customer_id=customer_id, user_id=auditor.id, role="auditor"))
+        db.add(UserCustomerIndex(user_id=auditor.id, customer_id=customer_id))
+        await db.flush()
+        auditor_session = await create_session(db, user_id=auditor.id, auth_strength=AuthStrength.AAL1)
+
     print(f"{prefix}SESSION_ID={session_record.id}")
     print(f"{prefix}WORKSPACE_ID={workspace.id}")
     print(f"{prefix}CUSTOMER_ID={customer_id}")
     print(f"{prefix}SECOND_USER_ID={invitee.id}")
+    print(f"{prefix}AUDITOR_SESSION_ID={auditor_session.id}")
 
 
 if __name__ == "__main__":

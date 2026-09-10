@@ -14,7 +14,7 @@ import {
   listCustomerAudit,
   listCustomerMembers,
   listCustomerNotifications,
-  listMyWorkspaces,
+  listMyCustomers,
   listNotificationPreferences,
   markCustomerNotificationRead,
   removeCustomerMember,
@@ -61,9 +61,14 @@ export default function CustomerPage() {
 
   const refresh = useCallback(() => {
     if (sessionId === null) return;
-    listMyWorkspaces(sessionId)
-      .then((workspaces) => {
-        const match = workspaces.find((w) => w.customer_id === customerId);
+    // Name comes from /v1/me/customers, not /v1/me/workspaces: the latter is
+    // workspace-shaped, so for a member holding no workspace role (an auditor,
+    // read-only by design) or a customer with no unarchived workspaces it has
+    // no row to read the name from, and this page — the only place their access
+    // lives — would head itself "Customer".
+    listMyCustomers(sessionId)
+      .then((customers) => {
+        const match = customers.find((c) => c.customer_id === customerId);
         if (match) setCustomerName(match.customer_name);
       })
       .catch(() => {});

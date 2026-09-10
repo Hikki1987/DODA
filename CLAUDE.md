@@ -2964,3 +2964,46 @@ ESLint/`tsc`/production build toza; barcha 6 E2E spec haqiqiy
 backend+frontend'ga (`next build && next start`) qarshi qayta ishga
 tushirildi va yashil — jumladan accessibility skaneri, ya'ni yangi
 bo'lim hech qanday serious/critical WCAG buzilishi keltirmadi.
+
+**Auditor oqimi HAQIQIY brauzerda, haqiqiy auditor sessiyasi bilan tekshirildi
+— va bu bitta haqiqiy qoldiq nuqsonni topdi.** Yangi `GET /v1/me/customers`
+auditor'ga yo'l berdi, lekin customer sahifasining o'z sarlavhasi (`h1`)
+customer nomini `listMyWorkspaces`dan izlardi — aynan shu foydalanuvchi
+uchun bo'sh ro'yxat, demak sahifa o'zini shunchaki "Customer" deb
+nomlardi. `listMyCustomers`ga o'tkazildi (sahifa allaqachon customer_id
+ustida turgani uchun boshqa hech narsa o'zgarmadi).
+
+Brauzer tekshiruvida yana ikkita narsa aniqlandi, ikkalasi ham **kod
+xatosi emas**, lekin yozib qo'yishga arziydi:
+1. Mening birinchi tekshiruv skriptim sarlavhani "Customer" deb ko'rdi
+   va audit ro'yxatini bo'sh deb topdi — bu skriptning o'z poygasi edi
+   (bosgandan keyin darhol o'qidi, fetch tugamasdan). Network trace
+   bilan tekshirilganda HAR BIR so'rov 200 qaytargani va sarlavha
+   haqiqatda "Demo Customer" bo'lgani ko'rsatildi. "Isbotlamasdan taxmin
+   qilma" — xulosani skriptning birinchi natijasiga tayanib chiqarmaslik.
+2. `127.0.0.1:3000` orqali kirganda login umuman ishlamadi — sababi
+   CORS: backend'ning ruxsat ro'yxati aniq (`http://localhost:3000`) va
+   ataylab wildcard EMAS (har bir so'rov bearer token olib yuradi). Bu
+   himoyaning haqiqatda ishlayotganining tasdiqi, nosozlik emas.
+
+Auditor uchun sahifada bitta 403 bor (`.../workspaces/archived`,
+CustomerOwner-only) — sahifa uni jimgina yutadi, bu butun ilova bo'ylab
+qabul qilingan "rol asosida UI-gating yo'q, backend 403 qaytaradi"
+konventsiyasining o'zi (`simplify` ko'rib chiqishi aynan shu chaqiruvni
+"tuzatmaslik" deb qaror qilgan edi). Yangi spec shuning uchun console'ni
+"403 dan boshqa hech qanday xato yo'q" deb tekshiradi, ko'r-ko'rona
+"nol xato" deb emas.
+
+Yangi `e2e/auditor.spec.ts` (o'z seed prefiksi bilan, `E2E_AUDITOR_`) shu
+oqimni doimiy qiladi: auditor kira oladi, workspace ro'yxati BO'SH
+(`a[href^='/workspaces/']` = 0), "Customer'larim" bo'limida customer'i
+roli bilan ko'rinadi, customer sahifasi TO'G'RI nom bilan ochiladi va
+unda audit ro'yxati bor, VA workspace'ning o'zi backend darajasida
+(sahifa fetch'i orqali emas, to'g'ridan-to'g'ri) 403/`DENY` qaytaradi.
+`seed_e2e_demo.py` endi har bir seed'da haqiqiy auditor a'zo + sessiya
+ham yaratadi (`*_AUDITOR_SESSION_ID`), ataylab `WorkspaceMembership`siz
+— `add_workspace_member` endi bunday juftlikni rad etadi.
+
+Barcha 7 E2E spec (workspace, customer, archive, kill-switch, logout,
+accessibility, auditor) real backend+frontend'ga (production build)
+qarshi yashil; CI'ning seed qadamiga yangi prefiks qo'shildi.
