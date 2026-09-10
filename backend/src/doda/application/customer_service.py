@@ -11,6 +11,7 @@ in-scope action and does get an API (api/workspace_admin.py).
 
 import dataclasses
 import uuid
+from collections.abc import Sequence
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -251,6 +252,28 @@ class MyCustomerEntry:
     role: str
 
 
+async def customer_ids_for_user(user_id: uuid.UUID) -> Sequence[uuid.UUID]:
+    """ "Which customers does this user belong to" — the one query that has
+    to run before anything else in list_my_workspaces, list_my_customers, or
+    export_my_data can start their own per-customer work. Lived as three
+    independent copies of this same six-line query until a code-quality
+    pass noticed: UserCustomerIndex is the single, deliberately RLS-free
+    bootstrap table this answer comes from (see its own model docstring for
+    why lookups can't go through tenant_scoped_session first), so "how do I
+    find a user's customers" should have exactly one implementation for the
+    same reason it has exactly one writer-allowlist (test_bootstrap_index_
+    writers.py) — a second, drifted copy is how a future fix (an added
+    filter, a different ordering) gets applied in two call sites and
+    silently missed in the third.
+    """
+    async with async_session_factory() as db:
+        return (
+            await db.scalars(
+                select(UserCustomerIndex.customer_id).where(UserCustomerIndex.user_id == user_id)
+            )
+        ).all()
+
+
 async def list_my_customers(user_id: uuid.UUID) -> list[MyCustomerEntry]:
     """ "Which customers do I belong to, and as what" — the companion to
     workspace_service.list_my_workspaces, for everything that is
@@ -267,18 +290,11 @@ async def list_my_customers(user_id: uuid.UUID) -> list[MyCustomerEntry]:
     same source of truth reachable over HTTP instead of each caller
     rediscovering it.
 
-    Manages its own sessions for the same reason list_my_workspaces does:
-    the bootstrap index lookup is deliberately RLS-free, and each customer's
-    own row must then be read inside that customer's tenant scope. The
-    explicit customer_id predicate is the first isolation layer (6.2), with
-    RLS the second — neither substitutes for the other (ADR-005).
+    Each customer's own row is then read inside that customer's own tenant
+    scope. The explicit customer_id predicate is the first isolation layer
+    (6.2), with RLS the second — neither substitutes for the other (ADR-005).
     """
-    async with async_session_factory() as db:
-        customer_ids = (
-            await db.scalars(
-                select(UserCustomerIndex.customer_id).where(UserCustomerIndex.user_id == user_id)
-            )
-        ).all()
+    customer_ids = await customer_ids_for_user(user_id)
 
     entries: list[MyCustomerEntry] = []
     for customer_id in customer_ids:

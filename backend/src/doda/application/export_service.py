@@ -16,16 +16,14 @@ Never another member's data, even within a workspace they share.
 import uuid
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
-
 from doda.application.audit_query_service import list_audit_events
 from doda.application.audit_service import record_audit_event
+from doda.application.customer_service import customer_ids_for_user
 from doda.application.notification_service import list_notifications_for_user
 from doda.application.task_service import list_tasks_for_workspace
 from doda.application.workspace_service import MyWorkspaceEntry, list_my_workspaces
 from doda.db import async_session_factory, tenant_scoped_session
 from doda.domain.audit.models import AuditEvent
-from doda.domain.customer.models import UserCustomerIndex
 from doda.domain.identity.models import User
 from doda.domain.notification.models import Notification
 from doda.domain.task.models import Task
@@ -53,18 +51,14 @@ async def export_my_data(user_id: uuid.UUID, *, trace_id: uuid.UUID) -> MyDataEx
     async with async_session_factory() as db:
         user = await db.get(User, user_id)
         assert user is not None  # a valid session always resolves to a real User
-        # Independent of `memberships`: a CustomerOwner of a customer with
-        # zero workspaces gets no entries from list_my_workspaces at all
-        # (it only ever yields workspace-shaped rows) — deriving the
-        # customer scope from `memberships` instead of this index would
-        # silently skip that customer's notifications/audit events (and
-        # this export's own audit trail) entirely. UserCustomerIndex is the
-        # actual "which customers do I belong to" source of truth.
-        customer_ids = (
-            await db.scalars(
-                select(UserCustomerIndex.customer_id).where(UserCustomerIndex.user_id == user_id)
-            )
-        ).all()
+
+    # Independent of `memberships`: a CustomerOwner of a customer with zero
+    # workspaces gets no entries from list_my_workspaces at all (it only
+    # ever yields workspace-shaped rows) — deriving the customer scope from
+    # `memberships` instead of customer_ids_for_user's own UserCustomerIndex
+    # lookup would silently skip that customer's notifications/audit events
+    # (and this export's own audit trail) entirely.
+    customer_ids = await customer_ids_for_user(user_id)
 
     actor_id = f"user:{user_id}"
     export = MyDataExport(user_id=user_id, display_name=user.display_name, memberships=memberships)

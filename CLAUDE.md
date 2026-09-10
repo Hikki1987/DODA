@@ -3271,3 +3271,72 @@ ham real Redis'ga qarshi qayta ishga tushirilib, `.get_secret_value()`
 unwrap to'g'ri ishlashi tasdiqlandi.
 
 253 test, barchasi real Postgres+Redis'da.
+
+**Ikkinchi `/simplify` ko'rib chiqish o'tkazildi — oxirgi simplify'dan
+keyingi 44 commit'ga qarshi (auditor authz tuzatishi, coverage-driven
+test'lar, `GET /v1/me/customers`, append-only trigger tasdiqlovi,
+bootstrap-index-writer va side-effect/broker chegara testlari, to'rtta
+SecretStr maskalash).** Jarayon bir xil: reuse/simplification/efficiency/
+altitude — 4 ta parallel subagent. Uchta mustaqil agent (reuse,
+simplification, altitude) BIR XIL asosiy topilmaga yo'liqdi — bu yuqori
+ishonchlilik belgisi:
+
+**Topildi va tuzatildi:**
+1. **`UserCustomerIndex` bootstrap-indeks qidiruvi UCH marta mustaqil
+   nusxalangan edi** — `workspace_service.list_my_workspaces` (avvaldan
+   bor), `export_service.export_my_data` (avvaldan bor), va yangi
+   `customer_service.list_my_customers` (shu sessiyada qo'shilgan,
+   uchinchi nusxa). Uchtasi ham bir xil olti qatorli so'rovni
+   (`select(UserCustomerIndex.customer_id).where(...)`) mustaqil
+   yozgan edi. `customer_service.py`ga (UserCustomerIndex'ning yozish
+   tomoni allaqachon shu faylda, `test_bootstrap_index_writers.py`ning
+   ruxsat ro'yxatiga mos) yangi `customer_ids_for_user(user_id)`
+   funksiyasi qo'shildi, uchtasi ham shu funksiyani chaqirishga
+   o'tkazildi. Tasdiqlandi: yangi funksiya vaqtincha bo'shatib
+   qo'yilganda (`return []`), uchtasiga tegishli BARCHA mavjud testlar
+   (`test_me_api.py`dan 7 ta, `test_export_api.py`dan 2 ta) aniq
+   kutilgan tarzda muvaffaqiyatsiz bo'lishi ko'rsatildi — ya'ni
+   chiqarib olish uchtasini ham haqiqatda bog'laydi, tasodifan
+   ajratib qo'ymaydi.
+2. **`list_my_workspaces`dagi auditor `continue`** uchinchi (`else`)
+   filialdan oldin, CustomerOwner/else ikkilik zanjirining O'RTASIDA
+   (`elif`) turardi — bu "nima hal qilinadi" mantig'ini "nima
+   o'tkazib yuboriladi" bilan aralashtirardi. Auditor tekshiruvi
+   endi birinchi, alohida guard sifatida chiqarildi (xulq
+   o'zgarmadi — `role` so'rovi ikkala holatda ham bir xil ishlaydi,
+   chunki CUSTOMER_OWNER'ni aniqlash uchun ham kerak).
+3. **`tests/unit/test_side_effect_boundary.py`dagi ikkita test bir xil
+   AST-yurish skeletini (SRC_ROOT.rglob, allowlist'ni o'tkazib
+   yuborish, import'larni taqqoslash, violations to'plash) aynan
+   nusxalagan edi** — faqat taqiqlangan modul to'plami va allowlist
+   farq qilardi. Umumiy `_forbidden_imports(banned_modules,
+   allowed_files)` yordamchisiga chiqarildi, ikkala test ham shu
+   funksiyani turli argumentlar bilan chaqiradi; ikkita qoidaning
+   o'zi (nima uchun alohida) hamon alohida docstring'larda
+   tushuntirilgan holda qoladi. Tasdiqlandi: ikkala haqiqiy
+   regressiyani (`task_service.py`ga `import httpx`, `api/actions.py`ga
+   `from redis.asyncio import Redis`) vaqtincha qo'yib ko'rish bilan —
+   ikkalasi ham aniq bir xil xato xabarlari bilan (refaktordan OLDIN
+   ishlatgan matn bilan bir xil) qizardi, qaytarilgandan keyin yashil.
+
+**Ataylab o'tkazib yuborildi** (har biri o'z sababi bilan, skill'ning
+"false positive yoki doirasiz bo'lsa o'tkazib yubor" qoidasiga ko'ra):
+- `CustomerRole`ning "hech qanday WorkspaceRole'ga rezolyutsiya
+  qilinmaydigan rollar" uchun nomlangan predikat (faqat altitude
+  agent'i taklif qildi, yagona ovoz) — uchta allaqachon tasdiqlangan
+  xavfsizlik-muhim faylni (authz_service.py, workspace_service.py
+  ikki joyda) faqat o'qilishni yaxshilash uchun qayta ochish xavfi
+  foydadan ko'proq; bugun faqat bitta rol bor, ikkinchisi paydo
+  bo'lganda qayta ko'rib chiqiladi.
+- `test_config.py`dagi ikkita bir-maydonli SecretStr testini
+  parametrize qilish — simplification agent'ining o'zi "weak,
+  take-it-or-leave-it" deb baholadi.
+- `seed_e2e_demo.py`da owner/auditor seed bloklarini umumiy
+  yordamchiga chiqarish — bir martalik seed skriptida past qiymat.
+- CI'ning E2E seed qadamlaridagi ketma-ketlik (7 ta mustaqil
+  `python seed_e2e_demo.py` chaqiruvi) — efficiency agent'ining o'zi
+  "bu diff'dan OLDIN ham ketma-ket edi, regressiya emas" deb aniq
+  belgiladi, bu review'ning ko'rib chiqish doirasidan tashqarida.
+
+253 test, barchasi real Postgres+Redis'da o'zgarishsiz (sof refaktor —
+qamrov 99%, yangi mantiq yo'q).

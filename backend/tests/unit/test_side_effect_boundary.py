@@ -59,18 +59,33 @@ def _imported_modules(tree: ast.Module) -> set[str]:
     return modules
 
 
-def test_only_the_infrastructure_layer_may_make_outbound_calls() -> None:
-    violations: list[str] = []
+def _forbidden_imports(banned_modules: set[str], allowed_files: set[str]) -> list[str]:
+    """Shared mechanism behind both tests below: "this module set may only
+    be imported from this file allowlist." Each test supplies its own
+    banned set and allowlist — the two rules stay independently named and
+    documented (they protect different properties, see each test's own
+    docstring), only the walk-and-match loop itself is shared.
 
+    A dotted import (`redis.asyncio`) is matched by its root package
+    (`redis`), not just an exact set membership — `httpx.AsyncClient`-style
+    submodule imports need this, and it's a strict superset of "exact
+    match only", so sharing it changes neither test's result.
+    """
+    violations: list[str] = []
     for path in sorted(SRC_ROOT.rglob("*.py")):
         relative = path.relative_to(SRC_ROOT).as_posix()
-        if relative in ALLOWED:
+        if relative in allowed_files:
             continue
         imported = _imported_modules(ast.parse(path.read_text()))
         for module in sorted(imported):
             root = module.split(".")[0]
-            if module in OUTBOUND_CLIENT_MODULES or root in OUTBOUND_CLIENT_MODULES:
+            if module in banned_modules or root in banned_modules:
                 violations.append(f"{relative} imports {module}")
+    return violations
+
+
+def test_only_the_infrastructure_layer_may_make_outbound_calls() -> None:
+    violations = _forbidden_imports(OUTBOUND_CLIENT_MODULES, ALLOWED)
 
     assert violations == [], (
         "an outbound HTTP client is reachable outside the infrastructure layer: "
@@ -95,16 +110,7 @@ def test_only_the_outbox_workers_may_talk_to_the_broker() -> None:
     to be up in order to accept work — it writes a row, and the worker
     publishes later.
     """
-    violations: list[str] = []
-
-    for path in sorted(SRC_ROOT.rglob("*.py")):
-        relative = path.relative_to(SRC_ROOT).as_posix()
-        if relative in BROKER_ALLOWED:
-            continue
-        imported = _imported_modules(ast.parse(path.read_text()))
-        for module in sorted(imported):
-            if module.split(".")[0] in BROKER_MODULES:
-                violations.append(f"{relative} imports {module}")
+    violations = _forbidden_imports(BROKER_MODULES, BROKER_ALLOWED)
 
     assert violations == [], (
         "the broker is reachable outside the outbox workers: "

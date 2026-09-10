@@ -13,9 +13,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.application.audit_service import record_audit_event
-from doda.db import async_session_factory, tenant_scoped_session
+from doda.application.customer_service import customer_ids_for_user
+from doda.db import tenant_scoped_session
 from doda.domain.base import utcnow
-from doda.domain.customer.models import Customer, CustomerMembership, UserCustomerIndex
+from doda.domain.customer.models import Customer, CustomerMembership
 from doda.domain.identity.models import User
 from doda.domain.security.roles import CustomerRole
 from doda.domain.workspace.models import Workspace, WorkspaceMembership, WorkspaceTenantIndex
@@ -193,10 +194,10 @@ async def list_my_workspaces(user_id: uuid.UUID) -> list[MyWorkspaceEntry]:
     before UserCustomerIndex existed — every other endpoint requires the
     caller to already know a workspace_id or customer_id up front.
 
-    Manages its own sessions rather than taking one as a parameter: this
-    inherently spans multiple tenant contexts (the bootstrap index lookup,
-    then one tenant_scoped_session per customer the user belongs to), the
-    same shape api.dependencies._resolve_request_context already uses.
+    Spans multiple tenant contexts (the bootstrap index lookup via
+    customer_service.customer_ids_for_user, then one tenant_scoped_session
+    per customer the user belongs to) — the same shape
+    api.dependencies._resolve_request_context already uses.
 
     Both branches below carry an explicit customer_id predicate even
     though tenant_scoped_session's RLS GUC already scopes them (6.2:
@@ -209,12 +210,7 @@ async def list_my_workspaces(user_id: uuid.UUID) -> list[MyWorkspaceEntry]:
     missing first-layer filter as the one query in this function without
     one.
     """
-    async with async_session_factory() as db:
-        customer_ids = (
-            await db.scalars(
-                select(UserCustomerIndex.customer_id).where(UserCustomerIndex.user_id == user_id)
-            )
-        ).all()
+    customer_ids = await customer_ids_for_user(user_id)
 
     entries: list[MyWorkspaceEntry] = []
     for customer_id in customer_ids:
@@ -227,6 +223,18 @@ async def list_my_workspaces(user_id: uuid.UUID) -> list[MyWorkspaceEntry]:
                     CustomerMembership.customer_id == customer_id, CustomerMembership.user_id == user_id
                 )
             )
+            if role == CustomerRole.AUDITOR.value:
+                # An auditor holds no workspace role at all (10.2; enforced in
+                # authz_service.get_workspace_context), so listing a workspace
+                # for them here would advertise a page every request to which
+                # then 403s. A stale WorkspaceMembership row can still exist —
+                # add_workspace_member refuses to create one, but a plain
+                # member with a workspace role who is later demoted to auditor
+                # keeps theirs — so this has to be skipped explicitly, not
+                # assumed absent. Checked first, as a guard, so the two
+                # branches below stay "what gets resolved" without this
+                # skip interrupting the read.
+                continue
             if role == CustomerRole.CUSTOMER_OWNER.value:
                 # See authz_service.get_workspace_context: a CustomerOwner
                 # has WORKSPACE_ADMIN authority over every workspace under
@@ -247,16 +255,6 @@ async def list_my_workspaces(user_id: uuid.UUID) -> list[MyWorkspaceEntry]:
                     )
                     for workspace in workspaces
                 )
-            elif role == CustomerRole.AUDITOR.value:
-                # An auditor holds no workspace role at all (10.2; enforced in
-                # authz_service.get_workspace_context), so listing a workspace
-                # for them here would advertise a page every request to which
-                # then 403s. A stale WorkspaceMembership row can still exist —
-                # add_workspace_member refuses to create one, but a plain
-                # member with a workspace role who is later demoted to auditor
-                # keeps theirs — so this has to be skipped explicitly, not
-                # assumed absent.
-                continue
             else:
                 rows = await db.execute(
                     select(Workspace, WorkspaceMembership.role)
