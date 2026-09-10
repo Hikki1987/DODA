@@ -190,6 +190,30 @@ bot tokeni hozircha to'g'ridan-to'g'ri `Settings`dan o'qiladi.
 **210 test, barchasi real Postgres(+Redis)'da; 6 E2E spec, barchasi CI'da
 avtomatik; 4 marta security-review o'tkazilgan.**
 
+Shu nuqtadan keyin (to'liq tafsilot `CLAUDE.md`da): test qamrovi birinchi
+marta o'lchandi (99%, `concurrency = ["thread","greenlet"]` sozlamasi
+majburiy — aks holda FastAPI handler'lari yolg'on "qoplanmagan" ko'rinadi)
+va o'lchov o'zi bir nechta haqiqiy bo'shliqni ochdi, eng muhimi —
+**`CustomerRole.AUDITOR` workspace ichida to'liq yozish huquqiga ega edi**,
+garchi 10.2 va kod izohlari uni uch joyda "faqat o'qish" deb
+hujjatlashtirsa ham. Ikkita mustaqil qatlam bilan tuzatildi
+(`get_workspace_context`da markazlashtirilgan DENY + `add_workspace_member`da
+manbada oldini olish), har ikkalasi alohida zarur ekani isbotlandi.
+Shu tuzatish navigatsiya bo'shlig'ini ochdi (`GET /v1/me/workspaces`
+workspace-shaped bo'lgani uchun auditor/workspace'siz customer owner'i
+hech narsa ko'rmaydi) — `GET /v1/me/customers` bilan yopildi, frontend'da
+"Customer'larim" bo'limi va auditor'ning butun oqimini real brauzerda,
+haqiqiy auditor sessiyasi bilan tasdiqlaydigan `e2e/auditor.spec.ts` bilan.
+
+Bundan tashqari 6.2-bo'limning "har tashqi side effect outbox orqali
+o'tadi" qoidasi, audit jurnalining append-only trigger'i, bootstrap
+(RLS'siz) jadvallarning yozish-ro'yxati va approval nonce'ining bir
+martalik ko'rsatilishi — avval faqat matnda bo'lgan to'rtta xavfsizlik
+xususiyati endi CI tomonidan statik/integration test bilan majburlanadi.
+
+**250 test, barchasi real Postgres(+Redis)'da; 7 E2E spec; 99% o'lchangan
+qamrov; CustomerRole.AUDITOR xatosi tuzatilgan.**
+
 ## Ishga tushirish (local dev)
 
 ```bash
