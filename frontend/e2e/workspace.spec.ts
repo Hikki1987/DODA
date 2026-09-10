@@ -3,6 +3,7 @@ import { requiredEnv } from "./env";
 
 const SESSION_ID = requiredEnv("E2E_SESSION_ID");
 const WORKSPACE_ID = requiredEnv("E2E_WORKSPACE_ID");
+const CUSTOMER_ID = requiredEnv("E2E_CUSTOMER_ID");
 
 test.describe.configure({ mode: "serial" });
 
@@ -23,6 +24,20 @@ test("login, workspace, task, notification, action, audit flow", async ({ page }
     await page.click('button[type="submit"]');
     await page.waitForURL("**/workspaces");
     await expect(page.getByText("Demo Workspace")).toBeVisible();
+  });
+
+  await test.step("customer-scoped access is listed separately from workspaces", async () => {
+    // /v1/me/workspaces is workspace-shaped, so it cannot surface a customer
+    // with no workspaces — nor a member who holds no workspace role at all,
+    // such as an auditor, whose access (customer audit view, notification
+    // preferences, kill switch, archived workspaces) lives entirely on the
+    // customer page. Scoped to the section because the customer name also
+    // appears on the workspace row above.
+    const section = page.locator("section", { hasText: "Customer'larim" });
+    await expect(section.getByRole("link", { name: "Demo Customer" })).toHaveAttribute(
+      "href",
+      `/customers/${CUSTOMER_ID}`,
+    );
   });
 
   await test.step("open the seeded workspace", async () => {

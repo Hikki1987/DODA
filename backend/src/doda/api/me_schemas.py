@@ -15,6 +15,12 @@ class MyWorkspaceOut(BaseModel):
     role: str
 
 
+class MyCustomerOut(BaseModel):
+    customer_id: uuid.UUID
+    customer_name: str
+    role: str
+
+
 class MyDataExportOut(BaseModel):
     user_id: uuid.UUID
     display_name: str

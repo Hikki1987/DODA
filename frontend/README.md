@@ -83,7 +83,10 @@ build'ning o'zi ishlashini tekshiradi), barcha 6 ta mustaqil seed, va
 
 ## Qamrov
 
-Login (dev seam) → `/v1/me/workspaces` orqali workspace tanlash →
+Login (dev seam) → `/v1/me/workspaces` orqali workspace tanlash (va
+`/v1/me/customers` orqali customer tanlash — "Customer'larim" bo'limi, shu
+ikkisi alohida, chunki workspace roliga ega bo'lmagan a'zo uchun birinchi
+ro'yxat bo'sh qoladi) →
 workspace ichida: kill-switch (haqiqatda yoqish/sabab bilan/o'chirish —
 `KillSwitchPanel` komponenti, customer sahifasi bilan bir xil, faqat
 birida qo'shimcha "Yangi action'lar bloklangan" matni bor), workspace'ni

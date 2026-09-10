@@ -24,7 +24,15 @@ test("customer page: members, notification prefs, audit, kill switch", async ({ 
     await page.fill("#session-id", SESSION_ID);
     await page.click('button[type="submit"]');
     await page.waitForURL("**/workspaces");
-    await page.getByText("Demo Customer").click();
+    // Scoped to the "Customer'larim" section: the customer name also appears
+    // on the workspace row above (two legitimate affordances for the same
+    // destination), so a bare getByText match is ambiguous under strict mode.
+    // This is the navigation path a customer-scoped user actually has —
+    // the workspace row does not exist for someone with no workspace role.
+    await page
+      .locator("section", { hasText: "Customer'larim" })
+      .getByRole("link", { name: "Demo Customer" })
+      .click();
     await page.waitForURL(`**/customers/${CUSTOMER_ID}`);
     await expect(page.getByRole("heading", { name: "Demo Customer" })).toBeVisible();
   });

@@ -82,6 +82,18 @@ export function listMyWorkspaces(sessionId: string): Promise<MyWorkspaceOut[]> {
   return apiFetch("/v1/me/workspaces", sessionId);
 }
 
+// ---- /v1/me/customers ----
+
+export interface MyCustomerOut {
+  customer_id: string;
+  customer_name: string;
+  role: string;
+}
+
+export function listMyCustomers(sessionId: string): Promise<MyCustomerOut[]> {
+  return apiFetch("/v1/me/customers", sessionId);
+}
+
 // ---- /v1/me/export ----
 
 export interface MyDataExportOut {

@@ -180,3 +180,100 @@ async def test_removed_member_no_longer_sees_the_workspace(client: AsyncClient, 
     response_after = await client.get("/v1/me/workspaces", headers=_auth_headers(session_record.id))
     assert response_after.status_code == 200
     assert response_after.json() == []
+
+
+async def test_me_customers_lists_a_customer_with_no_workspaces_at_all(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """The case /v1/me/workspaces structurally cannot report: an owner of a
+    customer that has no workspaces yet. Without this endpoint such a client
+    has no id to call any customer-scoped endpoint with."""
+    customer_id = uuid.uuid4()
+    owner_user_id = uuid.uuid4()
+    async with tenant_scoped_session(customer_id) as db:
+        db.add(User(id=owner_user_id, oidc_subject_hash=str(uuid.uuid4()), display_name="Owner"))
+        await db.flush()
+        await create_customer_with_owner(
+            db,
+            customer_id=customer_id,
+            name="Workspace-less Co",
+            owner_user_id=owner_user_id,
+            actor_id="user:setup",
+        )
+        session_record = await create_session(db, user_id=owner_user_id, auth_strength=AuthStrength.AAL1)
+
+    workspaces = await client.get("/v1/me/workspaces", headers=_auth_headers(session_record.id))
+    assert workspaces.json() == []  # nothing workspace-shaped to report
+
+    response = await client.get("/v1/me/customers", headers=_auth_headers(session_record.id))
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0] == {
+        "customer_id": str(customer_id),
+        "customer_name": "Workspace-less Co",
+        "role": "customer_owner",
+    }
+
+
+async def test_me_customers_reports_an_auditors_own_role(client: AsyncClient, db_available: bool) -> None:
+    """An auditor holds no workspace role by design (10.2), so this is their
+    only route to the customer page where their audit view lives — and the
+    role it reports has to be their real customer role, not a workspace one."""
+    customer_id = uuid.uuid4()
+    auditor_user_id = uuid.uuid4()
+    async with tenant_scoped_session(customer_id) as db:
+        db.add(User(id=auditor_user_id, oidc_subject_hash=str(uuid.uuid4()), display_name="Reviewer"))
+        await db.flush()
+        await create_customer_with_owner(
+            db, customer_id=customer_id, name="Acme", owner_user_id=uuid.uuid4(), actor_id="user:setup"
+        )
+        await invite_customer_member(
+            db,
+            customer_id=customer_id,
+            user_id=auditor_user_id,
+            role=CustomerRole.AUDITOR,
+            actor_id="user:setup",
+        )
+        await create_workspace(db, customer_id=customer_id, name="A")
+        session_record = await create_session(db, user_id=auditor_user_id, auth_strength=AuthStrength.AAL1)
+
+    assert (await client.get("/v1/me/workspaces", headers=_auth_headers(session_record.id))).json() == []
+
+    response = await client.get("/v1/me/customers", headers=_auth_headers(session_record.id))
+    assert response.status_code == 200
+    assert [(c["customer_id"], c["role"]) for c in response.json()] == [(str(customer_id), "auditor")]
+
+
+async def test_me_customers_never_reports_a_customer_the_user_left(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """remove_customer_member clears the UserCustomerIndex row in the same
+    transaction as the membership — if it ever stopped doing that, this
+    endpoint would keep handing out a customer id the caller can no longer
+    use (and test_me_api's workspace listing would not catch it, since a
+    removed member has no workspace rows either)."""
+    customer_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    async with tenant_scoped_session(customer_id) as db:
+        db.add(User(id=user_id, oidc_subject_hash=str(uuid.uuid4()), display_name="Leaver"))
+        await db.flush()
+        await create_customer_with_owner(
+            db, customer_id=customer_id, name="Acme", owner_user_id=uuid.uuid4(), actor_id="user:setup"
+        )
+        membership = await invite_customer_member(
+            db, customer_id=customer_id, user_id=user_id, role=CustomerRole.MEMBER, actor_id="user:setup"
+        )
+        session_record = await create_session(db, user_id=user_id, auth_strength=AuthStrength.AAL1)
+
+    before = await client.get("/v1/me/customers", headers=_auth_headers(session_record.id))
+    assert len(before.json()) == 1
+
+    async with tenant_scoped_session(customer_id) as db:
+        reloaded = await db.get(CustomerMembership, membership.id)
+        assert reloaded is not None
+        await remove_customer_member(db, reloaded, actor_id="user:setup")
+
+    after = await client.get("/v1/me/customers", headers=_auth_headers(session_record.id))
+    assert after.status_code == 200
+    assert after.json() == []

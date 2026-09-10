@@ -11,9 +11,10 @@ from fastapi import APIRouter, Depends, Request
 
 from doda.api.audit_schemas import AuditEventOut
 from doda.api.dependencies import CurrentIdentity, get_current_identity
-from doda.api.me_schemas import MyDataExportOut, MyWorkspaceOut
+from doda.api.me_schemas import MyCustomerOut, MyDataExportOut, MyWorkspaceOut
 from doda.api.notification_schemas import NotificationOut
 from doda.api.task_schemas import TaskOut
+from doda.application.customer_service import list_my_customers
 from doda.application.export_service import export_my_data
 from doda.application.workspace_service import list_my_workspaces
 from doda.domain.audit.models import AuditEvent
@@ -36,6 +37,24 @@ async def list_my_workspaces_endpoint(
             workspace_name=entry.workspace_name,
             role=entry.role,
         )
+        for entry in entries
+    ]
+
+
+@router.get("/v1/me/customers", response_model=list[MyCustomerOut])
+async def list_my_customers_endpoint(
+    identity: CurrentIdentity = Depends(get_current_identity),
+) -> list[MyCustomerOut]:
+    """The customer-scoped companion to /v1/me/workspaces. Needed on its own
+    because that one is workspace-shaped: a customer with no unarchived
+    workspaces, or a member holding no workspace role at all (an auditor —
+    read-only by design, 10.2), appears in it not at all, which leaves a
+    client unable to reach the customer-scoped endpoints it is entitled to
+    call (customer audit view, notification preferences, kill switch,
+    archived-workspace recovery)."""
+    entries = await list_my_customers(identity.user_id)
+    return [
+        MyCustomerOut(customer_id=entry.customer_id, customer_name=entry.customer_name, role=entry.role)
         for entry in entries
     ]
 

@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.application.audit_service import record_audit_event
+from doda.db import async_session_factory, tenant_scoped_session
 from doda.domain.customer.models import Customer, CustomerMembership, UserCustomerIndex
 from doda.domain.identity.models import User
 from doda.domain.security.roles import CustomerRole
@@ -241,3 +242,64 @@ async def list_customer_members(
         )
         for membership, display_name in rows
     ]
+
+
+@dataclasses.dataclass(frozen=True)
+class MyCustomerEntry:
+    customer_id: uuid.UUID
+    customer_name: str
+    role: str
+
+
+async def list_my_customers(user_id: uuid.UUID) -> list[MyCustomerEntry]:
+    """ "Which customers do I belong to, and as what" — the companion to
+    workspace_service.list_my_workspaces, for everything that is
+    customer-scoped rather than workspace-scoped: the customer-wide audit
+    view (FR-AUD-002), notification preferences (FR-NTF-004), the customer
+    kill switch (FR-CTL-003), archived-workspace recovery (FR-WKS-006).
+
+    list_my_workspaces could not answer this, because it only ever yields
+    workspace-shaped rows: a customer with no (unarchived) workspaces, or a
+    member who holds no workspace role — an auditor, whose role is read-only
+    by design (10.2) — comes back as nothing at all, leaving a client no way
+    to reach customer-scoped endpoints it is fully entitled to call. Exactly
+    the omission export_service already had to route around; this makes the
+    same source of truth reachable over HTTP instead of each caller
+    rediscovering it.
+
+    Manages its own sessions for the same reason list_my_workspaces does:
+    the bootstrap index lookup is deliberately RLS-free, and each customer's
+    own row must then be read inside that customer's tenant scope. The
+    explicit customer_id predicate is the first isolation layer (6.2), with
+    RLS the second — neither substitutes for the other (ADR-005).
+    """
+    async with async_session_factory() as db:
+        customer_ids = (
+            await db.scalars(
+                select(UserCustomerIndex.customer_id).where(UserCustomerIndex.user_id == user_id)
+            )
+        ).all()
+
+    entries: list[MyCustomerEntry] = []
+    for customer_id in customer_ids:
+        async with tenant_scoped_session(customer_id) as db:
+            row = (
+                await db.execute(
+                    select(Customer.name, CustomerMembership.role)
+                    .join(CustomerMembership, CustomerMembership.customer_id == Customer.id)
+                    .where(
+                        Customer.id == customer_id,
+                        CustomerMembership.customer_id == customer_id,
+                        CustomerMembership.user_id == user_id,
+                    )
+                )
+            ).first()
+            if row is None:
+                # UserCustomerIndex is maintained in the same transaction as
+                # the membership itself, so this should not happen — but it
+                # is a bootstrap mirror, not the authority, so a stale row
+                # must be skipped rather than reported as a membership.
+                continue
+            name, role = row
+            entries.append(MyCustomerEntry(customer_id=customer_id, customer_name=name, role=role))
+    return entries

@@ -2908,3 +2908,59 @@ o'zi NFR-ISO-002'ni chetlab o'tishga taklif qilardi. O'chirildi,
   ko'tarish).
 
 242 test, barchasi real Postgres+Redis'da, qamrov 99%.
+
+**`GET /v1/me/customers` qurildi — auditor tuzatishi ochib bergan
+navigatsiya bo'shlig'ini yopadi, va u bo'shliq auditor'dan kengroq edi.**
+Yuqoridagi yozuvda bu "change request" deb qoldirilgan edi, chunki
+`/v1/me/workspaces`ning SHAKLINI o'zgartirish kerak deb hisoblagandim.
+Qaytib ko'rib chiqqanda aniqlandi: shaklni o'zgartirish shart emas —
+kerak bo'lgani `/v1/me/workspaces` bilan yonma-yon turadigan yangi,
+buzmaydigan (non-breaking) customer-scoped juftlik, aynan
+`export_service`ning o'zi allaqachon qo'llagan naqsh bilan
+(`UserCustomerIndex`dan customer qamrovini olish). Shuning uchun
+endpoint shakli o'zgarmaydi, hech qanday mavjud klient buzilmaydi, va
+bu endi "mahsulot qarori" emas, mavjud naqshning takrori.
+
+Bo'shliq faqat auditor haqida emas: `list_my_workspaces`
+**workspace-shaped** bo'lgani uchun (a) workspace'i yo'q (yoki hammasi
+arxivlangan) customer'ning CustomerOwner'i ham, (b) hech qanday
+workspace roliga ega bo'lmagan har qanday a'zo ham hech narsa
+ko'rmaydi — holbuki ikkalasi ham customer-darajasidagi endpointlarni
+(FR-AUD-002 audit ko'rish, FR-NTF-004 sozlamalar, FR-CTL-003 kill
+switch, FR-WKS-006 arxivlangan workspace'larni tiklash) chaqirishga
+to'liq huquqli. Bu aynan `export_service.export_my_data` yozilganda
+topilgan va u yerda mahalliy tarzda chetlab o'tilgan muammoning
+o'zi — endi HTTP orqali umumiy tarzda yopildi, har bir chaqiruvchi
+uni qaytadan kashf qilmasligi uchun.
+
+`customer_service.list_my_customers` (+ `MyCustomerEntry`) —
+`list_my_workspaces` bilan bir xil tuzilma: RLS'siz bootstrap
+index'dan customer'lar, keyin har biri uchun tenant-scoped sessiyada
+aniq `customer_id` predikati bilan nom+rol. Eskirgan index qatori
+(bo'lmasligi kerak, lekin index — mirror, authority emas) a'zolik
+sifatida qaytarilmasdan o'tkazib yuboriladi. 3 ta yangi test
+(`test_me_api.py`): workspace'i yo'q customer'ning owner'i ko'rinishi,
+auditor o'z ROLI bilan ko'rinishi (workspace roli emas), va
+customer'dan chiqarilgan foydalanuvchiga endi ko'rinmasligi
+(`remove_customer_member`ning index tozalashiga bog'liq).
+
+Frontend: `/workspaces` sahifasiga "Customer'larim" bo'limi qo'shildi
+(faqat bo'sh bo'lmaganda ko'rsatiladi), har bir qator
+`/customers/{id}`ga havola + rol belgisi.
+
+**Bu o'zgarish mavjud E2E spec'ini HAQIQATDA buzdi va shu suite
+tomonidan ushlandi** — `customer.spec.ts` customer sahifasiga
+`page.getByText("Demo Customer").click()` bilan o'tardi, endi esa bu
+nom ikki joyda (workspace qatorining customer havolasi va yangi
+bo'lim) ko'rinadi, demak strict-mode ambiguity. Bu aynan
+CLAUDE.md'da allaqachon yozilgan `getByText("AWAITING_APPROVAL")`
+darsining takrori. Spec yangi bo'limga scope qilib tuzatildi — bu
+bir vaqtda semantik jihatdan ham to'g'ri yo'l, chunki workspace
+roliga ega bo'lmagan foydalanuvchi uchun yuqoridagi qator umuman
+mavjud emas.
+
+Tekshiruv: 245 test real Postgres'da; `ruff`/`mypy` toza; frontend
+ESLint/`tsc`/production build toza; barcha 6 E2E spec haqiqiy
+backend+frontend'ga (`next build && next start`) qarshi qayta ishga
+tushirildi va yashil — jumladan accessibility skaneri, ya'ni yangi
+bo'lim hech qanday serious/critical WCAG buzilishi keltirmadi.

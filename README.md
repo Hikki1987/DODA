@@ -30,7 +30,13 @@ workspace'lardagi bildirishnomalar bitta joydan),
 SECURITY_ALERT'dan tashqari har bir turni yoqish/o'chirish), va
 session-scoped `/v1/me/workspaces` — login'dan keyin klient chaqiradigan
 birinchi endpoint, foydalanuvchi a'zo bo'lgan barcha customer/workspace'larni
-qaytaradi (avval bunday "kashfiyot" endpointi umuman yo'q edi). `GET
+qaytaradi (avval bunday "kashfiyot" endpointi umuman yo'q edi). Uning
+customer-scoped juftligi `GET /v1/me/customers` ham bor — `/v1/me/workspaces`
+workspace-shaped bo'lgani uchun workspace'i yo'q customer'ni (yoki hech
+qanday workspace roliga ega bo'lmagan a'zoni, masalan auditor'ni) umuman
+ko'rsatmaydi, shuning uchun customer-darajasidagi endpointlarga (audit
+ko'rish, bildirishnoma sozlamalari, kill switch, arxivlangan workspace'lar)
+yetib borish uchun alohida kerak. `GET
 /v1/workspaces/{id}/tasks` va `.../actions` (ro'yxatlash, `?status=` filtri
 bilan) ham qo'shildi — avval faqat yaratish va ID bo'yicha o'qish bor edi.
 `GET /v1/workspaces/{id}/members` va `GET /v1/customers/{id}/members`

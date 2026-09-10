@@ -3,7 +3,14 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ApiError, listMyWorkspaces, revokeSession, type MyWorkspaceOut } from "@/lib/api";
+import {
+  ApiError,
+  listMyCustomers,
+  listMyWorkspaces,
+  revokeSession,
+  type MyCustomerOut,
+  type MyWorkspaceOut,
+} from "@/lib/api";
 import { clearStoredSessionId } from "@/lib/session";
 import { useSession } from "@/lib/useSession";
 
@@ -11,6 +18,7 @@ export default function WorkspacesPage() {
   const router = useRouter();
   const sessionId = useSession();
   const [workspaces, setWorkspaces] = useState<MyWorkspaceOut[] | null>(null);
+  const [customers, setCustomers] = useState<MyCustomerOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -18,6 +26,14 @@ export default function WorkspacesPage() {
     listMyWorkspaces(sessionId)
       .then(setWorkspaces)
       .catch((err) => setError(err instanceof ApiError ? err.message : "Yuklab bo'lmadi."));
+    // Customer-scoped access is listed separately on purpose: a customer with
+    // no workspaces, or a member who holds no workspace role at all (an
+    // auditor — read-only by design), produces no row above, yet the customer
+    // page is exactly where their access lives (audit view, notification
+    // preferences, kill switch, archived workspaces).
+    listMyCustomers(sessionId)
+      .then(setCustomers)
+      .catch(() => setCustomers([]));
   }, [sessionId]);
 
   async function logOut() {
@@ -78,6 +94,25 @@ export default function WorkspacesPage() {
           </li>
         ))}
       </ul>
+
+      {customers !== null && customers.length > 0 && (
+        <section className="mt-8">
+          <h2 className="mb-2 text-sm font-semibold text-gray-700">Customer&apos;larim</h2>
+          <ul className="space-y-2">
+            {customers.map((customer) => (
+              <li
+                key={customer.customer_id}
+                className="flex items-center justify-between rounded-md border border-gray-200 px-4 py-3 hover:border-black"
+              >
+                <Link href={`/customers/${customer.customer_id}`} className="flex-1 font-medium">
+                  {customer.customer_name}
+                </Link>
+                <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-600">{customer.role}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </main>
   );
 }
