@@ -3097,3 +3097,31 @@ xavfsizlik xususiyati") yana ikkita nazorat yopildi:**
    qaytarilgandan keyin yashil.
 
 248 test, barchasi real Postgres'da.
+
+**6.2-bo'limning to'rtinchi dependency qoidasi ham endi CI tomonidan
+tekshiriladi.** CLAUDE.md bu qoidalarni "CI'da tekshiriladi" deb yozgan,
+lekin amalda faqat ikkitasi haqiqatda tekshirilardi (domain izolyatsiyasi
+— `test_domain_isolation.py`, RLS qamrovi — `test_rls_coverage.py`).
+"Har tashqi side effect outbox + idempotency orqali o'tadi" qoidasi faqat
+matnda edi. Yangi `tests/unit/test_side_effect_boundary.py` uni qatlamlar
+masalasi sifatida majburlaydi: tashqi dunyo bilan gaplashadigan kutubxona
+(`httpx`/`requests`/`aiohttp`/`urllib.request`) infrastructure qatlamidan
+TASHQARIDA import qilinmasligi kerak, va u qatlam ichida ham faqat
+ataylab ro'yxatga olingan ikkita modulda (`telegram_client.py`,
+`telegram_relay.py`).
+
+Redis ataylab bu ro'yxatda YO'Q — u outbox'ning o'z transporti (ADR-003),
+tashqi side effect emas, va uni ishlatadigan relay worker'lar allaqachon
+infrastructure'da.
+
+Nima uchun bu muhim: API handler yoki application servisining o'zi tashqi
+API'ni chaqirsa, butun zanjir (approval → idempotency → outbox → audit →
+RUNNING/SUCCEEDED holat mashinasi) chetlab o'tiladi, va allaqachon
+yuborilgan so'rovni hech qanday keyingi tekshiruv qaytarib ololmaydi.
+Bugun qoida buzilmagan (faqat shu ikki modul `httpx` import qiladi) —
+maqsad keyingi connector qo'shilganda ham buzilmasligi: u relay ortiga
+qo'yilishi kerak, so'rov ishlovchisiga ulanmasligi. Isbotlandi:
+`application/task_service.py`ga vaqtincha `import httpx` qo'yib ko'rildi,
+test aniq fayl nomi bilan qizardi, qaytarilgandan keyin yashil.
+
+249 test, barchasi real Postgres'da.
