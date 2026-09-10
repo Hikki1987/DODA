@@ -211,7 +211,14 @@ o'tadi" qoidasi, audit jurnalining append-only trigger'i, bootstrap
 martalik ko'rsatilishi — avval faqat matnda bo'lgan to'rtta xavfsizlik
 xususiyati endi CI tomonidan statik/integration test bilan majburlanadi.
 
-**250 test, barchasi real Postgres(+Redis)'da; 7 E2E spec; 99% o'lchangan
+Shundan keyin `Settings`ning har bir xom credential olib yuruvchi maydoni
+(`database_url`, `migration_database_url`, `telegram_bot_token`,
+`redis_url`) pydantic `SecretStr`ga o'tkazildi — "hech qachon loglanmasin"
+endi faqat izoh emas, `repr()`/`str()`ning o'zi orqali majburlangan
+struktura; har biri revert-test-restore uslubida (xom qiymat vaqtincha
+qaytarilib, test aynan kutilgan tarzda qizarishi ko'rsatilib) isbotlangan.
+
+**253 test, barchasi real Postgres(+Redis)'da; 7 E2E spec; 99% o'lchangan
 qamrov; CustomerRole.AUDITOR xatosi tuzatilgan.**
 
 ## Ishga tushirish (local dev)
