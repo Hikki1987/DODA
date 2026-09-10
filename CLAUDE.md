@@ -3065,3 +3065,35 @@ faqat matnda mavjud bo'lgan nazorat edi; umumlashtiriladigan dars:
 va buni ochib bergan narsa qamrov o'lchovi bo'ldi.
 
 246 test, barchasi real Postgres'da.
+
+**Xuddi shu naqsh bo'yicha ("hujjatlashtirilgan, lekin tekshirilmagan
+xavfsizlik xususiyati") yana ikkita nazorat yopildi:**
+
+1. **Bootstrap (RLS'siz) jadvallarga yozish nuqtalari endi statik
+   tekshiriladi** — `tests/unit/test_bootstrap_index_writers.py`,
+   `test_domain_isolation.py`/`test_audit_redaction.py` bilan bir xil AST
+   usuli (DB shart emas). CLAUDE.md `workspace_tenant_index` haqida
+   qat'iy qoidani ("hech qachon boshqa joydan yozilmasin") ancha oldin
+   yozgan, `user_customer_index` ham xuddi shunday naqshda qo'shilgan —
+   lekin buni hech narsa majburlamagan. Bu jadvallarda RLS ATAYLAB yo'q
+   (`test_rls_coverage.py`ning yagona ataylab qilingan istisnolari), ya'ni
+   u yerga yozilgan qator haqiqiy a'zolik jadvallari bermagan tenant
+   kirishini beradi. Test ruxsat etilgan funksiyalarni aniq ro'yxat
+   sifatida saqlaydi (`create_customer_with_owner`,
+   `invite_customer_member`, `create_workspace`) va boshqa har qanday
+   joydan qurilishini xato deb belgilaydi. Isbotlandi: `api/me.py`ga
+   vaqtincha bitta `UserCustomerIndex(...)` qo'yib ko'rildi — test aniq
+   fayl/qator/funksiya nomini ko'rsatib qizardi, qaytarilgandan keyin
+   yashil.
+2. **Approval nonce'ining "faqat bir marta qaytariladi" shartnomasi**
+   (9.2 + `ApprovalOut.nonce` docstring'i + 12.3 "loglanmasin") endi
+   testlangan: taklif javobidagi nonce, keyin `GET .../actions/{id}`,
+   `GET .../actions` va `GET .../audit` javoblarining HECH BIRIDA
+   (butun serializatsiya qilingan matn bo'yicha, maydon nomi bo'yicha
+   emas — qanday shaklda chiqsa ham ushlash uchun) ko'rinmasligi
+   tekshiriladi. Isbotlandi: `get_action`ni vaqtincha action'ning
+   pending approval'ini ham qaytaradigan qilib o'zgartirildi (aynan
+   kelajakda bo'lishi mumkin bo'lgan regressiya) — test darhol qizardi,
+   qaytarilgandan keyin yashil.
+
+248 test, barchasi real Postgres'da.

@@ -512,3 +512,47 @@ async def test_a_consumed_approval_cannot_be_consumed_again_over_http(
     )
     assert replay.status_code == 409
     assert replay.json()["code"] == "APPROVAL_INVALID"
+
+
+async def test_the_approval_nonce_is_never_returned_again_after_the_proposal(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """9.2's nonce is a one-time credential, and ApprovalOut.nonce's own
+    docstring says it is "returned once, to the same caller who is shown the
+    pending-approval preview". Nothing enforced that: if a future field were
+    added to ActionOut, or a listing started embedding its approval, the nonce
+    would start leaking to every workspace member on a plain GET — and no test
+    would have noticed. Asserted against the whole serialized response rather
+    than a field name, so it catches the nonce arriving under any shape.
+    """
+    member = await seed_workspace_member(auth_strength=AuthStrength.AAL2)
+
+    submit = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/actions",
+        json={"tool_name": "email.send", "risk_level": "R3", "payload": {"to": "boss@example.com"}},
+        headers=_auth_headers(member.session_id, "nonce-exposure-1"),
+    )
+    body = submit.json()
+    nonce = body["approval"]["nonce"]
+    assert nonce  # the proposal response is the one place it may appear
+    action_id = body["action"]["id"]
+
+    single = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/actions/{action_id}",
+        headers=_auth_headers(member.session_id),
+    )
+    assert single.status_code == 200
+    assert nonce not in single.text
+
+    listed = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/actions", headers=_auth_headers(member.session_id)
+    )
+    assert listed.status_code == 200
+    assert nonce not in listed.text
+
+    audit = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/audit", headers=_auth_headers(member.session_id)
+    )
+    assert audit.status_code == 200
+    # 12.3: it must not have been written into the audit trail either.
+    assert nonce not in audit.text
