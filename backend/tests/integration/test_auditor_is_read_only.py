@@ -16,8 +16,16 @@ import uuid
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from doda.application.customer_service import invite_customer_member
+from doda.application.customer_service import (
+    change_customer_member_role,
+    create_customer_with_owner,
+    invite_customer_member,
+)
+from doda.application.session_service import create_session
+from doda.application.workspace_service import add_workspace_member, create_workspace
 from doda.db import tenant_scoped_session
+from doda.domain.customer.models import CustomerMembership
+from doda.domain.identity.models import AuthStrength, User
 from doda.domain.security.roles import CustomerRole
 from doda.main import app
 from tests.integration.conftest import seed_workspace_member
@@ -115,3 +123,56 @@ async def test_adding_an_auditor_to_a_workspace_is_refused_outright(
     )
     assert response.status_code == 409
     assert response.json()["code"] == "MEMBERSHIP_INVALID"
+
+
+async def test_a_member_demoted_to_auditor_stops_seeing_their_workspaces(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """GET /v1/me/workspaces has to agree with what get_workspace_context will
+    allow. This is the demotion path end to end: a real plain member with a
+    real workspace role, listed as expected, then changed to auditor at the
+    customer level — add_workspace_member now refuses to create such a pairing,
+    but demotion still leaves the row behind, and listing it would hand the
+    client a workspace whose every request 403s.
+
+    Built through customer_service (not conftest's seed_workspace_member)
+    because list_my_workspaces starts from UserCustomerIndex, which only the
+    real invite path writes — a seeded-by-hand membership lists as empty for
+    that reason alone, which would make this assertion vacuous.
+    """
+    customer_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    async with tenant_scoped_session(customer_id) as db:
+        db.add(User(id=user_id, oidc_subject_hash=str(uuid.uuid4()), display_name="Reviewer"))
+        await db.flush()
+        await create_customer_with_owner(
+            db, customer_id=customer_id, name="Acme", owner_user_id=uuid.uuid4(), actor_id="user:setup"
+        )
+        membership = await invite_customer_member(
+            db, customer_id=customer_id, user_id=user_id, role=CustomerRole.MEMBER, actor_id="user:setup"
+        )
+        workspace = await create_workspace(db, customer_id=customer_id, name="A")
+        await add_workspace_member(
+            db, workspace=workspace, customer_membership=membership, role="member", actor_id="user:setup"
+        )
+        session_record = await create_session(db, user_id=user_id, auth_strength=AuthStrength.AAL1)
+
+    before = await client.get("/v1/me/workspaces", headers=_auth_headers(session_record.id))
+    assert [entry["workspace_id"] for entry in before.json()] == [str(workspace.id)]
+
+    async with tenant_scoped_session(customer_id) as db:
+        reloaded = await db.get(CustomerMembership, membership.id)
+        assert reloaded is not None
+        await change_customer_member_role(db, reloaded, new_role=CustomerRole.AUDITOR, actor_id="user:setup")
+
+    after = await client.get("/v1/me/workspaces", headers=_auth_headers(session_record.id))
+    assert after.status_code == 200
+    assert after.json() == []
+
+    # ...and the workspace really is closed to them now, not merely hidden.
+    denied = await client.post(
+        f"/v1/workspaces/{workspace.id}/tasks",
+        json={"title": "nope"},
+        headers=_auth_headers(session_record.id),
+    )
+    assert denied.status_code == 403

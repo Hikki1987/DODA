@@ -247,6 +247,16 @@ async def list_my_workspaces(user_id: uuid.UUID) -> list[MyWorkspaceEntry]:
                     )
                     for workspace in workspaces
                 )
+            elif role == CustomerRole.AUDITOR.value:
+                # An auditor holds no workspace role at all (10.2; enforced in
+                # authz_service.get_workspace_context), so listing a workspace
+                # for them here would advertise a page every request to which
+                # then 403s. A stale WorkspaceMembership row can still exist —
+                # add_workspace_member refuses to create one, but a plain
+                # member with a workspace role who is later demoted to auditor
+                # keeps theirs — so this has to be skipped explicitly, not
+                # assumed absent.
+                continue
             else:
                 rows = await db.execute(
                     select(Workspace, WorkspaceMembership.role)

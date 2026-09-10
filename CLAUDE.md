@@ -2787,3 +2787,49 @@ ta pending outbox qatori yaratilgandan KEYIN ishga tushirilib, yashil
 ekani tasdiqlandi (keyin backlog'siz uchinchi marta ham).
 
 229 test, barchasi real Postgres+Redis'da.
+
+**Auditor tuzatishining davomi — ro'yxat va ruxsat bir-biriga mos kelishi
+kerak.** `get_workspace_context` auditor'ni DENY qilgandan keyin yangi
+nomuvofiqlik paydo bo'ldi: `list_my_workspaces` (demak `GET
+/v1/me/workspaces`) workspace'larni to'g'ridan-to'g'ri
+`WorkspaceMembership` orqali ro'yxatlaydi, `get_workspace_context` orqali
+emas — demak **pasaytirish** yo'lida (oddiy a'zo keyinchalik auditor'ga
+o'tkazilsa, `WorkspaceMembership` qatori joyida qoladi) klient
+ro'yxatda workspace'ni ko'rardi, lekin uni ochishga har bir urinish 403
+qaytarardi. `add_workspace_member` yangi bunday juftlikni yaratishga
+yo'l qo'ymaydi, lekin pasaytirish qoldirgan qatorni u hech qachon
+ushlay olmaydi — shuning uchun bu aniq, alohida `continue` bilan
+o'tkazib yuborilishi kerak edi, "bunday qator yo'q" deb taxmin qilish
+bilan emas.
+
+Bu ishda **o'zimning birinchi testim bo'sh (vacuous) ekani topildi va
+tuzatildi** — tuzatishni vaqtincha olib tashlaganda test baribir
+yashil qoldi. Sababi muhim va o'rganarli: `conftest.py`ning
+`seed_workspace_member`i Customer/CustomerMembership qatorlarini
+to'g'ridan-to'g'ri yozadi, `customer_service` orqali emas — demak
+`UserCustomerIndex`ga hech narsa yozilmaydi, `list_my_workspaces` esa
+aynan shu bootstrap jadvaldan boshlaydi. Ya'ni shu seed bilan
+yaratilgan HAR QANDAY foydalanuvchi uchun `/v1/me/workspaces` baribir
+`[]` qaytaradi, roli qanday bo'lishidan qat'i nazar. Test haqiqiy
+stsenariyga qayta yozildi: `create_customer_with_owner` +
+`invite_customer_member` + `add_workspace_member` orqali haqiqiy
+a'zo yaratiladi, ro'yxatda ko'rinishi tasdiqlanadi, keyin
+`change_customer_member_role` bilan auditor'ga pasaytiriladi va
+ro'yxat bo'shab qolishi (VA workspace'ning haqiqatda 403 bilan
+yopilishi — faqat yashirilmasligi) tekshiriladi. Endi tuzatishni olib
+tashlaganda test aynan kutilgan tarzda qizaradi.
+
+**Halol qolgan cheklov (bu o'zgarish keltirgan emas, lekin endi
+ko'rinadigan)**: auditor uchun `GET /v1/me/workspaces` bo'sh bo'lgani
+uchun frontend'da uning o'z huquqiga (customer-keng audit ko'rish,
+`/customers/{id}`) navigatsiya havolasi yo'q — workspace'lar ro'yxati
+customer nomini faqat workspace qatori orqali ko'rsatadi. Bu
+bo'shliq auditor'ning workspace a'zoligi BO'LMAGAN holatida ham
+avvaldan mavjud edi (endpoint workspace-shaped), shuning uchun yangi
+emas; to'g'ri yechim `export_service` duch kelgan xuddi shu masalaning
+yechimi bo'ladi — customer qamrovini `UserCustomerIndex`dan olish —
+lekin bu endpoint shaklini o'zgartiradi (yangi "customers" o'lchovi),
+ya'ni change request (QOIDA 2), shu yerda jimgina qilinadigan narsa
+emas.
+
+230 test, barchasi real Postgres'da.
