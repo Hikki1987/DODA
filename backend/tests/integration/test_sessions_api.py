@@ -10,6 +10,7 @@ from datetime import timedelta
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from doda.application.session_service import IDLE_TIMEOUT
 from doda.db import async_session_factory
 from doda.domain.base import utcnow
 from doda.domain.identity.models import Session
@@ -161,3 +162,60 @@ async def test_revoked_session_disappears_from_the_active_list(
     listing_after = await client.get("/v1/sessions", headers=_auth_headers(member.session_id))
     ids = {s["id"] for s in listing_after.json()}
     assert ids == {str(member.session_id)}
+
+
+async def test_unknown_session_id_is_rejected(client: AsyncClient, db_available: bool) -> None:
+    """A well-formed but unknown session UUID must be rejected by
+    resolve_session itself. Distinct from test_missing_session_is_rejected
+    (tasks API), which sends no Authorization header at all and so never
+    reaches resolve_session — the bearer parser rejects it first."""
+    response = await client.get("/v1/sessions", headers=_auth_headers(uuid.uuid4()))
+    assert response.status_code == 401
+    assert response.json()["code"] == "UNAUTHENTICATED"
+
+
+async def test_session_past_its_absolute_timeout_is_rejected(client: AsyncClient, db_available: bool) -> None:
+    """FR-AUTH-005's absolute (12h) session lifetime. Claimed as built in
+    CLAUDE.md, the README and the PR description — but the enforcement
+    branch in resolve_session had never been exercised by any test: the
+    only FR-AUTH-006-adjacent test covers REFRESHING last_seen_at, not
+    expiry. A flipped comparison here would let sessions live forever with
+    the whole suite still green.
+
+    Expiry is simulated by writing expires_at into the past (the real
+    condition after 12h) rather than waiting — last_seen_at is kept fresh
+    so this isolates the absolute-timeout branch from the idle one.
+    """
+    member = await seed_workspace_member()
+
+    async with async_session_factory() as db, db.begin():
+        record = await db.get(Session, member.session_id)
+        assert record is not None
+        record.expires_at = utcnow() - timedelta(seconds=1)
+        record.last_seen_at = utcnow()  # fresh: not an idle timeout
+
+    response = await client.get("/v1/sessions", headers=_auth_headers(member.session_id))
+    assert response.status_code == 401
+    assert response.json()["code"] == "UNAUTHENTICATED"
+
+
+async def test_idle_session_past_the_idle_timeout_is_rejected(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """FR-AUTH-006's idle (30m) timeout — the enforcement half. Its
+    companion test proves an authenticated request RESETS last_seen_at;
+    this one proves that without such a request the session actually stops
+    working. expires_at is left far in the future so only the idle branch
+    can be what rejects this.
+    """
+    member = await seed_workspace_member()
+
+    async with async_session_factory() as db, db.begin():
+        record = await db.get(Session, member.session_id)
+        assert record is not None
+        record.last_seen_at = utcnow() - (IDLE_TIMEOUT + timedelta(minutes=1))
+        record.expires_at = utcnow() + timedelta(hours=12)  # absolute limit not the cause
+
+    response = await client.get("/v1/sessions", headers=_auth_headers(member.session_id))
+    assert response.status_code == 401
+    assert response.json()["code"] == "UNAUTHENTICATED"
