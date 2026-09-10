@@ -195,6 +195,17 @@ alembic upgrade head
 uvicorn doda.main:app --reload
 ```
 
+Claude Code on the web (remote sessiya) uchun bu qadamlar
+`.claude/hooks/session-start.sh` (SessionStart hook) orqali avtomatik
+bajariladi — u Postgres/Redis'ni ishga tushiradi, migratsiyalarni
+qo'llaydi, `doda_app` rolini ta'minlaydi va dependency'larni o'rnatadi.
+Hook **faqat remote muhitda** ishlaydi (`CLAUDE_CODE_REMOTE` tekshiruvi),
+shuning uchun mahalliy mashinangizdagi yuqoridagi `docker compose`
+oqimiga umuman tegmaydi. Sababi: remote konteyner qayta ishga
+tushirilganda (systemd yo'q) Postgres ham, Redis ham to'xtab qoladi —
+bu esa "barchasi real Postgres'da" qoidasiga tayangan butun test
+suite'ni ishga tushirib bo'lmaydigan holatga olib keladi.
+
 Outbox relay worker (ADR-001/003 — a separate process from the API; polls
 `outbox_messages` and publishes to Redis Streams, so no proposed R0-R2
 action or approved R3+ action actually gets delivered without this
