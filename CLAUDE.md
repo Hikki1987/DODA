@@ -3363,3 +3363,31 @@ muvaffaqiyatsiz bo'lishini ko'rsatdim, keyin tekshiruvni qaytarib,
 o'tganini va qolgan 9 qatorning har biri hamon o'zining avvalgi,
 CLAUDE.md'da yozilgan sababi bilan qolganini tasdiqladim. 254 test,
 qamrov 99% (10 qatordan 9ga), barchasi real Postgres'da.
+
+**Qolgan 9 qatordan yana bittasi — `customer_service.py`dagi
+`list_my_customers`'ning `if row is None: continue` filiali — yopildi.**
+Bu qator "qolgan 10 qator" yozuvi yozilgan vaqtda ("242 test") hali
+mavjud emas edi (`GET /v1/me/customers` undan KEYIN qo'shildi), shuning
+uchun u ro'yxatga hech qachon kiritilmagan edi — lekin kod
+`UserCustomerIndex`ning o'z docstring'idagi va'dani ("hech qachon
+to'g'ridan-to'g'ri yozilmasin, shuning uchun asl manbadan chetlashishi
+mumkin emas") HAR DOIM rost deb hisoblab, shu filialni hech qachon
+sinamagan edi. `test_me_customers_never_reports_a_customer_the_user_left`
+ham bunga yetib bormaydi — u `remove_customer_member` orqali ishlaydi,
+bu esa index qatorini HAM tozalaydi, shuning uchun `for` sikli hatto
+shu customer_id ustida aylanmaydi ham.
+
+`test_me_customers_skips_a_stale_index_row_rather_than_crashing`
+aynan shu docstring va'dasini buzadigan bitta ishni qiladi — index'ga
+mos `CustomerMembership` qatori bo'lmagan holda to'g'ridan-to'g'ri yozadi
+(kelajakdagi xato/qisman muvaffaqiyatsizlikni simulyatsiya qilib) — va
+natija 200 + bo'sh ro'yxat (xatolik yoki soxta a'zolik emas) bo'lishini
+tasdiqlaydi. Audit-zanjiri uslubida isbotlandi: `if row is None: continue`
+filialini vaqtincha `if False and row is None: continue`ga aylantirib,
+test aynan kutilgan tarzda (`TypeError: cannot unpack non-iterable
+NoneType object`, `name, role = row` qatorida) muvaffaqiyatsiz bo'lishini
+ko'rsatdim, keyin tekshiruvni qaytarib yashil ekanini tasdiqladim.
+`customer_service.py`: 99% → **100%**. 255 test, qamrov 99% (9 qator —
+bu qator "qolgan 10"ning bir qismi sifatida hech qachon hisoblanmagan
+edi, shuning uchun umumiy son o'zgarmadi, lekin endi qolgan har bir
+qator aniq hujjatlashtirilgan).

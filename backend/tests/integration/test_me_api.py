@@ -277,3 +277,31 @@ async def test_me_customers_never_reports_a_customer_the_user_left(
     after = await client.get("/v1/me/customers", headers=_auth_headers(session_record.id))
     assert after.status_code == 200
     assert after.json() == []
+
+
+async def test_me_customers_skips_a_stale_index_row_rather_than_crashing(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """UserCustomerIndex is a mirror maintained by customer_service, not the
+    authority — CustomerMembership is (its own docstring: "never written to
+    directly, so it cannot drift from the source of truth"). list_my_
+    customers' `if row is None: continue` exists for the case that promise
+    is ever broken anyway (a future bug, a partial failure) — never
+    exercised by any other test, since every one of them keeps the two in
+    sync via the real service functions. Proven here by doing the one
+    thing the docstring says never to do: writing to the index directly,
+    with no matching CustomerMembership row behind it."""
+    user_id = uuid.uuid4()
+    stale_customer_id = uuid.uuid4()
+    async with tenant_scoped_session(uuid.uuid4()) as db:
+        db.add(User(id=user_id, oidc_subject_hash=str(uuid.uuid4()), display_name="Orphan"))
+        await db.flush()
+        session_record = await create_session(db, user_id=user_id, auth_strength=AuthStrength.AAL1)
+
+    async with async_session_factory() as db:
+        db.add(UserCustomerIndex(user_id=user_id, customer_id=stale_customer_id))
+        await db.commit()
+
+    response = await client.get("/v1/me/customers", headers=_auth_headers(session_record.id))
+    assert response.status_code == 200
+    assert response.json() == []
