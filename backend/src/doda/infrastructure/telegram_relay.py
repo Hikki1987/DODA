@@ -210,12 +210,15 @@ async def main() -> None:
 
     if settings.telegram_bot_token is None:
         logger.warning("telegram_relay.starting_without_bot_token")
+    # Unmasked exactly once, right before crossing into the plain-str
+    # signatures every function below this point already has (and that
+    # telegram_client.send_message needs, to build the request URL) — see
+    # config.py's SecretStr docstring for why it stays wrapped until here.
+    bot_token = settings.telegram_bot_token.get_secret_value() if settings.telegram_bot_token else None
     logger.info("telegram_relay.starting")
     try:
         async with httpx.AsyncClient() as http_client:
-            await run_forever(
-                redis, http_client, stop_event=stop_event, bot_token=settings.telegram_bot_token
-            )
+            await run_forever(redis, http_client, stop_event=stop_event, bot_token=bot_token)
     finally:
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.remove_signal_handler(sig)

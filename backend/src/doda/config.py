@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,10 +24,14 @@ class Settings(BaseSettings):
     otel_service_name: str = "doda-backend"
     # OD-002: first real connector. Read only by infrastructure/telegram_*
     # (the connector itself) -- never by domain/application code, never
-    # logged, never put in an audit safe_metadata dict. Optional (None) so
-    # every environment that doesn't run the Telegram connector (tests, CI,
-    # local dev without it configured) is unaffected.
-    telegram_bot_token: str | None = None
+    # logged, never put in an audit safe_metadata dict. SecretStr rather
+    # than str makes "never logged" structural instead of a comment someone
+    # has to remember: repr()/str() of a SecretStr (and so a stray
+    # `logger.info(..., settings=settings)` or FastAPI's own startup repr)
+    # render "**********", not the raw token. Optional (None) so every
+    # environment that doesn't run the Telegram connector (tests, CI, local
+    # dev without it configured) is unaffected.
+    telegram_bot_token: SecretStr | None = None
     # Comma-separated origins the Experience layer (web frontend) is served
     # from. Never "*" — every request here already carries a bearer session
     # token, and a wildcard would let any origin's script read the response.

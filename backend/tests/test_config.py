@@ -26,3 +26,22 @@ def test_wildcard_mixed_with_a_real_origin_is_still_rejected() -> None:
 def test_a_normal_origin_list_is_accepted() -> None:
     settings = Settings(cors_allowed_origins="http://localhost:3000,https://app.example.com")
     assert settings.cors_allowed_origins == "http://localhost:3000,https://app.example.com"
+
+
+def test_telegram_bot_token_never_appears_in_the_settings_repr() -> None:
+    """config.py's own docstring promises SecretStr makes "never logged"
+    structural: a stray `logger.info(..., settings=settings)`, an
+    unhandled-exception traceback that includes local variables, or any
+    other accidental str()/repr() of the Settings object must never put
+    the raw token in a log line or crash report — 12.3's "never logged"
+    rule, enforced by type rather than left to every future call site to
+    remember on its own.
+    """
+    settings = Settings(telegram_bot_token="super-secret-bot-token")  # type: ignore[call-arg]
+
+    assert "super-secret-bot-token" not in repr(settings)
+    assert "super-secret-bot-token" not in str(settings)
+    assert "super-secret-bot-token" not in repr(settings.telegram_bot_token)
+    # And the real value is still reachable where it's actually needed.
+    assert settings.telegram_bot_token is not None
+    assert settings.telegram_bot_token.get_secret_value() == "super-secret-bot-token"

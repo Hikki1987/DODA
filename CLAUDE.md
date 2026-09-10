@@ -3184,3 +3184,34 @@ ko'rildi, test aniq fayl nomi bilan qizardi, qaytarilgandan keyin
 yashil.
 
 250 test, barchasi real Postgres+Redis'da.
+
+**`telegram_bot_token` endi `SecretStr` — "hech qachon loglanmasin" izohi
+endi turi orqali majburlanadi, faqat izoh emas.** `config.py`dagi
+docstring allaqachon "never logged" deb yozgan edi, lekin bu faqat
+insonning eslab qolishiga tayanardi: agar kimdir kelajakda `logger.info(...,
+settings=settings)` kabi debug chaqiruv qo'shsa (yoki ushlanmagan
+xatoning traceback'i local o'zgaruvchilarni ko'rsatsa), xom bot tokeni
+log'ga yoki xato hisobotiga chiqib ketardi. `SecretStr`ga o'tkazish bu
+himoyani strukturaviy qiladi: `Settings` obyektining `repr()`/`str()`i
+endi `telegram_bot_token='**********'` ko'rsatadi, xom qiymatni emas.
+
+Butun kod bazasida `settings.telegram_bot_token`ga faqat BITTA real
+murojaat nuqtasi bor edi — `telegram_relay.py`ning `main()`i — va
+`.get_secret_value()` faqat shu yerda, eng so'ngida, pasttekshiriladi
+plain `str` imzolariga (`run_forever`/`relay_once`/`process_entry`/
+`send_message`) o'tish chegarasida chaqiriladi. Boshqa hech qayerda
+o'zgartirish kerak emas edi — testlar (`test_telegram_client.py`,
+`test_telegram_relay.py`) `bot_token="fake-test-token"`ni `Settings`
+orqali emas, to'g'ridan-to'g'ri uzatadi.
+
+Audit-zanjiri uslubida isbotlandi: yangi
+`test_telegram_bot_token_never_appears_in_the_settings_repr`
+(`tests/test_config.py`) qo'shildi, keyin `SecretStr` vaqtincha oddiy
+`str`ga qaytarilib, test aynan kutilgan tarzda (xom token `repr()`da
+ko'rinib) qizardi, so'ng qaytarilib yashil ekani tasdiqlandi. Bundan
+tashqari real `DODA_TELEGRAM_BOT_TOKEN` environment variable orqali
+(sintetik `Settings(...)` chaqiruvisiz) ham tekshirildi — haqiqiy
+o'zgaruvchidan o'qilgan qiymat `repr()`da ko'rinmasligi va
+`.get_secret_value()` orqali to'g'ri qaytarilishi.
+
+251 test, barchasi real Postgres+Redis'da.
