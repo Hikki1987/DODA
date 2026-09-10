@@ -29,7 +29,7 @@ from tests.integration.conftest import assert_worker_still_running_before_signal
 
 @pytest.fixture
 async def redis_client():
-    client = Redis.from_url(get_settings().redis_url, decode_responses=True)
+    client = Redis.from_url(get_settings().redis_url.get_secret_value(), decode_responses=True)
     try:
         await client.ping()
     except RedisConnectionError:

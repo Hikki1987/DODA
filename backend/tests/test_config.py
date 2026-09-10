@@ -65,3 +65,16 @@ def test_database_urls_never_appear_in_the_settings_repr() -> None:
     assert settings.migration_database_url.get_secret_value().endswith(
         "super-secret-super-pw@localhost:5432/doda"
     )
+
+
+def test_redis_url_never_appears_in_the_settings_repr() -> None:
+    """Same guarantee, for redis_url. The default carries no password, but a
+    managed/production Redis (Redis Cloud, Upstash, ElastiCache with AUTH)
+    commonly embeds one in this exact URL shape, same as the database URLs
+    above — nothing about a plain `str` field would have protected it."""
+    settings = Settings(
+        redis_url="redis://:super-secret-redis-pw@localhost:6379/0"  # type: ignore[call-arg]
+    )
+
+    assert "super-secret-redis-pw" not in repr(settings)
+    assert settings.redis_url.get_secret_value() == "redis://:super-secret-redis-pw@localhost:6379/0"

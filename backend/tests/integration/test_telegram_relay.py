@@ -46,7 +46,7 @@ async def redis_client():
     # No decode_responses=True: telegram_relay.main() creates its client
     # the same way outbox_relay.main() does, so fields arrive as bytes in
     # production — matching that here is what makes this test meaningful.
-    client = Redis.from_url(get_settings().redis_url)
+    client = Redis.from_url(get_settings().redis_url.get_secret_value())
     try:
         await client.ping()
     except RedisConnectionError:

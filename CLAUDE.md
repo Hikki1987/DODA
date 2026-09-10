@@ -3249,3 +3249,25 @@ Bu "isbotlamasdan taxmin qilma" qoidasining aynan o'zi — bu safar
 o'zimning tekshiruv skriptimning o'ziga nisbatan.
 
 252 test, barchasi real Postgres+Redis'da.
+
+**`redis_url` ham xuddi shu sinfga ko'ra `SecretStr`ga o'tkazildi —
+avvalgi ikki database URL tuzatishi bilan bir xil mulohaza, yangi
+bo'shliq emas.** Standart qiymatda parol yo'q (`redis://localhost:6379/0`),
+lekin har qanday boshqarilgan/production Redis (Redis Cloud, Upstash,
+AUTH yoqilgan ElastiCache) xuddi shu URL shaklida parolni olib yuradi —
+bu maydonning o'zi (oddiy `str`) buni hech qanday tarzda ajratib
+ko'rsatmasdi. To'rtta haqiqiy murojaat nuqtasi (`outbox_relay.py`,
+`telegram_relay.py`ning ikkalasining `main()`i, va ikkala relay
+test faylining o'z `redis_client` fixture'i) `.get_secret_value()`ga
+o'tkazildi — boshqa hech qayerda o'zgarish kerak emas edi.
+
+Audit-zanjiri uslubida isbotlandi: yangi
+`test_redis_url_never_appears_in_the_settings_repr` qo'shildi, keyin
+`SecretStr` vaqtincha oddiy `str`ga qaytarilib, test aynan kutilgan
+tarzda (xom parol `repr()`da ko'rinib) qizardi, so'ng qaytarilib yashil
+ekani tasdiqlandi. Haqiqiy relay worker testlari (`test_outbox_relay.py`,
+`test_telegram_relay.py` — o'zgargan chaqiruv nuqtalarining aynan o'zi)
+ham real Redis'ga qarshi qayta ishga tushirilib, `.get_secret_value()`
+unwrap to'g'ri ishlashi tasdiqlandi.
+
+253 test, barchasi real Postgres+Redis'da.

@@ -201,7 +201,7 @@ async def run_forever(
 
 async def main() -> None:
     settings = get_settings()
-    redis = Redis.from_url(settings.redis_url)
+    redis = Redis.from_url(settings.redis_url.get_secret_value())
     stop_event = asyncio.Event()
 
     loop = asyncio.get_running_loop()
