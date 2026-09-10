@@ -3033,3 +3033,35 @@ savol bilan:**
    yuboradi), demak uni o'qildi deb belgilay olishi kerak — 10.2'ning
    "read-only"si customer MA'LUMOTI/amallari haqida, foydalanuvchining
    o'z holati haqida emas. Bu yerda hech narsa o'zgartirilmadi.
+
+**RISK-006 sinfining yana bir nusxasi yopildi: audit jurnalining
+append-only ekani (FR-AUD-001/004) hech qachon ASSERT qilinmagan edi.**
+`audit_events_no_update_delete` trigger'i (0001-migratsiya) — hash
+zanjirini tekshirishning o'zini ma'noli qiladigan narsa (joyida qayta
+yozish mumkin bo'lgan zanjir hech narsani isbotlamaydi) — faqat
+`test_audit_chain_verification.py`ning bir docstring'ida "o'tib ketayotib
+ko'rilgan" edi ("bu testni yozganda ORM UPDATE'i shu trigger'ga urilib
+ketdi"). Ya'ni trigger'ni tushirib yuboradigan migratsiya (yoki uni
+qaytarmagan downgrade) butun xususiyatni olib ketardi va BARCHA testlar
+baribir yashil qolardi.
+
+Endi to'g'ridan-to'g'ri test bor: UPDATE ham, DELETE ham trigger'ning
+aniq xabari (`append-only`) bilan rad etilishi, va qatorning o'zi
+o'zgarmagan holda qolishi. Haqiqiyligi real Postgres'da isbotlandi —
+migratsiya roli (`doda`, jadval egasi; ilova roli `doda_app` ataylab DDL
+huquqisiz) bilan trigger HAQIQATDA tushirildi, test aynan kutilgan
+tarzda (`DID NOT RAISE DBAPIError`) qizardi, keyin trigger 0001'dagi
+aynan bir xil ta'rif bilan qaytarildi (`audit_events_immutable()`
+funksiyasi — birinchi urinishda funksiya nomini xato taxmin qilib
+`audit_events_block_mutation` deb yozdim, psql "function does not exist"
+bilan rad etdi; migratsiyaning o'zini o'qib to'g'ri nom bilan
+tiklandi) va test qaytadan yashil ekani, trigger haqiqatda joyida
+(`pg_trigger` so'rovi bilan) tasdiqlandi.
+
+`docs/risk-register.md`ning RISK-006 qatoriga ham shu sessiyadagi
+auditor topilmasi yozildi — u "demo vs production" farqi emas, balki
+faqat matnda mavjud bo'lgan nazorat edi; umumlashtiriladigan dars:
+**testi yo'q hujjatlashtirilgan xavfsizlik xususiyati — nazorat emas**,
+va buni ochib bergan narsa qamrov o'lchovi bo'ldi.
+
+246 test, barchasi real Postgres'da.

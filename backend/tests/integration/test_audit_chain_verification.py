@@ -10,7 +10,8 @@ import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError
 
 from doda.application.audit_service import record_audit_event, verify_audit_chain
 from doda.application.customer_service import create_customer_with_owner, invite_customer_member
@@ -190,3 +191,42 @@ async def test_verifying_the_chain_is_itself_audited(client: AsyncClient, db_ava
     )
     event_types = [e["event_type"] for e in audit_response.json()]
     assert "audit.chain_verified.v1" in event_types
+
+
+async def test_audit_events_reject_update_and_delete(db_available: bool) -> None:
+    """FR-AUD-001/004's append-only property, asserted rather than observed.
+
+    The `audit_events_no_update_delete` trigger (migration 0001) is the thing
+    that makes the hash chain worth verifying at all — a chain you can rewrite
+    in place proves nothing. Until now no test touched it: the tamper test
+    above only mentions, in passing, that an UPDATE raised the trigger's error
+    while it was being written. So a migration that dropped the trigger, or a
+    downgrade that left it off, would have taken the whole property with it
+    and every test would still have passed.
+    """
+    customer_id = uuid.uuid4()
+    async with tenant_scoped_session(customer_id) as session:
+        event = await record_audit_event(
+            session,
+            customer_id=customer_id,
+            trace_id=uuid.uuid4(),
+            actor_id="user:writer",
+            event_type="test.append_only.v1",
+            safe_metadata={},
+        )
+        event_id = event.id
+
+    for statement, operation in (
+        (text("UPDATE audit_events SET actor_id = 'user:impostor' WHERE id = :id"), "UPDATE"),
+        (text("DELETE FROM audit_events WHERE id = :id"), "DELETE"),
+    ):
+        async with tenant_scoped_session(customer_id) as session:
+            with pytest.raises(DBAPIError) as excinfo:
+                await session.execute(statement, {"id": event_id})
+            assert "append-only" in str(excinfo.value), f"{operation} must be refused by the trigger"
+
+    # Still there, unchanged — the refusals were not a partial write.
+    async with tenant_scoped_session(customer_id) as session:
+        survivor = await session.get(AuditEvent, event_id)
+        assert survivor is not None
+        assert survivor.actor_id == "user:writer"
