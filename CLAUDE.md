@@ -3340,3 +3340,26 @@ ishonchlilik belgisi:
 
 253 test, barchasi real Postgres+Redis'da o'zgarishsiz (sof refaktor —
 qamrov 99%, yangi mantiq yo'q).
+
+**Qolgan 10 qatordan bittasi — `audit_service.py:124`, `prev_hash_mismatch`
+filiali — yopildi.** O'shanda ("Qolgan 10 qator ataylab qoldirildi" yozuvida)
+bu qator "ataylab soxta zanjir halqasi yasash kerak" deb qoldirilgan edi —
+lekin bu aynan `test_tampered_event_is_detected_and_pinpointed`ning
+(`hash_mismatch` uchun) allaqachon isbotlangan texnikasi, faqat teskari
+burchakdan: forged qatorning `hash`i o'z kontentidan TO'G'RI hisoblanadi
+(shuning uchun `hash_mismatch` tetiklanmaydi), lekin `prev_hash`i haqiqiy
+oldingi yozuvning saqlangan hash'iga mos kelmaydi — `verify_audit_chain`ning
+ikkinchi, mustaqil tekshiruvi aynan shuni ushlaydi. Bu "kelajakda qo'shiladigan
+spekulyativ test" emas — FR-AUD-004ning o'z ikkita aniq buzilish turidan
+(`hash_mismatch`, `prev_hash_mismatch`) biri hali umuman bosib o'tilmagan edi.
+
+`test_broken_chain_link_is_detected_and_pinpointed`
+(`test_audit_chain_verification.py`) audit-zanjiri uslubida isbotlandi:
+`verify_audit_chain`dagi `prev_hash_mismatch` tekshiruvini vaqtincha
+`if False and ...`ga aylantirib, test aynan kutilgan tarzda (`assert not
+True` — forged halqa ko'rinmay qolib, zanjir "sog'lom" deb xato hisoblanib)
+muvaffaqiyatsiz bo'lishini ko'rsatdim, keyin tekshiruvni qaytarib,
+`audit_service.py` 92%(44 qatorning 4tasi qoplanmagan)dan **100%**ga
+o'tganini va qolgan 9 qatorning har biri hamon o'zining avvalgi,
+CLAUDE.md'da yozilgan sababi bilan qolganini tasdiqladim. 254 test,
+qamrov 99% (10 qatordan 9ga), barchasi real Postgres'da.

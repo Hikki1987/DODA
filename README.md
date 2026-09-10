@@ -218,7 +218,7 @@ endi faqat izoh emas, `repr()`/`str()`ning o'zi orqali majburlangan
 struktura; har biri revert-test-restore uslubida (xom qiymat vaqtincha
 qaytarilib, test aynan kutilgan tarzda qizarishi ko'rsatilib) isbotlangan.
 
-**253 test, barchasi real Postgres(+Redis)'da; 7 E2E spec; 99% o'lchangan
+**254 test, barchasi real Postgres(+Redis)'da; 7 E2E spec; 99% o'lchangan
 qamrov; CustomerRole.AUDITOR xatosi tuzatilgan.**
 
 ## Ishga tushirish (local dev)

@@ -15,6 +15,7 @@ from sqlalchemy.exc import DBAPIError
 
 from doda.application.audit_service import record_audit_event, verify_audit_chain
 from doda.application.customer_service import create_customer_with_owner, invite_customer_member
+from doda.application.hashing import canonical_json, hash_payload
 from doda.application.session_service import create_session
 from doda.db import tenant_scoped_session
 from doda.domain.audit.models import AuditEvent
@@ -106,6 +107,64 @@ async def test_tampered_event_is_detected_and_pinpointed(db_available: bool) -> 
     violation_event_ids = {v.event_id for v in result.violations}
     assert violation_event_ids == {forged_id}
     assert result.violations[0].reason == "hash_mismatch"
+
+
+async def test_broken_chain_link_is_detected_and_pinpointed(db_available: bool) -> None:
+    """The companion to the hash_mismatch test above: a row whose own `hash`
+    is correctly computed from its content (so that check alone would pass)
+    but whose `prev_hash` does not match the actual preceding event's
+    stored hash — the chain-linkage check `verify_audit_chain` makes
+    independently of the per-row hash check. Left unexercised until now
+    (CLAUDE.md's coverage notes) because producing it means deliberately
+    forging a plausible-but-wrong link, not a one-line mutation.
+    """
+    customer_id = uuid.uuid4()
+    async with tenant_scoped_session(customer_id) as session:
+        for i in range(4):
+            await record_audit_event(
+                session,
+                customer_id=customer_id,
+                trace_id=uuid.uuid4(),
+                actor_id="user:writer",
+                event_type=f"test.event.{i}.v1",
+            )
+
+        wrong_prev_hash = "f" * 64  # well-formed, but not the real tip below
+        trace_id = uuid.uuid4()
+        occurred_at = utcnow()
+        forged = AuditEvent(
+            customer_id=customer_id,
+            trace_id=trace_id,
+            actor_id="user:attacker",
+            event_type="test.forged.v1",
+            occurred_at=occurred_at,
+            safe_metadata={},
+            prev_hash=wrong_prev_hash,
+            hash=hash_payload(
+                {
+                    "customer_id": str(customer_id),
+                    "workspace_id": None,
+                    "trace_id": str(trace_id),
+                    "actor_id": "user:attacker",
+                    "event_type": "test.forged.v1",
+                    "occurred_at": occurred_at.isoformat(),
+                    "safe_metadata": canonical_json({}),
+                    "prev_hash": wrong_prev_hash,
+                }
+            ),
+        )
+        session.add(forged)
+        await session.flush()
+        forged_id = forged.id
+
+    async with tenant_scoped_session(customer_id) as session:
+        result = await verify_audit_chain(session, customer_id=customer_id)
+
+    assert not result.ok
+    assert result.checked_count == 5
+    violation_event_ids = {v.event_id for v in result.violations}
+    assert violation_event_ids == {forged_id}
+    assert result.violations[0].reason == "prev_hash_mismatch"
 
 
 async def test_only_customer_owner_or_auditor_may_verify_the_chain_over_http(
