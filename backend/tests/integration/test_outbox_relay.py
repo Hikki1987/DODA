@@ -38,6 +38,24 @@ async def redis_client():
     await client.aclose()
 
 
+async def _relay_until_drained(redis_client: Redis, *, batch_size: int = 100) -> int:
+    """Relay every pending outbox row, not just one batch, and return how many
+    were published.
+
+    `relay_once` reads a bounded batch of the outbox PLATFORM-WIDE —
+    outbox_messages is deliberately RLS-exempt so one relay can serve every
+    tenant (ADR-003) — so the rows it picks up include whatever any other test
+    in the run left pending. A single call therefore proves nothing about this
+    test's own row once the backlog is larger than a batch. Reproduced for
+    real by seeding a 120-row backlog: the very first test in this file failed
+    because its own action was still queued behind that backlog.
+    """
+    published = 0
+    while batch := await relay_once(redis_client, batch_size=batch_size):
+        published += batch
+    return published
+
+
 async def test_relay_publishes_ready_action_to_its_event_stream(
     db_available: bool, redis_client: Redis
 ) -> None:
@@ -58,7 +76,7 @@ async def test_relay_publishes_ready_action_to_its_event_stream(
         )
         await validate_action(session, action, actor_id="user:alice")
 
-    published_count = await relay_once(redis_client)
+    published_count = await _relay_until_drained(redis_client)
     assert published_count >= 1
 
     stream = "doda:outbox:action.ready.v1"
@@ -86,6 +104,15 @@ async def test_two_concurrent_relay_workers_never_double_publish_the_same_messag
     chance to interleave) — every message must be delivered exactly
     once between them, never twice, never zero times.
     """
+    # Drain first, or ANY pending row another test left behind lands in these
+    # two workers' batches and inflates the count below (see
+    # _relay_until_drained). Observed for real — a run that added three
+    # action-proposing tests elsewhere failed here with `assert 13 == 10`,
+    # nothing to do with this test's own subject. The per-message assertion
+    # further down is what proves exactly-once; this makes the "ten units of
+    # work between them" count mean this test's ten.
+    await _relay_until_drained(redis_client)
+
     customer_id = uuid.uuid4()
     action_ids = []
     async with tenant_scoped_session(customer_id) as session:

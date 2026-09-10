@@ -2709,3 +2709,81 @@ exception ilgari faqat servis darajasida test qilingan edi.
 qo'shildi (mavjud `workspace_role` bilan bir xil shakl).
 
 222 test, barchasi real Postgres'da.
+
+**Coverage o'lchovi yana uchta haqiqiy bo'shliqni ko'rsatdi (ikkisi test
+qamrovi, bittasi test-infratuzilmaning o'zida) — va uchinchisi shu
+sessiyada bir necha marta takrorlangan darsning yangi nusxasi bo'lib
+chiqdi: umumiy mutable holat.**
+
+1. **`?trace_id=` va `?event_type=` audit filtrlari hech qachon
+   bajarilmagan** (`audit_query_service.py` 39/41-qatorlar). Bu
+   NFR-OBS-001 uchun muhim: trace-korrelyatsiyaning YOZISH yarmi
+   allaqachon testlangan edi (Action HTTP so'rovning o'z trace_id'sini
+   oladi), lekin O'QISH yarmi — operator aslida ishlatadigan "shu
+   trace_id bilan nima bo'lgan" so'rovi — umuman tekshirilmagan edi,
+   ya'ni korrelyatsiya faqat yarim isbotlangan edi. Ikkita test
+   qo'shildi (`test_audit_api.py`), ikkalasi ham filtrni o'chirib
+   ko'rish bilan tasdiqlandi: `trace_id` filtri o'chirilganda test
+   boshqa so'rovning yozuvlarini ko'rib qizaradi, `event_type`
+   o'chirilganda esa to'rtta qo'shimcha turni ko'rib qizaradi — ya'ni
+   ikkalasi ham haqiqatda filtrlashni tekshiradi, shunchaki "200
+   qaytdi"ni emas.
+2. **`set_notification_preference`ning YANGILASH filiali hech qachon
+   bajarilmagan** (116-117-qatorlar) — har bir mavjud test sozlamani
+   faqat BIRINCHI marta yaratardi. Ya'ni frontend taklif qiladigan
+   haqiqiy toggle (o'chir → qayta yoq) backend darajasida test
+   qilinmagan edi. Yangi test qo'shildi: o'chirib, qayta yoqib, keyin
+   HAQIQIY trigger (task'ni DONE'ga o'tkazish) orqali bildirishnoma
+   qaytadan kelishini tasdiqlaydi — "qator enabled deb yozilgan, lekin
+   `create_notification` hamon to'sib turadi" holatini ham qamrab
+   oladi.
+3. **Bitta-ID endpointlaridagi per-record tenancy tekshiruvlari
+   (`record is None or record.<scope>_id != ctx...`) hech birida
+   qoplama yo'q edi** — `api/tasks.py:72`, `api/notifications.py:160`,
+   `api/workspace_admin.py:104`, `api/customer_admin.py:96`. Muhim
+   nuance (xuddi `parent_task_id` tuzatishidagi kabi): cross-CUSTOMER
+   holat allaqachon RLS tomonidan bloklanadi (qator ko'rinmaydi, `is
+   None` filiali ishlaydi), lekin RLS faqat `customer_id` bo'yicha —
+   BITTA customer ichidagi ikki workspace orasida yagona himoya aynan
+   shu aniq `!= workspace_id` solishtiruvi. Yangi
+   `test_cross_workspace_record_access.py` (4 test) shu holatni
+   qamraydi: qo'shni workspace'ning task'ini o'qish (404) va uning
+   statusini o'zgartirish (404 + task haqiqatda TODO'da qolishi),
+   qo'shni workspace'ning a'zoligini PATCH/DELETE qilish (404), va
+   bitta workspace ICHIDA boshqa a'zoning bildirishnomasini o'qildi
+   deb belgilash (404 — `recipient_id` tekshiruvi). Oxirgisi ataylab
+   ikkala foydalanuvchini ham BIR XIL workspace'ga a'zo qiladi, aks
+   holda authz zanjiri so'rovni per-record tekshiruvga yetib
+   bormasdanoq rad etardi va test noto'g'ri qatlamni isbotlagan
+   bo'lardi.
+
+**Shu yangi testlar uchta test-infratuzilma xatosini ochib berdi —
+uchalasi ham bir xil sinf: `relay_once` outbox'ni PLATFORM-KENG
+o'qiydi (`outbox_messages` ataylab RLS'dan ozod, ADR-003), demak u
+boshqa HAR QANDAY test qoldirgan pending qatorlarni ham oladi.** Yangi
+testlar (action taklif qiladigan) bir nechta pending qator qoldirdi va
+uchta relay testi shu tufayli qizardi. "Flake" deb o'tkazib
+yuborilmadi — uchalasi ham qo'lda, ataylab pending qator yaratadigan
+skript bilan aniq reproduktsiya qilindi:
+- `test_two_concurrent_relay_workers...` — `assert sum(counts) == 10`
+  global hisobga tayanadi: 3 ta qoldiq qator bilan `assert 13 == 10`
+  bo'lib qizardi.
+- `test_relay_once_returns_zero_when_nothing_new_is_pending`
+  (telegram) — bitta `relay_once` bilan "drain" qilardi, lekin u bir
+  martada ko'pi bilan 50 yozuv oladi: 60 yozuvli backlog bilan
+  `assert 10 == 0` bo'lib qizardi.
+- `test_relay_publishes_ready_action_to_its_event_stream` — 120
+  yozuvli backlog bilan o'zining action'i birinchi batch'dan
+  tashqarida qolib qizardi.
+
+Uchalasi ham bitta naqsh bilan tuzatildi — bitta chaqiruv emas, SIKL
+bilan to'liq drain (`test_outbox_relay.py`da umumiy
+`_relay_until_drained` yordamchisiga chiqarildi, telegram faylida
+mahalliy `while` sikli). Bu E2E spec'larning alohida seed ishlatishi
+va PEL probe yozuvining `XDEL` qilinishi bilan bir xil dars: umumiy
+mutable holat ustida aniq son bo'yicha assertion qilma. Tuzatish
+haqiqiyligi: butun suite ketma-ket ikki marta, har safar ataylab 150
+ta pending outbox qatori yaratilgandan KEYIN ishga tushirilib, yashil
+ekani tasdiqlandi (keyin backlog'siz uchinchi marta ham).
+
+229 test, barchasi real Postgres+Redis'da.

@@ -210,3 +210,67 @@ async def test_viewing_audit_is_itself_audited(client: AsyncClient, db_available
     )
     event_types = [e["event_type"] for e in second_view.json()]
     assert "audit.viewed.v1" in event_types
+
+
+async def test_trace_id_filter_finds_exactly_one_requests_own_events(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """NFR-OBS-001's actual operator lookup, end to end over HTTP: given a
+    request's X-Trace-Id, the audit viewer must return that request's events
+    and nothing else.
+
+    test_actions_api.py already pins the writing half (an Action carries the
+    HTTP request's own trace_id rather than a fresh uuid4). This is the
+    reading half — the `?trace_id=` filter on list_audit_events, which had no
+    coverage at all, so the correlation was only ever half-proved.
+    """
+    admin = await seed_workspace_member(workspace_role="workspace_admin")
+    traced = str(uuid.uuid4())
+
+    first = await client.post(
+        f"/v1/workspaces/{admin.workspace_id}/actions",
+        json={"tool_name": "knowledge.read", "risk_level": "R1", "payload": {}},
+        headers={
+            **_auth_headers(admin.session_id),
+            "Idempotency-Key": "trace-filter-1",
+            "X-Trace-Id": traced,
+        },
+    )
+    assert first.status_code == 200
+    # A second, differently-traced request in the same workspace: the filter
+    # has to exclude it, otherwise "returns this request's events" would pass
+    # for a filter that silently ignores its argument.
+    await _propose_action(client, admin, "trace-filter-2")
+
+    response = await client.get(
+        f"/v1/workspaces/{admin.workspace_id}/audit",
+        params={"trace_id": traced},
+        headers=_auth_headers(admin.session_id),
+    )
+    assert response.status_code == 200
+    events = response.json()
+    assert events, "the traced request's own audit events should be findable by its trace_id"
+    assert {e["trace_id"] for e in events} == {traced}
+
+
+async def test_event_type_filter_narrows_to_that_type(client: AsyncClient, db_available: bool) -> None:
+    """The other never-exercised filter on the same endpoint. Proposing an
+    action writes more than one event type, so this also shows the filter
+    excludes rather than merely returning everything."""
+    admin = await seed_workspace_member(workspace_role="workspace_admin")
+    await _propose_action(client, admin, "event-type-filter-1")
+
+    unfiltered = await client.get(
+        f"/v1/workspaces/{admin.workspace_id}/audit", headers=_auth_headers(admin.session_id)
+    )
+    assert len({e["event_type"] for e in unfiltered.json()}) > 1
+
+    response = await client.get(
+        f"/v1/workspaces/{admin.workspace_id}/audit",
+        params={"event_type": "action.proposed.v1"},
+        headers=_auth_headers(admin.session_id),
+    )
+    assert response.status_code == 200
+    events = response.json()
+    assert events
+    assert {e["event_type"] for e in events} == {"action.proposed.v1"}

@@ -355,7 +355,13 @@ async def test_relay_once_returns_zero_when_nothing_new_is_pending(
     async with _mock_http_client(
         lambda request: httpx.Response(200, json={"ok": True, "result": {"message_id": 1}})
     ) as http_client:
-        await relay_once(redis_client, http_client, bot_token="fake-test-token")  # drain first
+        # Drain in a LOOP, not once: relay_once reads at most 50 entries per
+        # call, and this stream carries whatever every other test in the run
+        # published. A single drain call leaves the rest pending and the
+        # assertion below then reads a backlog instead of an idle stream —
+        # reproduced for real with a 60-entry backlog: `assert 10 == 0`.
+        while await relay_once(redis_client, http_client, bot_token="fake-test-token"):
+            pass
         assert await relay_once(redis_client, http_client, bot_token="fake-test-token") == 0
 
 
