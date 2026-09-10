@@ -69,6 +69,13 @@ async def add_workspace_member(
             "customer_membership belongs to a different customer than this workspace"
         )
 
+    if customer_membership.role == CustomerRole.AUDITOR.value:
+        # An auditor is read-only (10.2), and get_workspace_context refuses to
+        # resolve one into a WorkspaceRole at all — so such a row could only
+        # ever be a powerless membership that looks like a granted role in the
+        # members list. Refuse it at the source with a clear 409 instead.
+        raise WorkspaceMembershipError("an auditor cannot hold a workspace role")
+
     membership = WorkspaceMembership(
         customer_id=workspace.customer_id,
         customer_membership_id=customer_membership.id,

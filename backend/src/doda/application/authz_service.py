@@ -99,7 +99,29 @@ async def get_workspace_context(
     if row is None:
         raise AuthorizationError(Decision.DENY, "no workspace membership")
 
-    membership, _customer_role = row
+    membership, customer_role = row
+    if customer_role == CustomerRole.AUDITOR.value:
+        # 10.2's Auditor row grants reads only, and WorkspaceRole has no
+        # read-only member to resolve them to (domain/security/roles.py:
+        # "CustomerRole.AUDITOR has no WorkspaceRole counterpart by design").
+        # Every workspace-scoped authorize_* function reads WorkspaceRole
+        # alone, so resolving an auditor here at all would hand them the full
+        # write authority of whichever workspace role someone happened to put
+        # in their membership row — create tasks, propose actions, engage the
+        # workspace kill switch. Fail closed instead (10.1).
+        #
+        # Enforced here rather than only at membership-creation time because
+        # this also covers the row that already exists: a plain member with a
+        # workspace role who is later demoted to auditor at the customer level
+        # loses workspace write authority immediately, without needing their
+        # WorkspaceMembership row cleaned up (and regains it if promoted back).
+        #
+        # Consequence worth naming: an auditor gets no workspace-scoped READS
+        # either. Granting those would take a genuinely new read-only
+        # WorkspaceRole and a decision on every 10.2 row — a change request,
+        # not something to infer here.
+        raise AuthorizationError(Decision.DENY, "auditor holds no workspace role")
+
     return WorkspaceContext(
         customer_id=workspace.customer_id,
         workspace_id=workspace_id,

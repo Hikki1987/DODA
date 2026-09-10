@@ -2632,3 +2632,80 @@ ishlatildi — ikkalasini ham qaytarib, exit code 0 bilan tugadi; sog'lom
 servislarga qarshi qayta ishlatilganda esa toza no-op. Keyin linter,
 `mypy` va testlar FAQAT hook eksport qiladigan PATH bilan (qo'lda venv
 aktivlashtirmasdan) ishlatildi — 218 test yashil.
+
+**Haqiqiy avtorizatsiya xatosi topildi va tuzatildi — `CustomerRole.AUDITOR`
+("faqat o'qish", 10.2) workspace ichida TO'LIQ yozish huquqiga ega edi.**
+Coverage o'lchovining qoldiq qoplanmagan qatorlarini ko'rib chiqishda
+aniqlandi: `authz_service.py`ning `authorize_propose_action`/
+`authorize_create_task` DENY filiallari (113, 140-qatorlar) hech qachon
+bajarilmagan. Sababini tekshirganda ma'lum bo'ldi — ular bugungi kunda
+strukturaviy jihatdan **yetib bo'lmas**: `WorkspaceRole`da faqat ikki
+qiymat bor (`MEMBER`, `WORKSPACE_ADMIN`) va ikkalasi ham ruxsat etilgan
+to'plamda. Bu o'z-o'zidan xato emas (izohning o'zi "kelajakdagi uchinchi
+rol omission orqali o'tib ketmasligi uchun ataylab aniq tekshiruv" deb
+yozadi) — lekin savol tug'dirdi: unda Auditor aslida NIMA bilan
+to'xtatiladi?
+
+Javob: hech narsa bilan. `get_workspace_context`ning join'i
+`CustomerMembership.role`ni O'QIYDI, lekin uni `_customer_role` deb
+tashlab yuborardi — demak `auditor` customer-roliga ega foydalanuvchi
+biror workspace'ga a'zo qilinsa, u shu workspace'da to'laqonli
+`WorkspaceRole.MEMBER` (yoki `workspace_admin` berilgan bo'lsa —
+WORKSPACE_ADMIN) sifatida rezolyutsiya qilinardi. Bu butun kod bazasida
+`AUDITOR` tekshiriladigan yagona joy `authorize_view_customer_audit`
+bo'lgani uchun (grep bilan tasdiqlandi) — workspace-scoped HAR BIR
+`authorize_*` faqat `WorkspaceRole`ga qaraydi — natija: auditor task
+yaratishi, action taklif qilishi (R3 `telegram.send_message` ham, AAL2
+bilan o'zini-o'zi tasdiqlab!) va workspace kill switch'ini yoqishi
+mumkin edi. Bu `domain/security/roles.py`ning o'z da'vosiga
+("CustomerRole.AUDITOR has no WorkspaceRole counterpart by design
+(auditors are read-only, 2.2)"... "Auditor never can") va 10.2
+matritsasining Auditor qatoriga to'g'ridan-to'g'ri zid.
+
+Stsenariy faraziy emas, aynan CustomerOwner tabiiy ravishda qiladigan
+ish: tashqi compliance tekshiruvchisiga `auditor` roli beriladi (faqat
+o'qish uchun), keyin "shu workspace'ni ko'rsin" deb workspace'ga
+qo'shiladi — va owner auditor'ning read-only holati saqlanadi deb
+kutadi, aslida esa u jimgina to'liq yozish huquqini oladi.
+
+Avval uchta test yozib xato haqiqiyligi isbotlandi (real HTTP orqali,
+uchalasi ham **200** qaytardi: task yaratish, action taklif qilish,
+kill switch yoqish). Keyin ADR-005'ning "ikkita mustaqil qatlam"
+naqshi bo'yicha tuzatildi:
+1. **Majburlash (markazlashtirilgan)** — `get_workspace_context` endi
+   allaqachon qo'lidagi `customer_role`dan foydalanadi: auditor bo'lsa
+   DENY (10.1 fail-closed). CustomerOwner tuzatishidagi kabi bitta
+   joyda hal qilingani uchun barcha `authorize_*` avtomatik to'g'ri
+   ishlaydi.
+2. **Oldini olish (manbada)** — `add_workspace_member` auditor
+   CustomerMembership'ga workspace roli berishni rad etadi (409
+   `MEMBERSHIP_INVALID`), shuning uchun a'zolar ro'yxatida "rol
+   berilgan"dek ko'rinadigan, aslida huquqsiz qator umuman
+   yaratilmaydi.
+
+**Ikkala qatlam ham mustaqil zarur ekani alohida-alohida isbotlandi**
+(revert-test-restore): faqat 1-qatlam bilan — uchta majburlash testi
+o'tadi, lekin auditor'ni qo'shish hamon 200 qaytaradi (huquqsiz qator
+yaratiladi); faqat 2-qatlam bilan — qo'shish rad etiladi, lekin boshqa
+yo'l bilan yozilgan qator hamon to'liq yozish huquqini beradi. Eng
+muhimi 1-qatlam PASAYTIRISH yo'lini ham qamraydi:
+`change_customer_member_role` orqali oddiy a'zo keyinchalik auditor'ga
+tushirilsa, u workspace yozish huquqini DARHOL yo'qotadi —
+`WorkspaceMembership` qatorini tozalash shart emas (qaytib ko'tarilsa,
+huquq ham qaytadi). 2-qatlam buni hech qachon ushlay olmasdi.
+
+**Ataylab nomlangan oqibat**: auditor endi workspace-scoped O'QISHga
+ham ega emas. Buni berish uchun haqiqiy, yangi read-only
+`WorkspaceRole` va 10.2'ning har bir qatori bo'yicha qaror kerak — bu
+change request (QOIDA 2), shu yerda taxmin qilinadigan narsa emas.
+Auditor'ning 10.2'da hujjatlashtirilgan huquqi (customer-keng audit
+ko'rish, `GET /v1/customers/{id}/audit`) `get_customer_context` orqali
+ishlaydi va tegilmadi — tasdiqlangan: butun suite o'zgarishsiz o'tdi.
+
+To'rtinchi test `WorkspaceMembershipError`ning HTTP konverti (409
+`MEMBERSHIP_INVALID`) ustidan ham birinchi qoplamani beradi — bu
+exception ilgari faqat servis darajasida test qilingan edi.
+`conftest.py`ning `seed_workspace_member`iga `customer_role` parametri
+qo'shildi (mavjud `workspace_role` bilan bir xil shakl).
+
+222 test, barchasi real Postgres'da.

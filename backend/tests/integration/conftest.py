@@ -116,6 +116,7 @@ class SeededMember:
 async def seed_workspace_member(
     *,
     workspace_role: str = "member",
+    customer_role: str = "member",
     auth_strength: AuthStrength = AuthStrength.AAL1,
 ) -> SeededMember:
     """Test-only setup: a User with a CustomerMembership + WorkspaceMembership
@@ -134,7 +135,7 @@ async def seed_workspace_member(
         db.add(Customer(id=customer_id, name="Test Customer"))
         await db.flush()
 
-        customer_membership = CustomerMembership(customer_id=customer_id, user_id=user.id, role="member")
+        customer_membership = CustomerMembership(customer_id=customer_id, user_id=user.id, role=customer_role)
         db.add(customer_membership)
         await db.flush()
 
