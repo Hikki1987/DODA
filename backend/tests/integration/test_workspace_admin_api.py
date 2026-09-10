@@ -227,3 +227,26 @@ async def test_list_workspace_members_shows_explicit_member_and_bare_customer_ow
     assert by_name["Owner"]["membership_id"] is None  # implicit — no real row
     assert by_name["Member"]["role"] == "member"
     assert by_name["Member"]["membership_id"] is not None
+
+
+async def test_adding_the_same_workspace_member_twice_returns_already_member(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """The HTTP envelope for DuplicateWorkspaceMembershipError — 409
+    ALREADY_MEMBER, the response a double-clicked "Qo'shish" produces. Covered
+    at the service level only until now (test_customer_service.py), so this
+    mapping had never run."""
+    admin = await seed_workspace_member(workspace_role="workspace_admin")
+    candidate_id = await _invite_bare_customer_member(admin.customer_id)
+
+    body = {"customer_membership_id": str(candidate_id), "role": "member"}
+    first = await client.post(
+        f"/v1/workspaces/{admin.workspace_id}/members", json=body, headers=_auth_headers(admin.session_id)
+    )
+    assert first.status_code == 200
+
+    second = await client.post(
+        f"/v1/workspaces/{admin.workspace_id}/members", json=body, headers=_auth_headers(admin.session_id)
+    )
+    assert second.status_code == 409
+    assert second.json()["code"] == "ALREADY_MEMBER"

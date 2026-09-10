@@ -80,7 +80,10 @@ async def _seed_two_workspaces_one_customer():
         )
         await db.flush()
 
-        session_a = await create_session(db, user_id=user_a.id, auth_strength=AuthStrength.AAL1)
+        # A gets AAL2 deliberately: the sibling-approval test below must be
+        # held up by the workspace guard itself, not by the step-up check
+        # firing first and making the assertion pass for the wrong reason.
+        session_a = await create_session(db, user_id=user_a.id, auth_strength=AuthStrength.AAL2)
         session_b = await create_session(db, user_id=user_b.id, auth_strength=AuthStrength.AAL1)
 
         return {
@@ -221,3 +224,67 @@ async def test_another_members_notification_cannot_be_marked_read(
         headers=_auth_headers(seeded["session_b"]),
     )
     assert unread_for_b.json()[0]["read_at"] is None
+
+
+async def test_a_single_action_read_is_scoped_to_its_own_workspace(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """GET /v1/workspaces/{id}/actions/{action_id} had no coverage at all —
+    not even its happy path — so both halves are asserted here: the owning
+    workspace resolves the action, a sibling workspace 404s on the same id."""
+    seeded = await _seed_two_workspaces_one_customer()
+
+    proposed = await client.post(
+        f"/v1/workspaces/{seeded['workspace_b']}/actions",
+        json={"tool_name": "knowledge.read", "risk_level": "R1", "payload": {}},
+        headers={**_auth_headers(seeded["session_b"]), "Idempotency-Key": f"single-read-{uuid.uuid4()}"},
+    )
+    assert proposed.status_code == 200
+    action_id = proposed.json()["action"]["id"]
+
+    own = await client.get(
+        f"/v1/workspaces/{seeded['workspace_b']}/actions/{action_id}",
+        headers=_auth_headers(seeded["session_b"]),
+    )
+    assert own.status_code == 200
+    assert own.json()["id"] == action_id
+
+    sibling = await client.get(
+        f"/v1/workspaces/{seeded['workspace_a']}/actions/{action_id}",
+        headers=_auth_headers(seeded["session_a"]),
+    )
+    assert sibling.status_code == 404
+
+
+async def test_an_approval_cannot_be_consumed_through_a_sibling_workspace(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """The nastier of the two guards on the consume endpoint: the Approval row
+    passes its own customer_id check (same customer!), so only the second
+    check — the action's workspace — stops a member of A from consuming a
+    one-time approval nonce belonging to workspace B. 9.2's nonce is exactly
+    the thing that must not be spendable by the wrong caller."""
+    seeded = await _seed_two_workspaces_one_customer()
+
+    proposed = await client.post(
+        f"/v1/workspaces/{seeded['workspace_b']}/actions",
+        json={"tool_name": "email.send", "risk_level": "R3", "payload": {"to": "b@example.com"}},
+        headers={**_auth_headers(seeded["session_b"]), "Idempotency-Key": f"sibling-nonce-{uuid.uuid4()}"},
+    )
+    body = proposed.json()
+    assert body["action"]["status"] == "AWAITING_APPROVAL"
+    approval_id, nonce = body["approval"]["id"], body["approval"]["nonce"]
+
+    response = await client.post(
+        f"/v1/workspaces/{seeded['workspace_a']}/approvals/{approval_id}/consume",
+        json={"nonce": nonce},
+        headers=_auth_headers(seeded["session_a"]),
+    )
+    assert response.status_code == 404
+
+    # The nonce is still unspent: B can still use it themselves.
+    still_pending = await client.get(
+        f"/v1/workspaces/{seeded['workspace_b']}/actions/{body['action']['id']}",
+        headers=_auth_headers(seeded["session_b"]),
+    )
+    assert still_pending.json()["status"] == "AWAITING_APPROVAL"

@@ -15,6 +15,7 @@ from doda.application.workspace_service import add_workspace_member, create_work
 from doda.db import tenant_scoped_session
 from doda.domain.identity.models import AuthStrength, User
 from doda.main import app
+from tests.integration.conftest import seed_workspace_member
 
 
 @pytest.fixture
@@ -130,3 +131,61 @@ async def test_mark_read_via_customer_scoped_endpoint(client: AsyncClient, db_av
     )
     assert read_response.status_code == 200
     assert read_response.json()["read_at"] is not None
+
+
+async def test_unread_only_filters_out_what_has_been_read(client: AsyncClient, db_available: bool) -> None:
+    """`?unread_only=true` is offered by both notification listings and had
+    never been exercised — a filter that silently ignored its argument would
+    have passed every existing test, since all of them list everything."""
+    member = await seed_workspace_member()
+
+    # Two COMPLETED_TASK notifications for the same user, one then marked read.
+    task_ids = []
+    for title in ("First", "Second"):
+        created = await client.post(
+            f"/v1/workspaces/{member.workspace_id}/tasks",
+            json={"title": title},
+            headers=_auth_headers(member.session_id),
+        )
+        task_ids.append(created.json()["id"])
+        for status in ("IN_PROGRESS", "DONE"):
+            await client.post(
+                f"/v1/workspaces/{member.workspace_id}/tasks/{task_ids[-1]}/status",
+                json={"target_status": status},
+                headers=_auth_headers(member.session_id),
+            )
+
+    listed = await client.get(
+        f"/v1/customers/{member.customer_id}/notifications", headers=_auth_headers(member.session_id)
+    )
+    assert len(listed.json()) == 2
+    read_me = listed.json()[0]["id"]
+
+    marked = await client.post(
+        f"/v1/customers/{member.customer_id}/notifications/{read_me}/read",
+        headers=_auth_headers(member.session_id),
+    )
+    assert marked.status_code == 200
+
+    unread = await client.get(
+        f"/v1/customers/{member.customer_id}/notifications",
+        params={"unread_only": "true"},
+        headers=_auth_headers(member.session_id),
+    )
+    assert unread.status_code == 200
+    returned = unread.json()
+    assert [n["id"] for n in returned] != [], "the untouched notification should still be listed"
+    assert read_me not in [n["id"] for n in returned]
+    assert all(n["read_at"] is None for n in returned)
+
+
+async def test_a_notification_id_from_nowhere_is_not_found(client: AsyncClient, db_available: bool) -> None:
+    """The customer-scoped mark-read guard (its workspace-scoped twin is
+    covered in test_cross_workspace_record_access.py)."""
+    member = await seed_workspace_member()
+
+    response = await client.post(
+        f"/v1/customers/{member.customer_id}/notifications/{uuid.uuid4()}/read",
+        headers=_auth_headers(member.session_id),
+    )
+    assert response.status_code == 404

@@ -239,3 +239,58 @@ async def test_archived_workspace_listing_never_leaks_another_customers_workspac
     )
     assert response.status_code == 200
     assert response.json() == []
+
+
+async def test_inviting_the_same_user_twice_returns_already_member(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """The HTTP envelope for DuplicateMembershipError — 409 ALREADY_MEMBER.
+    The duplicate itself is already covered at the service level
+    (test_customer_service.py), but the mapping that turns it into this
+    response instead of a raw 500 had never been exercised, so the claim only
+    existed in api/errors.py."""
+    customer_id, _owner_id, owner_session_id = await _seed_customer_with_owner()
+
+    candidate_id = uuid.uuid4()
+    async with tenant_scoped_session(customer_id) as session:
+        session.add(User(id=candidate_id, oidc_subject_hash=str(uuid.uuid4()), display_name="Candidate"))
+        await session.commit()
+
+    body = {"user_id": str(candidate_id), "role": "member"}
+    first = await client.post(
+        f"/v1/customers/{customer_id}/members", json=body, headers=_auth_headers(owner_session_id)
+    )
+    assert first.status_code == 200
+
+    second = await client.post(
+        f"/v1/customers/{customer_id}/members", json=body, headers=_auth_headers(owner_session_id)
+    )
+    assert second.status_code == 409
+    assert second.json()["code"] == "ALREADY_MEMBER"
+
+
+async def test_a_membership_id_from_nowhere_is_not_found(client: AsyncClient, db_available: bool) -> None:
+    """_get_customer_membership's guard. The cross-customer case is already
+    covered above (and stopped one layer down by RLS anyway); this is the
+    plain unknown-id half, which was the uncovered one."""
+    customer_id, _owner_id, owner_session_id = await _seed_customer_with_owner()
+
+    response = await client.patch(
+        f"/v1/customers/{customer_id}/members/{uuid.uuid4()}",
+        json={"role": "member"},
+        headers=_auth_headers(owner_session_id),
+    )
+    assert response.status_code == 404
+
+
+async def test_an_unknown_customer_id_is_denied(client: AsyncClient, db_available: bool) -> None:
+    """get_customer_context's "customer not found" branch: DENY, not 404 —
+    the same answer a real customer the caller has no membership in gives, so
+    the two cannot be told apart (10.1)."""
+    _customer_id, _owner_id, owner_session_id = await _seed_customer_with_owner()
+
+    response = await client.get(
+        f"/v1/customers/{uuid.uuid4()}/members", headers=_auth_headers(owner_session_id)
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "DENY"

@@ -2833,3 +2833,78 @@ ya'ni change request (QOIDA 2), shu yerda jimgina qilinadigan narsa
 emas.
 
 230 test, barchasi real Postgres'da.
+
+**Coverage 98% → 99% (10 qator qoldi) — va bu raund uchta haqiqiy narsani
+ochdi: ikkita hech qachon ishlatilmagan filtr, bitta hech qachon
+chaqirilmagan endpoint, va bitta haqiqiy o'lik kod.** Hammasi testlar
+(kod xulqi o'zgarmadi), bitta o'chirishdan tashqari:
+
+- **`GET /v1/workspaces/{id}/actions/{action_id}` da bironta test yo'q
+  edi — baxtli yo'li ham.** Endi ikkala yarmi ham bor: o'z workspace'idan
+  o'qilishi, qo'shni workspace'dan 404.
+- **`POST .../approvals/{id}/consume`ning IKKINCHI tekshiruvi
+  (`action.workspace_id != ctx...`) — 9.2'ning bir martalik nonce'ini
+  himoya qiladigan qator — test qilinmagan edi.** Bu ayniqsa muhim,
+  chunki Approval qatorining O'ZI `customer_id` tekshiruvidan o'tadi
+  (bir xil customer!), demak qo'shni workspace'ning approval'ini
+  sarflashdan to'sadigan yagona narsa aynan shu ikkinchi tekshiruv.
+  Isbotlandi: tekshiruv olib tashlanganda AAL2 sessiyali workspace A
+  admini workspace B ning approval'ini **haqiqatda 200 bilan sarflab
+  yubordi**. Test ataylab A'ga AAL2 beradi — aks holda step-up
+  tekshiruvi birinchi ishga tushib, assertion noto'g'ri sababdan
+  o'tgan bo'lardi (bu birinchi urinishda aynan shunday bo'ldi: 403
+  qaytdi, ya'ni step-up ushladi, workspace guard emas).
+- **`?unread_only=true`** (ikkala bildirishnoma ro'yxatida ham bor)
+  hech qachon bajarilmagan edi — filtrni no-op qilib ko'rish bilan
+  test haqiqatda filtrlashni tekshirishi tasdiqlandi.
+- **Hujjatlashtirilgan xato konvertlari birinchi marta HTTP orqali
+  tekshirildi**: 409 `ALREADY_MEMBER` (customer va workspace
+  darajasidagi duplikat a'zolik — CLAUDE.md bu mappingni ancha oldin
+  da'vo qilgan, lekin u hech qachon ishga tushmagan edi), 409
+  `APPROVAL_INVALID`ning "allaqachon sarflangan" yarmi (avval faqat
+  "nonce mos kelmadi" yarmi qamrab olingan edi — 9.2 uchun muhimi
+  aynan birinchisi), `MEMBERSHIP_INVALID` (auditor tuzatishi bilan).
+- **Umumiy input chegaralari** (`test_request_edge_cases.py`): buzuq
+  bearer token (401, 500 emas), noma'lum workspace id (403 DENY — 404
+  emas, 10.1: mavjudlikni oshkor qilmaslik), UUID bo'lmagan
+  `X-Trace-Id` (almashtiriladi, rad etilmaydi — `TraceIdMiddleware`ning
+  o'z va'dasi).
+
+**O'lik kod o'chirildi**: `db.get_session()` — butun kod bazasida
+**bironta chaqiruvchisi yo'q** (grep bilan tasdiqlandi). Bundan
+tashqari u allaqachon bir marta tuzoq bo'lgan (shu faylda yuqorida
+yozilgan: `@asynccontextmanager` bezagisiz bo'lgani uchun `async with
+get_session()` `TypeError` beradi) VA u kod bazasidagi yagona
+tenant-scoped BO'LMAGAN sessiya yordamchisi edi — ya'ni mavjudligining
+o'zi NFR-ISO-002'ni chetlab o'tishga taklif qilardi. O'chirildi,
+`ruff`/`mypy`/242 test bilan tasdiqlandi.
+
+**Qolgan 10 qator ataylab qoldirildi, har biri aniq sababi bilan** —
+"qamrovni 100% qilish" uchun sun'iy test yozilmadi:
+- `authz_service.py` 135/162 — `authorize_propose_action`/
+  `authorize_create_task`ning DENY filiallari bugun **strukturaviy
+  jihatdan yetib bo'lmas**: `WorkspaceRole`da faqat ikki qiymat bor va
+  ikkalasi ham ruxsat etilgan. Ataylab shunday yozilgan (izohi: uchinchi
+  rol qo'shilsa omission orqali o'tib ketmasligi uchun).
+- `errors.py:80` (`InvalidActionTransition`) va `action_service.py:234`
+  (`request_approval` AWAITING_APPROVAL bo'lmagan action uchun) — ikkalasi
+  ham ichki invariant, HTTP chaqiruvchisi bu holatni yarata olmaydi.
+- `workspace_service.py:68` (cross-customer CustomerMembership) — HTTP
+  orqali yetib bo'lmaydi, chunki boshqa customer'ning qatori
+  tenant-scoped sessiyada RLS tufayli umuman ko'rinmaydi (404 avval
+  qaytadi). Ya'ni bu qator RLS allaqachon to'sadigan holat uchun
+  ikkinchi himoya qatlami — o'z maqsadini bajarib, hech qachon
+  ishlamasligi to'g'ri.
+- `export_service.py:75` (bir workspace ikki marta chiqmasligi uchun
+  dedupe) — 0012-migratsiyaning unique constraint'i
+  `(customer_membership_id, workspace_id)`ni kafolatlaganidan keyin bu
+  amalda erishilmas bo'lib qoldi. O'chirilmadi (constraint'dan
+  mustaqil, arzon himoya), lekin shu yerda qayd etildi.
+- `audit_service.py:124` — `prev_hash_mismatch` (zanjir bog'lanishi
+  uzilishi). `hash_mismatch` yarmi testlangan; buni qamrash uchun
+  ataylab soxta zanjir halqasi yasash kerak.
+- Relay fayllarining `if __name__ == "__main__"` qatorlari va
+  `telegram_relay.py:90` (BUSYGROUP bo'lmagan Redis xatosini qayta
+  ko'tarish).
+
+242 test, barchasi real Postgres+Redis'da, qamrov 99%.

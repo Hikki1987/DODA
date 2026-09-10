@@ -37,9 +37,3 @@ async def tenant_scoped_session(customer_id: UUID) -> AsyncGenerator[AsyncSessio
             {"customer_id": str(customer_id)},
         )
         yield session
-
-
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    """Non-tenant-scoped session — only for platform-level/global tables."""
-    async with async_session_factory() as session:
-        yield session

@@ -482,3 +482,33 @@ async def test_list_workspace_actions_does_not_leak_another_workspaces_actions(
     )
     assert response.status_code == 200
     assert response.json() == []
+
+
+async def test_a_consumed_approval_cannot_be_consumed_again_over_http(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """9.2's one-time nonce, through the endpoint a caller actually replays.
+    The wrong-nonce rejection above covers the mismatch branch; the
+    already-spent branch — the one a retry or a double-click produces — had
+    no test, and it is the half that matters for "bir martalik"."""
+    member = await seed_workspace_member(auth_strength=AuthStrength.AAL2)
+
+    submit = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/actions",
+        json={"tool_name": "email.send", "risk_level": "R3", "payload": {"to": "boss@example.com"}},
+        headers=_auth_headers(member.session_id, "e2e-r3-replay-1"),
+    )
+    approval = submit.json()["approval"]
+    url = f"/v1/workspaces/{member.workspace_id}/approvals/{approval['id']}/consume"
+
+    first = await client.post(
+        url, json={"nonce": approval["nonce"]}, headers=_auth_headers(member.session_id)
+    )
+    assert first.status_code == 200
+    assert first.json()["status"] == "READY"
+
+    replay = await client.post(
+        url, json={"nonce": approval["nonce"]}, headers=_auth_headers(member.session_id)
+    )
+    assert replay.status_code == 409
+    assert replay.json()["code"] == "APPROVAL_INVALID"
