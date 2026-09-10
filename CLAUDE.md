@@ -3161,3 +3161,26 @@ tekshirilgan), va "6.2 qoidalari CI'da tekshiriladi" degan bayonot endi
 aniqroq: to'rttasidan uchtasi haqiqatda tekshiriladi (domain izolyatsiyasi,
 RLS qamrovi, tashqi side effect chegarasi), birinchisi esa ikkita mustaqil
 qatlam (aniq predikatlar + RLS) va ko'rib chiqish bilan ta'minlanadi.
+
+**Side-effect chegara testi kengaytirildi — endi Redis'ning O'ZI ham
+qatlam qoidasiga ega.** Avvalgi yozuvda "Redis ataylab bu ro'yxatda
+yo'q — u outbox'ning o'z transporti" deyilgan edi, lekin bu savolni
+ochiq qoldirardi: Redis'ga kim MUROJAAT qilishi mumkin? Javob ADR-003
+transactional outbox'ning o'z kafolati: hech kim so'rov yo'lida emas.
+Agar API handler yoki application servisi Redis'ga to'g'ridan-to'g'ri
+yozsa, outbox'ning yagona maqsadi (xabar FAQAT o'z tranzaksiyasi commit
+bo'lganda ko'rinadi) buziladi — handler'dan chiqqan xabar tranzaksiya
+hali commit bo'lmasdan chiqib ketadi, yoki tranzaksiya rollback bo'lsa
+yo'qolgan xabar o'rniga allaqachon yuborilgan bo'ladi.
+
+Yangi `test_only_the_outbox_workers_may_talk_to_the_broker` — `redis`
+moduli faqat `config.py` (URL'ni saqlaydi, ulanish ochmaydi) va ikkita
+relay worker'dan tashqarida import qilinmasligini tekshiradi. Bu ham
+foydali natija beradi: so'rov yo'lida Redis umuman import qilinmagani
+uchun, API ishlashi uchun Redis ishga tushirilgan bo'lishi SHART emas —
+u qator yozadi, worker keyinroq nashr qiladi. Isbotlandi:
+`api/actions.py`ga vaqtincha `from redis.asyncio import Redis` qo'yib
+ko'rildi, test aniq fayl nomi bilan qizardi, qaytarilgandan keyin
+yashil.
+
+250 test, barchasi real Postgres+Redis'da.
