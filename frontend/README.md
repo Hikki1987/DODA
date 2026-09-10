@@ -56,6 +56,7 @@ python scripts/seed_e2e_demo.py --prefix E2E_A11Y_ >> /tmp/e2e.env
 python scripts/seed_e2e_demo.py --prefix E2E_ARCHIVE_ >> /tmp/e2e.env
 python scripts/seed_e2e_demo.py --prefix E2E_KILLSWITCH_ >> /tmp/e2e.env
 python scripts/seed_e2e_demo.py --prefix E2E_LOGOUT_ >> /tmp/e2e.env
+python scripts/seed_e2e_demo.py --prefix E2E_AUDITOR_ >> /tmp/e2e.env
 cd ../frontend
 set -a && source /tmp/e2e.env && set +a
 npm run e2e
@@ -67,11 +68,15 @@ keng kill switch'ni yoqishi SECURITY_ALERT bildirishnomasini customer'ning
 BARCHA a'zolariga yuboradi, bu `workspace.spec.ts`ning bildirishnoma-sonini
 tekshiruvchi assertion'ini buzardi — `e2e/customer.spec.ts` ichidagi izohga
 qarang), keyingi har bir yangi spec ham xuddi shu ehtiyot chorasini
-takrorladi. Hozir 6 ta mustaqil spec bor: `workspace.spec.ts`,
+takrorladi. Hozir 7 ta mustaqil spec bor: `workspace.spec.ts`,
 `customer.spec.ts`, `workspace-archive.spec.ts`, `workspace-kill-switch.spec.ts`,
 `logout.spec.ts`, `accessibility.spec.ts` (`@axe-core/playwright` — har bir
 sahifada WCAG 2.2 AA `serious`/`critical` buzilishlarning nolga teng
-bo'lishini talab qiladi). `backend/scripts/seed_e2e_demo.py` xuddi
+bo'lishini talab qiladi), va `auditor.spec.ts` (`CustomerRole.AUDITOR` —
+workspace ro'yxati bo'sh, `/v1/me/customers` orqali customer'ga kirish,
+audit ko'rish, va workspace'ning o'zi backend darajasida 403 qaytarishi —
+CLAUDE.md'dagi auditor-avtorizatsiya tuzatishining doimiy regressiya
+testi). `backend/scripts/seed_e2e_demo.py` xuddi
 `tests/integration/conftest.py`dagi `seed_workspace_member` bilan bir xil
 dev/test seam'dan foydalanadi (haqiqiy OIDC hali yo'q — yuqoriga qarang).
 
