@@ -13,11 +13,15 @@ class Settings(BaseSettings):
     # ADR-005: the app must never run as the Postgres bootstrap superuser —
     # superusers always bypass row security, FORCE ROW LEVEL SECURITY or
     # not, so RLS would silently do nothing. See infra/postgres-init for
-    # how the unprivileged `doda_app` role is provisioned.
-    database_url: str = "postgresql+asyncpg://doda_app:doda_app@localhost:5432/doda"
+    # how the unprivileged `doda_app` role is provisioned. SecretStr (not
+    # str) for the same reason as telegram_bot_token below: the password is
+    # embedded in this URL, and a stray `logger.info(..., settings=...)` or
+    # an exception traceback showing local variables must not put it in a
+    # log line or crash report.
+    database_url: SecretStr = SecretStr("postgresql+asyncpg://doda_app:doda_app@localhost:5432/doda")
     # Alembic only: needs superuser to CREATE EXTENSION vector/pgcrypto and
     # run arbitrary DDL. Never used for application runtime queries.
-    migration_database_url: str = "postgresql+asyncpg://doda:doda@localhost:5432/doda"
+    migration_database_url: SecretStr = SecretStr("postgresql+asyncpg://doda:doda@localhost:5432/doda")
     redis_url: str = "redis://localhost:6379/0"
     object_storage_endpoint: str = "http://localhost:9000"
     object_storage_bucket: str = "doda-files"

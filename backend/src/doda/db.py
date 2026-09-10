@@ -17,7 +17,7 @@ from doda.config import get_settings
 
 _settings = get_settings()
 
-engine = create_async_engine(_settings.database_url, pool_pre_ping=True)
+engine = create_async_engine(_settings.database_url.get_secret_value(), pool_pre_ping=True)
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
 

@@ -3215,3 +3215,37 @@ o'zgaruvchidan o'qilgan qiymat `repr()`da ko'rinmasligi va
 `.get_secret_value()` orqali to'g'ri qaytarilishi.
 
 251 test, barchasi real Postgres+Redis'da.
+
+**Xuddi shu himoya `database_url`/`migration_database_url`ga ham
+qo'llandi — ikkalasi ham URL ichida xom parolni olib yuradi.**
+`telegram_bot_token`ning `SecretStr` tuzatishidan keyin xuddi shu sinf
+xavfi bu ikki maydonda ham borligi aniqlandi: `database_url`ni HAR BIR
+ishga tushgan jarayon o'qiydi (`db.py`dagi modul darajasidagi `engine`),
+`migration_database_url` esa Postgres bootstrap superuser'ining
+credential'ini olib yuradi (ADR-005) — ikkisidan sezgirrogi. Ikkalasi
+ham `SecretStr`ga o'tkazildi, faqat ikki real murojaat nuqtasida
+`.get_secret_value()` bilan ochiladi: `db.py`ning modul darajasidagi
+`create_async_engine(...)` chaqiruvi va `migrations/env.py`ning
+`config.set_main_option("sqlalchemy.url", ...)`i. Haqiqiy Alembic
+round-trip (`alembic current` → `0012 (head)`) real Postgres'ga qarshi
+tasdiqlandi — migratsiya yo'li buzilmagan.
+
+**Isbotlash jarayonida o'zimning xatom topildi va tuzatildi** — audit-
+zanjiri intizomining o'zi buni ushladi. Birinchi revert-test-restore
+urinishida yangi test (hali) qizarmadi, garchi SecretStr'ni oddiy
+`str`ga "qaytarganimda" ham — sababi: avvalroq shu seans davomida
+`ruff format .` ikki qatorli `SecretStr(...)` e'lonini BITTA qatorga
+siqib qo'ygan edi, mening qaytarish skriptim esa hali eski, ikki
+qatorli matnni qidirardi va `assert old in s` QO'SHILMAGANI uchun
+moslik topilmaganida jimgina hech narsa qilmadi — men esa buni "test
+o'tdi" deb noto'g'ri xulosa chiqarib, aslida hech narsani
+tekshirmagan edim. Shubhalanib, to'g'ridan-to'g'ri `repr(Settings(...))`
+ni qo'lda chop etib tekshirganda hamon `SecretStr('**********')`
+ko'rinishini payqadim — bu fayl haqiqatda o'zgarmaganini isbotladi.
+To'g'ri qatorni `grep`dan olib, `assert old in s` bilan qaytadan
+qaytardim — endi test aniq kutilgan tarzda (xom parollar `repr()`da
+ko'rinib) qizardi, keyin tuzatish qaytarilib yashil ekani tasdiqlandi.
+Bu "isbotlamasdan taxmin qilma" qoidasining aynan o'zi — bu safar
+o'zimning tekshiruv skriptimning o'ziga nisbatan.
+
+252 test, barchasi real Postgres+Redis'da.

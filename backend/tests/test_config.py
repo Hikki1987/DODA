@@ -45,3 +45,23 @@ def test_telegram_bot_token_never_appears_in_the_settings_repr() -> None:
     # And the real value is still reachable where it's actually needed.
     assert settings.telegram_bot_token is not None
     assert settings.telegram_bot_token.get_secret_value() == "super-secret-bot-token"
+
+
+def test_database_urls_never_appear_in_the_settings_repr() -> None:
+    """Same guarantee as the Telegram token test above, for the two fields
+    that embed a raw DB password in their URL. database_url is read by
+    every running process (db.py's module-level engine); migration_database_url
+    additionally carries the Postgres bootstrap superuser's credentials
+    (ADR-005) — arguably the more sensitive of the two.
+    """
+    settings = Settings(
+        database_url="postgresql+asyncpg://doda_app:super-secret-db-pw@localhost:5432/doda",  # type: ignore[call-arg]
+        migration_database_url="postgresql+asyncpg://doda:super-secret-super-pw@localhost:5432/doda",  # type: ignore[call-arg]
+    )
+
+    assert "super-secret-db-pw" not in repr(settings)
+    assert "super-secret-super-pw" not in repr(settings)
+    assert settings.database_url.get_secret_value().endswith("super-secret-db-pw@localhost:5432/doda")
+    assert settings.migration_database_url.get_secret_value().endswith(
+        "super-secret-super-pw@localhost:5432/doda"
+    )
