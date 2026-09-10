@@ -2550,3 +2550,85 @@ bilan — ya'ni toza to'xtamagan, qulagan) va butun suite qayta yashil
 ekani tasdiqlandi. Bu kod bazasidagi muammo emas, lekin yuqoridagi
 1-nuqsonni aynan shu voqea ochib berdi — o'lik DB bilan suite'ning
 xatti-harakati endi to'g'ri (toza skip).
+
+**Coverage o'lchovi darhol o'z qiymatini ko'rsatdi: u ko'rsatgan uchta
+qoplanmagan qator FR-AUTH-005/006ning — sessiya muddati tugashini
+MAJBURLASH qismining — umuman test qilinmaganini ochib berdi.**
+`session_service.resolve_session`dagi ikkita shart:
+
+    if now > record.expires_at:                   # FR-AUTH-005, absolut 12h
+    if now - record.last_seen_at > IDLE_TIMEOUT:  # FR-AUTH-006, idle 30m
+
+Ikkala talab ham CLAUDE.md, README.md va shu PR'ning o'z tavsifida
+"qurilgan" deb yozilgan ("idle (30m) + absolute (12h) timeout"), lekin
+hech qachon bironta test ularni bosib o'tmagan. Mavjud yagona
+FR-AUTH-006 testi `last_seen_at`ni YANGILASHni tekshiradi — aynan
+teskari yarmi; butun suite'dagi yagona "muddat tugashi" testi esa
+Approval uchun (9.2), bu boshqa talab.
+
+**Taxmin qilinmadi, isbotlandi**: ikkala tekshiruvni ham
+`resolve_session`dan butunlay o'chirib tashlaganda FAQAT shu ikkita
+yangi test qizaradi — qolgan 216 test yashil qoladi. Ya'ni shu paytgacha
+sessiya muddati majburlashni butunlay olib tashlash to'liq yashil suite
+bergan bo'lardi — xavfsizlikka tegishli talab uchun.
+
+Muddat tugashi kutish bilan emas, timestamp'larni o'tmishga yozish bilan
+simulyatsiya qilinadi (12h/30m'dan keyingi haqiqiy holat), va har bir
+test IKKINCHI timestamp'ni xavfsiz qiymatga qotiradi — shuning uchun
+aniq bitta filial izolyatsiya qilinadi: absolut test `last_seen_at`ni
+yangi qoldiradi, idle test `expires_at`ni kelajakda qoldiradi. Ikkalasi
+ham real HTTP orqali tekshiradi, demak butun authz zanjirining rad
+etishini qamrab oladi, faqat servis funksiyasini emas. `IDLE_TIMEOUT`
+test ichida qayta yozilmasdan, sinalayotgan moduldan import qilinadi —
+konstantani o'zgartirish testni jimgina ma'nosiz qilib qo'ymasligi uchun.
+
+Uchinchi test — noma'lum sessiya UUID'si: `test_missing_session_is_
+rejected` (tasks API) umuman `Authorization` header yubormaydi, shuning
+uchun bearer parser uni `resolve_session`ga yetib bormasdan rad etadi —
+to'g'ri shakldagi, lekin mavjud bo'lmagan UUID test qilinmagan edi.
+O'zimning birinchi qoralamamdagi xato ham tuzatildi: testlar
+`{"error": {"code": ...}}` kutgan edi, `api/errors.py`ning enveloper'i
+esa tekis (`["code"]`) — buni mavjud 401 testi allaqachon ko'rsatib
+turgan edi. `session_service.py`: 92% → **100%**. 218 test.
+
+**Sandbox konteyneri qayta ishga tushirilishi uchun SessionStart hook
+qo'shildi — bu shu sessiyada UCH MARTA takrorlangan real muammo edi.**
+Remote konteynerda systemd yo'q va u qayta ishga tushiriladi (`uptime`
+"up 1 min" ko'rsatdi), shuning uchun Postgres ham, Redis ham
+to'xtab qoladi — garchi ularning data directory'si saqlanib qolsa ham.
+Bu har qanday repo'da bezovta qiladi, lekin bu loyihada ayniqsa:
+QOIDA 1 ("DEMO ≠ PRODUCTION") bo'yicha hech narsa real Postgres(+Redis)
+da ishlatilmaguncha tasdiqlangan hisoblanmaydi. Har uchala holatda ham
+natija bir xil edi: butun suite yo xato bilan to'xtadi, yo (yuqoridagi
+`db_available` tuzatishidan keyin) 130+ skip berdi, va tiklanish qo'lda
+`pg_ctlcluster`/`redis-server` chaqirishdan iborat bo'ldi.
+
+`.claude/hooks/session-start.sh` (+ `.claude/settings.json`): ikkala
+servisni ishga tushiradi, cluster hech qachon provision qilinmagan
+bo'lsa rol/baza/extension'larni yaratadi, migratsiyalarni qo'llaydi,
+`doda_app` grant skriptini qayta ishlatadi, backend+frontend
+dependency'larini o'rnatadi. Tartib CI bilan bir xil: avval
+migratsiyalar (jadvallarni yaratadi), keyin rol skripti (mavjud
+jadvallarga huquq beradi).
+
+Muhim nuance: hook `doda`ni NOSUPERUSER holda qoldiradi va
+extension'larni `postgres` yaratadi — `CREATE EXTENSION` superuser
+talab qiladigan yagona qadam, ADR-005 esa ilova rolining `FORCE ROW
+LEVEL SECURITY`ni chetlab o'tolmasligiga tayanadi (aynan shu xato
+CLAUDE.md'da yuqorida hujjatlashtirilgan). Ya'ni hook o'zi qulaylik
+uchun xavfsizlik qatlamini buzmaydi.
+
+Hook **faqat remote**da ishlaydi (`CLAUDE_CODE_REMOTE` tekshiruvi),
+shuning uchun mahalliy mashinadagi `docker compose up -d` oqimiga
+tegmaydi. Ataylab **sinxron**: Postgres ko'tarilishidan oldin boshlangan
+sessiya aynan shu tuzatilayotgan muammoni qaytadan topadi. Bundan
+tashqari `CLAUDE_ENV_FILE` orqali backend venv'ini PATH'ga qo'shadi —
+shu sessiyada har bir buyruqda `source .venv/bin/activate` yozish
+kerak bo'lgan holat ham shu bilan yopiladi.
+
+Tekshiruv sintetik emas: ikkala servis ham haqiqatan to'xtatilib
+(qayta ishga tushirilgan konteynerni simulyatsiya qilib) hook
+ishlatildi — ikkalasini ham qaytarib, exit code 0 bilan tugadi; sog'lom
+servislarga qarshi qayta ishlatilganda esa toza no-op. Keyin linter,
+`mypy` va testlar FAQAT hook eksport qiladigan PATH bilan (qo'lda venv
+aktivlashtirmasdan) ishlatildi — 218 test yashil.
