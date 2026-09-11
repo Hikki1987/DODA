@@ -380,10 +380,11 @@ frontend/
 infra/
   postgres-init/    # doda_app (huquqi cheklangan) rolini yaratuvchi bootstrap skript
 deploy/
-  Caddyfile         # reverse proxy + avtomatik HTTPS (production)
-  README.md         # real serverga joylashtirish qadamlari, hozircha bajarilmagan qismi bilan
+  Caddyfile         # reverse proxy + avtomatik HTTPS (production, haqiqiy VPS uchun)
+  README.md         # real serverga joylashtirish qadamlari (bepul Render MVP + VPS yo'li)
 docker-compose.prod.yml  # postgres/redis/migrate/backend/relay workers/frontend/caddy
 .env.prod.example   # docker-compose.prod.yml uchun shablon (haqiqiy .env.prod gitignored)
+render.yaml         # Render.com Blueprint — bepul MVP deploy (Redis'siz, VPS kelmaguncha)
 docs/
   DODA-TRD-v2.0.docx  # authoritative talab hujjati
   adr/                # Architecture Decision Records (TRD 6.4, NFR-MNT-001)

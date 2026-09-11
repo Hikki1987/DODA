@@ -22,6 +22,79 @@ written and reasoned through, not proven end-to-end against a live host.
   reads via `env_file: .env.prod` (gitignored, per this project's
   standing "never expose secrets" rule).
 
+## Free MVP deploy (Render.com) — do this first
+
+This is the path for getting a real, publicly-reachable MVP online
+*today*, with no payment method and no VPS yet — `docker-compose.prod.yml`
++ a real domain (below) is the upgrade path once a paid VPS exists.
+
+`render.yaml` at the repo root is a Render "Blueprint" — written from
+long-stable knowledge of Render's format, but **not verified against
+Render's current schema**: this session's network policy blocks
+render.com entirely (confirmed with `curl` and even Anthropic's own
+WebFetch tool — this is a blanket policy, not Render-specific). If a
+field name has drifted, Render's dashboard will say so clearly when you
+apply the Blueprint, and the manual fallback below works regardless of
+whether the Blueprint itself parses cleanly.
+
+**Scope of this free tier**: Postgres + the API + the frontend. No
+Redis, no outbox-relay, no telegram-relay — Render has no free Redis,
+and nothing on the request path needs one (only the two relay worker
+processes touch Redis; the API itself never does — see
+`tests/unit/test_side_effect_boundary.py`'s own comment on exactly this).
+Login, workspaces, tasks, audit, kill switch — everything except
+actually sending a Telegram message — works with no Redis at all.
+
+### Steps
+
+1. **Sign up at [render.com](https://render.com)** using your GitHub
+   account (the same `Hikki1987` account this repo is under) — no card
+   needed for the free plan.
+2. In Render's dashboard: **New +** → **Blueprint** → select the `DODA`
+   repo → the branch this PR is on. Render reads `render.yaml` and shows
+   a preview of what it's about to create (one Postgres database, two
+   web services) — click **Apply**.
+3. Render will pause on two environment variables marked `sync: false`
+   in `render.yaml` and ask you to fill them in yourself, **directly in
+   Render's dashboard** — never send these values to me:
+   - `DODA_GOOGLE_OAUTH_CLIENT_SECRET` — the value you already have.
+   - `DODA_TELEGRAM_BOT_TOKEN` — optional; leave blank if you'd rather
+     wait for Redis to exist before the Telegram connector can do
+     anything useful anyway.
+4. **Google Cloud Console** — add an Authorized redirect URI for the
+   `doda-backend` service Render just created:
+   `https://doda-backend.onrender.com/v1/auth/google/callback` (swap in
+   the real service URL Render assigns if it differs from this guess —
+   Render's dashboard shows the exact URL on the service's page).
+5. Wait for both services to finish their first build (Render's
+   dashboard shows live build logs) — the backend's build also runs
+   `alembic upgrade head` before starting (see `render.yaml`'s
+   `dockerCommand`), so the schema is ready the moment it's live.
+6. Open `https://doda-frontend.onrender.com/login` and try "Google
+   orqali kirish."
+
+### If the frontend calls the wrong backend URL
+
+`NEXT_PUBLIC_API_BASE_URL` has to be a Docker **build** argument, not a
+runtime one (`frontend/Dockerfile`'s own comment explains why — Next.js
+inlines it at build time). Whether `render.yaml`'s `envVars` can set a
+Docker build arg the same way it sets a runtime one is exactly the kind
+of schema detail this file couldn't verify. If login redirects work but
+the app then fails to reach the API (check the browser console for
+failed requests to `localhost` or the wrong host): open the
+`doda-frontend` service in Render's dashboard → **Environment** → look
+for a distinct "Docker Build Args" section (separate from the regular
+env vars) → add `NEXT_PUBLIC_API_BASE_URL` = the real backend URL there
+→ trigger a manual redeploy.
+
+### Upgrading from here
+
+Once a real VPS exists (see below), migrating is: point DNS, fill in
+`.env.prod`, run the `docker-compose.prod.yml` sequence, confirm it
+works, then delete the Render services (or leave them as a free
+staging environment — Render's free web services just sleep when idle,
+costing nothing).
+
 ## What still needs a human (or credentials handed to this agent)
 
 This agent cannot sign up for a hosting account or register a payment

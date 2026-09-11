@@ -3589,3 +3589,43 @@ keyin test haqiqatda qizardi (local muhitda, CI'da emas — CI'da `.env`
 hech qachon bo'lmaydi). Test endi aniq `monkeypatch` bilan o'zining
 Settings'ini quradi, ambient `.env` holatiga bog'liq emas. 279 test
 o'zgarishsiz, barchasi real Postgres(+Redis)'da.
+
+**Product Owner "hozircha bepul serverni o'zing aniqlab joylashtirgin,
+keyin alohida VPS beraman" dedi — va bu, taxmin qilinganidan tubdan
+boshqacha, haqiqiy muhit cheklovini ochib berdi.** Avval "bepul hosting
+signup"ni faqat email-tasdiqlash muammosi deb o'ylagandim — tekshirib
+ko'rsam, bundan ham tubroq: bu sessiyaning tarmoq siyosati **umuman
+tashqi internetga** (Docker Hub'dan tashqari) chiqishni bloklaydi, faqat
+bitta tor ro'yxat (npm/pypi/GitHub/Anthropic) bundan mustasno. Uch xil
+usul bilan isbotlandi: (1) `curl` orqali Render/Railway/Oracle Cloud —
+barchasi `403 policy denial`; (2) xom TCP (SSH, port 22, github.com'ning
+o'ziga) — bloklangan; (3) Anthropic'ning o'z WebFetch vositasi orqali
+(mening sandbox'imdan emas!) — `render.com` VA oddiy `en.wikipedia.org`
+ham `EGRESS_BLOCKED`. Bu uchinchisi eng muhim dalil: bu Render'ga xos
+emas, umuman tashqi saytlarga nisbatan umumiy siyosat.
+
+Demak bu agent hech qachon (kredensial bo'lsa ham) tashqi hosting
+provayderiga to'g'ridan-to'g'ri murojaat qila olmaydi — signup, API
+chaqiruvi, SSH, hammasi bloklangan. Yagona chiqish yo'li: GitHub Actions
+— bu loyihaning CI'si allaqachon cheklovsiz internetga ega (Chromium
+yuklab olish, npm/pip audit va h.k. — shu sessiyada muvaffaqiyatli
+ishlagan), chunki u GitHub'ning o'z serverlarida ishlaydi, mening
+sandbox'imda emas. Lekin Render.com'ning o'z **Blueprint** mexanizmi
+(GitHub repo'ga bir marta ulanib, har push'da avtomatik qayta deploy
+qiladigan) bundan ham soddaroq yechim berdi — GitHub Actions workflow
+yozish shart emas, Render'ning o'zi build+deploy qiladi, faqat bir marta
+"Apply Blueprint" bosish kerak.
+
+`render.yaml` yozildi — Postgres + backend + frontend, ataylab Redis'siz
+(outbox-relay/telegram-relay ham yo'q, chunki Render'da bepul Redis yo'q,
+va `main.py`ning o'zi Redis'ga umuman murojaat qilmaydi — faqat ikki
+relay worker qiladi, `test_side_effect_boundary.py`ning o'z izohida
+allaqachon yozilgan). **Halol chegara**: bu fayl Render'ning joriy
+schema'siga qarshi tasdiqlanmagan (hujjatlariga ham kira olmadim) — agar
+maydon nomi eskirgan bo'lsa, Render'ning o'zi "Apply" bosilganda aniq
+xato ko'rsatadi, `deploy/README.md`ga qo'lda sozlash uchun to'liq zahira
+yo'riqnoma ham yozildi (ayniqsa `NEXT_PUBLIC_API_BASE_URL`ning Docker
+BUILD ARG ekanligi — render.yaml buni runtime env var sifatida
+sozlamoqchi bo'lishi mumkin, bu ishlamaydi, Render dashboard'ida alohida
+"Docker Build Args" bo'limi orqali qo'lda to'g'rilash kerak bo'lishi
+mumkin).
