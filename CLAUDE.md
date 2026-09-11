@@ -3520,3 +3520,72 @@ assertion (`Path=/v1/auth/google` Set-Cookie header'ida borligini
 tekshiradi) qo'shildi, `path=` vaqtincha olib tashlanib test aynan
 kutilgan tarzda qizarishi ko'rsatildi, keyin qaytarilib yashil ekani
 tasdiqlandi. 279 test o'zgarishsiz, barchasi real Postgres(+Redis)'da.
+
+**Product Owner Google OAuth Client ID'ni taqdim etdi va `natsecurity.uz`ni
+aniqlashtirdi — "domen haqiqiy, lekin serverni o'zing boshqadan
+o'zingdan yaratgin."** Client ID (sezgir emas) va oldinroq taqdim etilgan
+Client Secret endi `.env`da to'liq — OIDC sozlamalari real ishga
+tushirishga tayyor (haqiqiy tarmoq ulanishisiz tekshirilmagan, pastga
+qarang).
+
+**Shu ko'rsatmaga javoban ilk marta haqiqiy production deployment
+infratuzilmasi yozildi — ilgari butun loyihada bitta ham Dockerfile yo'q
+edi (README doim bare-metal `uvicorn`ni ko'rsatgan).**
+
+- `backend/Dockerfile` — python:3.12-slim, ADR-005'ning "ilova root
+  sifatida ishlamasligi kerak" intizomining konteyner darajasidagi
+  analogi (`doda` nomli nosuperuser foydalanuvchi). Bitta image — `api`,
+  `outbox-relay`, `telegram-relay` uchtasi ham shu image'dan, faqat
+  `command:` bilan farqlanadi.
+- `frontend/Dockerfile` — Next.js standalone output (`next build`
+  natijasini kamaytiradi, runtime image'ga `node_modules` kerak emas).
+  **Haqiqiy, amaliy xato topildi va tuzatildi**: `next.config.ts`ga
+  `output: "standalone"`ni SHARTSIZ yoqish CI'ning allaqachon yashil
+  `next build && next start` yo'lini buzgan bo'lardi — Next.js'ning o'zi
+  "next start" does not work with "output: standalone"" deb ogohlantiradi,
+  va bu haqiqatda tekshirildi (qayta ishga tushirib, ogohlantirish real
+  chiqishi ko'rsatildi). Tuzatish: `output` endi faqat `DOCKER_BUILD=1`
+  muhit o'zgaruvchisi bilan shartli (Dockerfile shu ENV'ni o'rnatadi, CI
+  esa hech qachon o'rnatmaydi) — ikkala yo'l ham alohida tasdiqlandi:
+  shartsiz holatda (CI'ning o'zi) ogohlantirish yo'q, barcha 10 E2E spec
+  yashil; `DOCKER_BUILD=1` bilan `.next/standalone/server.js` haqiqatda
+  sahifani va statik asset'larni to'g'ri qaytaradi (alohida portda
+  ishga tushirib tekshirildi).
+- `docker-compose.prod.yml` — postgres (+ `infra/postgres-init`),
+  redis (`--appendonly yes` — outbox'ning Redis Stream transporti
+  qayta ishga tushirishda yo'qolmasligi uchun), bir martalik `migrate`
+  servisi (`alembic upgrade head`), `backend`/`outbox-relay`/
+  `telegram-relay` (bitta `image:` tegi bilan — bitta marta quriladi),
+  `frontend`, va Caddy (avtomatik Let's Encrypt). **Haqiqiy, nozik xato
+  topildi va tuzatildi**: `${DODA_DOMAIN}`/`${POSTGRES_PASSWORD}` kabi
+  compose-darajasidagi almashtirishlar `env_file:`dan FARQLI mexanizm —
+  ular compose'ning o'z, standart `.env` faylini o'qiydi, `.env.prod`ni
+  emas — `docker compose config` buni aniq ogohlantirish bilan
+  ko'rsatdi (ikkala qiymat ham bo'sh satrga aylanardi). Tuzatish:
+  `--env-file .env.prod` bayrog'ini har doim ishlatish (hujjatlashtirilgan,
+  `docker compose config` bilan ikkala holat — bayroqsiz ogohlantirish,
+  bayroq bilan toza — real tasdiqlangan).
+- `deploy/Caddyfile` — bitta domen ostida yo'l-asosidagi routing
+  (`/v1/*`, `/metrics` → backend, qolgani → frontend) — production'da
+  frontend'ning fetch() chaqiruvlari bir xil origin'ga aylanadi.
+- `.env.prod.example`, `deploy/README.md` — real deployment uchun
+  shablon va qo'lda bajariladigan qadamlar.
+
+**Halol chegara, oldingi Telegram/Google bilan bir xil sinf**: bu
+sessiyaning tarmoq siyosati Docker Hub registry'siga chiqishni bloklaydi
+— `docker build` haqiqiy ishga tushirilmagan (faqat `docker compose
+config` orqali YAML'ning to'g'ri validatsiyasi tasdiqlandi, haqiqiy
+image qurilishi emas). `deploy/README.md`da aniq yozilgan: bu agent
+haqiqiy hosting hisobini (to'lov bilan) yoki DNS yozuvini o'zi yarata
+olmaydi — Product Owner yo real server+DNS'ni o'zi sozlashi, yo shu
+ishlar uchun kerakli kredensiallarni (Hetzner API token, DNS provider
+kirishi) taqdim etishi kerak.
+
+Shu jarayonda o'zining yangi xatosi ham topildi va tuzatildi: `test_
+google_login_when_not_configured_returns_503` `get_settings()`ning
+DEFAULT (mock qilinmagan) natijasiga tayangan edi — bu Client ID/Secret
+hali `.env`ga yozilmagan paytda to'g'ri ishlagan, lekin ularni yozgandan
+keyin test haqiqatda qizardi (local muhitda, CI'da emas — CI'da `.env`
+hech qachon bo'lmaydi). Test endi aniq `monkeypatch` bilan o'zining
+Settings'ini quradi, ambient `.env` holatiga bog'liq emas. 279 test
+o'zgarishsiz, barchasi real Postgres(+Redis)'da.

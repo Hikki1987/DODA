@@ -54,6 +54,24 @@ must be checked with actual legal counsel before onboarding anyone else;
 an AI coding agent choosing a vendor is not a substitute for that review,
 and this ADR does not claim to be one.
 
-No real infrastructure has been deployed against this decision yet —
-local dev and CI remain the only environments. This ADR update is
-documentation only.
+**Update — domain confirmed, deployment shape written.** Product Owner
+confirmed `natsecurity.uz` is a real, already-owned domain, with explicit
+instruction to build the server infrastructure fresh rather than assume
+anything pre-existing behind that domain ("serverni o'zing boshqadan
+o'zingdan yaratgin"). `backend/Dockerfile`, `frontend/Dockerfile`,
+`docker-compose.prod.yml`, and `deploy/Caddyfile` (automatic HTTPS via
+Let's Encrypt, path-based routing to the backend/frontend under one
+origin) now exist — still the same Hetzner-shaped, plain-VPS/Docker
+Compose deployment this ADR already chose, just written as real
+infrastructure-as-code rather than a paragraph.
+
+**Honest limit, unchanged in kind**: this session's own network policy
+blocks the Docker Hub registry (the same class of restriction that
+already applied to Telegram's and Google's APIs), so none of this has
+been built with a real `docker build`, let alone deployed to a real
+host. `deploy/README.md` states exactly what still needs a human (or
+credentials handed to this agent): provisioning an actual server
+(Hetzner account + payment, or a Hetzner API token), and pointing
+`natsecurity.uz`'s DNS at it — an AI agent cannot create a billing
+account or a DNS record it has no credentials for. Local dev and CI
+remain the only environments actually exercised.

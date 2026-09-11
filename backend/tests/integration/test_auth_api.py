@@ -38,8 +38,18 @@ def _configured_settings(**overrides: object) -> Settings:
     return Settings(**defaults)  # type: ignore[arg-type]
 
 
-async def test_google_login_when_not_configured_returns_503(client: AsyncClient) -> None:
-    # Default Settings() has no client id/secret configured.
+async def test_google_login_when_not_configured_returns_503(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Explicit unconfigured Settings rather than relying on the ambient
+    # .env having no Google OAuth values set — this test used to depend
+    # on that (a real gap: a developer's own backend/.env, once it
+    # carries real deployment credentials, would make this test fail for
+    # a reason that has nothing to do with a regression).
+    monkeypatch.setattr(
+        "doda.api.auth.get_settings",
+        lambda: Settings(google_oauth_client_id=None, google_oauth_client_secret=None),  # type: ignore[call-arg]
+    )
     response = await client.get("/v1/auth/google/login")
     assert response.status_code == 503
     assert response.json()["code"] == "OIDC_NOT_CONFIGURED"

@@ -261,6 +261,17 @@ auth-callback.spec.ts`, o'z seed prefiksi bilan) tasdiqlandi.
 
 279 test, barchasi real Postgres(+Redis)'da; 8 E2E spec.
 
+**Birinchi marta production deployment infratuzilmasi yozildi** —
+`backend/Dockerfile`, `frontend/Dockerfile`, `docker-compose.prod.yml`,
+`deploy/Caddyfile` (avtomatik HTTPS). Domen (`natsecurity.uz`) Product
+Owner tomonidan tasdiqlangan haqiqiy domen; server esa ataylab
+nol-boshidan ("serverni o'zing yaratgin"). **Halol chegara**: bu
+muhitning tarmoq siyosati Docker Hub'ga chiqishni bloklaydi — `docker
+build` haqiqiy ishga tushirilmagan, faqat `docker compose config` orqali
+YAML to'g'riligi tasdiqlangan. `deploy/README.md`da aniq yozilgan: real
+server provisioning/DNS — bu agent bajara olmaydigan, inson (yoki
+kredensial) kerak bo'ladigan qadam.
+
 ## Ishga tushirish (local dev)
 
 ```bash
@@ -368,6 +379,11 @@ frontend/
   e2e/              # Playwright — real backend+frontend'ga qarshi, CI'da ishlaydi
 infra/
   postgres-init/    # doda_app (huquqi cheklangan) rolini yaratuvchi bootstrap skript
+deploy/
+  Caddyfile         # reverse proxy + avtomatik HTTPS (production)
+  README.md         # real serverga joylashtirish qadamlari, hozircha bajarilmagan qismi bilan
+docker-compose.prod.yml  # postgres/redis/migrate/backend/relay workers/frontend/caddy
+.env.prod.example   # docker-compose.prod.yml uchun shablon (haqiqiy .env.prod gitignored)
 docs/
   DODA-TRD-v2.0.docx  # authoritative talab hujjati
   adr/                # Architecture Decision Records (TRD 6.4, NFR-MNT-001)

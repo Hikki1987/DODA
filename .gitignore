@@ -8,6 +8,7 @@ venv/
 .coverage.*
 htmlcov/
 .env
+.env.prod
 *.rdb
 node_modules/
 .next/
