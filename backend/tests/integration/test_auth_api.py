@@ -61,6 +61,10 @@ async def test_login_redirects_to_google_with_state_and_sets_cookie(
     assert "state" in query and len(query["state"][0]) > 16
     assert "doda_oidc_state" in response.cookies
     assert response.cookies["doda_oidc_state"] == query["state"][0]
+    # Pinned explicitly (api/auth.py's own docstring explains why) rather
+    # than left to the browser's default path — assert it's really there,
+    # not just that the round trip happens to work today.
+    assert "Path=/v1/auth/google" in response.headers["set-cookie"]
 
 
 async def test_login_cookie_is_marked_secure_when_redirect_uri_is_https(

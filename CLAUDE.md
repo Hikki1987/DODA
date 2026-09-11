@@ -3504,3 +3504,19 @@ kerak, `docs/open-decisions.md`/`ADR-006`). Aniqlashtirilganda faqat
 kifoya — kodga tegish kerak emas.
 
 279 test, barchasi real Postgres(+Redis)'da; 8 E2E spec.
+
+**FR-AUTH-001 ustida mustaqil review — kod xavfsizligi nuqtai nazaridan
+o'qib chiqildi (subagent'siz, qo'lda), bitta haqiqiy, kichik bo'shliq
+topildi va yopildi.** `api/auth.py`ning `state` cookie'si aniq `path`
+belgilamagan edi — brauzerning standart xulqi (so'rov URL'ining papkasi)
+bugungi kunda tasodifan to'g'ri ishlaydi, chunki `/login` va `/callback`
+bir xil `/v1/auth/google` papkasini bo'lishadi, lekin bu hech qayerda
+aniq belgilanmagan, kelajakda yo'llardan birini o'zgartirilsa jimgina
+buzilishi mumkin edi. `STATE_COOKIE_PATH = "/v1/auth/google"` aniq
+belgilab, `set_cookie`/`delete_cookie`ning ikkalasiga ham qo'shildi.
+
+Audit-zanjiri uslubida isbotlandi: mavjud login-cookie testiga yangi
+assertion (`Path=/v1/auth/google` Set-Cookie header'ida borligini
+tekshiradi) qo'shildi, `path=` vaqtincha olib tashlanib test aynan
+kutilgan tarzda qizarishi ko'rsatildi, keyin qaytarilib yashil ekani
+tasdiqlandi. 279 test o'zgarishsiz, barchasi real Postgres(+Redis)'da.

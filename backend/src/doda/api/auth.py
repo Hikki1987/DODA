@@ -15,6 +15,13 @@ Redis (test_side_effect_boundary.py reserves the broker for the outbox
 transport only, and a signed/stored nonce would be the wrong tool for a
 single-browser-redirect round trip anyway), not a new table — just the
 cookie the browser already carries back on the one request that matters.
+
+The cookie's `path` is pinned explicitly to this router's own prefix
+rather than left to the browser's default (the request URL's directory)
+— that default happens to work today only because /login and /callback
+share the same "/v1/auth/google" directory; pinning it removes that
+coincidence as a load-bearing fact, so renaming either route later can't
+silently break the CSRF check.
 """
 
 import secrets
@@ -35,6 +42,7 @@ router = APIRouter(prefix="/v1/auth", tags=["auth"])
 
 STATE_COOKIE_NAME = "doda_oidc_state"
 STATE_COOKIE_MAX_AGE_SECONDS = 600
+STATE_COOKIE_PATH = "/v1/auth/google"
 
 
 def _google_login_settings() -> GoogleLoginSettings:
@@ -65,6 +73,7 @@ async def start_google_login() -> RedirectResponse:
         STATE_COOKIE_NAME,
         state,
         max_age=STATE_COOKIE_MAX_AGE_SECONDS,
+        path=STATE_COOKIE_PATH,
         httponly=True,
         samesite="lax",
         # Google always calls back over https in any real deployment;
@@ -92,5 +101,5 @@ async def google_login_callback(
     redirect = RedirectResponse(
         f"{get_settings().frontend_base_url}/auth/callback?session_id={session_record.id}"
     )
-    redirect.delete_cookie(STATE_COOKIE_NAME)
+    redirect.delete_cookie(STATE_COOKIE_NAME, path=STATE_COOKIE_PATH)
     return redirect
