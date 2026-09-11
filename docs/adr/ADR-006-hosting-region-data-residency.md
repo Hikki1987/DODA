@@ -1,6 +1,6 @@
 # ADR-006: Hosting region and data residency
 
-**Status:** Open — blocked on OD-005 (see `docs/open-decisions.md`)
+**Status:** Accepted — OD-005 resolved by explicit Product Owner delegation (see `docs/open-decisions.md`)
 
 ## Context
 
@@ -35,5 +35,25 @@ data classification" redaction layer (13.2, OD-003) is designed.
 
 ## Decision
 
-Not yet made. See `docs/open-decisions.md` for the full open-decisions
-tracker and who is responsible for closing it.
+Product Owner explicitly delegated this choice to Claude ("serverlarni
+sen o'zing tanlab, yozib qo'ygin") rather than deciding a specific
+vendor/region personally. Chosen: the **hybrid** architecture TRD 13.3
+itself recommends as the MVP default — data (Postgres, object storage)
+hosted locally/nearby, AI inference calls go to an external provider, but
+never with raw PII/sensitive content (OD-003 governs exactly what may
+cross that boundary). Initial concrete vendor: **Hetzner Cloud
+(Germany)** — inexpensive, and its VPS model is a direct fit for this
+project's existing `docker-compose.yml`-based deployment shape (no
+Kubernetes, no managed-service lock-in).
+
+**Explicit limit on this decision**: this is a personal-use (OD-001),
+reversible, technical starting point — not legal advice. If the project
+is ever resold to other users (OD-001's "resellable later" half), the
+real O'zbekiston data-residency/legal requirements TRD 13.3 itself flags
+must be checked with actual legal counsel before onboarding anyone else;
+an AI coding agent choosing a vendor is not a substitute for that review,
+and this ADR does not claim to be one.
+
+No real infrastructure has been deployed against this decision yet —
+local dev and CI remain the only environments. This ADR update is
+documentation only.
