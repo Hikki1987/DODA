@@ -78,3 +78,19 @@ def test_redis_url_never_appears_in_the_settings_repr() -> None:
 
     assert "super-secret-redis-pw" not in repr(settings)
     assert settings.redis_url.get_secret_value() == "redis://:super-secret-redis-pw@localhost:6379/0"
+
+
+def test_google_oauth_client_secret_never_appears_in_the_settings_repr() -> None:
+    """Same guarantee as the Telegram/database/Redis secrets above, for
+    FR-AUTH-001's OIDC client secret — the client id is deliberately a
+    plain str (it is meant to appear in a browser-visible redirect URL),
+    but the secret gets the same SecretStr treatment."""
+    settings = Settings(
+        google_oauth_client_id="not-secret-client-id",
+        google_oauth_client_secret="super-secret-oauth-client-secret",  # type: ignore[call-arg]
+    )
+
+    assert "super-secret-oauth-client-secret" not in repr(settings)
+    assert "not-secret-client-id" in repr(settings)
+    assert settings.google_oauth_client_secret is not None
+    assert settings.google_oauth_client_secret.get_secret_value() == "super-secret-oauth-client-secret"

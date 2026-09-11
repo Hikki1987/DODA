@@ -1,8 +1,10 @@
-// Dev/test auth seam only — see backend CLAUDE.md's known limitation:
-// Authorization is a raw session UUID (session_service.create_session),
-// not real OIDC (FR-AUTH-001 is S3 backend work still to come). This
-// stores that same raw UUID client-side; there is nothing more to it
-// until the backend actually issues signed tokens from a real login flow.
+// Authorization is a raw session UUID either way — the dev/test form on
+// /login (session_service.create_session called directly) and the real
+// Google login flow (/auth/callback below) both end up handing this
+// module the same shape of value: a Session row's id, not a signed JWT
+// (see backend CLAUDE.md's known limitation on api/dependencies.py —
+// "Bearer <session-id>" is unsigned). Nothing here needs to know which
+// path produced it.
 
 const STORAGE_KEY = "doda.sessionId";
 

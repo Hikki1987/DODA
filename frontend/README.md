@@ -16,12 +16,19 @@ npm run dev
 
 `http://localhost:3000` ochiladi.
 
-## Dev/test kirish (haqiqiy OIDC hali yo'q)
+## Kirish: Google OIDC yoki dev/test seam
 
-Login sahifasi haqiqiy parol emas, `session_service.create_session` orqali
-yaratilgan xom session UUID'ni kutadi — bu FR-AUTH-001'ning S3 bosqichidagi
-bilingan cheklovi (`../CLAUDE.md`ga qarang). Test session yaratish uchun
-backend'da:
+`/login` ikkala yo'lni ham taklif qiladi. **Google orqali kirish**
+tugmasi backend'ning `GET /v1/auth/google/login` → `/callback` oqimiga
+(FR-AUTH-001, haqiqiy login — `../CLAUDE.md`ga qarang) redirect qiladi;
+ishlashi uchun backend'da `DODA_GOOGLE_OAUTH_CLIENT_ID`/`_SECRET`/
+`_REDIRECT_URI` sozlangan bo'lishi kerak (`backend/.env.example`),
+bo'lmasa `/v1/auth/google/login` 503 `OIDC_NOT_CONFIGURED` qaytaradi.
+
+Pastdagi forma esa hamon mavjud: haqiqiy parol emas, `session_service.
+create_session` orqali to'g'ridan-to'g'ri yaratilgan xom session UUID'ni
+kutadi — Google login sozlanmagan muhitda (yoki tezkor local tekshiruvda)
+ishlatiladi. Test session yaratish uchun backend'da:
 
 ```python
 from doda.db import tenant_scoped_session
@@ -68,17 +75,22 @@ keng kill switch'ni yoqishi SECURITY_ALERT bildirishnomasini customer'ning
 BARCHA a'zolariga yuboradi, bu `workspace.spec.ts`ning bildirishnoma-sonini
 tekshiruvchi assertion'ini buzardi — `e2e/customer.spec.ts` ichidagi izohga
 qarang), keyingi har bir yangi spec ham xuddi shu ehtiyot chorasini
-takrorladi. Hozir 7 ta mustaqil spec bor: `workspace.spec.ts`,
+takrorladi. Hozir 8 ta mustaqil spec bor: `workspace.spec.ts`,
 `customer.spec.ts`, `workspace-archive.spec.ts`, `workspace-kill-switch.spec.ts`,
 `logout.spec.ts`, `accessibility.spec.ts` (`@axe-core/playwright` — har bir
 sahifada WCAG 2.2 AA `serious`/`critical` buzilishlarning nolga teng
-bo'lishini talab qiladi), va `auditor.spec.ts` (`CustomerRole.AUDITOR` —
+bo'lishini talab qiladi), `auditor.spec.ts` (`CustomerRole.AUDITOR` —
 workspace ro'yxati bo'sh, `/v1/me/customers` orqali customer'ga kirish,
 audit ko'rish, va workspace'ning o'zi backend darajasida 403 qaytarishi —
 CLAUDE.md'dagi auditor-avtorizatsiya tuzatishining doimiy regressiya
-testi). `backend/scripts/seed_e2e_demo.py` xuddi
-`tests/integration/conftest.py`dagi `seed_workspace_member` bilan bir xil
-dev/test seam'dan foydalanadi (haqiqiy OIDC hali yo'q — yuqoriga qarang).
+testi), va `auth-callback.spec.ts` (FR-AUTH-001 — `/auth/callback`ning
+`session_id` query-param handoff'i: haqiqiy, yoqilgan, va yo'q/noto'g'ri
+session_id holatlari; real Google OAuth consent screen'ini emas, faqat
+bu frontend/backend mexanizmini isbotlaydi). `backend/scripts/
+seed_e2e_demo.py` xuddi `tests/integration/conftest.py`dagi `seed_
+workspace_member` bilan bir xil dev/test seam'dan foydalanadi — haqiqiy
+OIDC endi bor (yuqoriga qarang), lekin headless seed uchun hamon
+foydasiz, chunki u haqiqiy Google hisobi/consent screen talab qiladi.
 
 CI (`.github/workflows/ci.yml`ning `e2e` job'i) xuddi shu ketma-ketlikni
 avtomatik bajaradi: real Postgres+Redis, backend `uvicorn` orqali,

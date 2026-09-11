@@ -41,6 +41,25 @@ class Settings(BaseSettings):
     # environment that doesn't run the Telegram connector (tests, CI, local
     # dev without it configured) is unaffected.
     telegram_bot_token: SecretStr | None = None
+    # FR-AUTH-001: real Google OIDC login. Optional (None) so every
+    # environment that doesn't run real login (tests, CI, local dev still
+    # using the session_service dev/test seam) is unaffected — api/auth.py
+    # raises a clear OidcNotConfiguredError rather than a confusing
+    # provider error when these are unset. Client ID is not sensitive (it
+    # is meant to appear in a browser-visible redirect URL); the secret is,
+    # for the same "never logged" reason as telegram_bot_token above.
+    google_oauth_client_id: str | None = None
+    google_oauth_client_secret: SecretStr | None = None
+    # Must exactly match an "Authorized redirect URI" registered on the
+    # Google Cloud OAuth client, or Google rejects the exchange outright.
+    # Defaults to a local dev value; a real deployment overrides this via
+    # env, not by editing code.
+    google_oauth_redirect_uri: str = "http://localhost:8000/v1/auth/google/callback"
+    # Where the callback hands the browser off to after minting a session
+    # (?session_id=... appended) — the frontend's own /auth/callback route
+    # reads it into localStorage. Separate from cors_allowed_origins, which
+    # may legitimately list more than one origin; this is exactly one.
+    frontend_base_url: str = "http://localhost:3000"
     # Comma-separated origins the Experience layer (web frontend) is served
     # from. Never "*" — every request here already carries a bearer session
     # token, and a wildcard would let any origin's script read the response.

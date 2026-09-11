@@ -46,6 +46,12 @@ BROKER_ALLOWED = {
 ALLOWED = {
     "infrastructure/telegram_client.py",  # the Bot API client itself
     "infrastructure/telegram_relay.py",  # drives it from the outbox stream
+    # FR-AUTH-001's login provider, not a connector/action side effect —
+    # see google_oidc_client.py's own module docstring for why a login
+    # redirect is exempt from the outbox/relay chain this test otherwise
+    # enforces (no asynchronous worker on the other end of a redirect the
+    # browser is blocked on).
+    "infrastructure/google_oidc_client.py",
 }
 
 

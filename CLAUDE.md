@@ -3391,3 +3391,116 @@ ko'rsatdim, keyin tekshiruvni qaytarib yashil ekanini tasdiqladim.
 bu qator "qolgan 10"ning bir qismi sifatida hech qachon hisoblanmagan
 edi, shuning uchun umumiy son o'zgarmadi, lekin endi qolgan har bir
 qator aniq hujjatlashtirilgan).
+
+**FR-AUTH-001 — haqiqiy Google OIDC login qurildi. Product Owner uchta
+haqiqiy credential'ni (Telegram bot tokeni — avvalroq, Google OAuth
+Client ID va Client Secret — shu bosqichda) xavfsiz taqdim etdi; "Secret
+ma'lumotlarni hech qayerga oshkor qilmagin" aniq ko'rsatmasiga butun
+jarayon davomida rioya qilindi — har bir qiymat faqat `backend/.env`ga
+(gitignored, `git check-ignore -v` bilan tasdiqlangan) yozildi, hech
+qachon chat matniga, koddagi izohga, committed faylga yoki logga
+chiqmadi.**
+
+`config.py`ga to'rtta yangi maydon qo'shildi: `google_oauth_client_id`
+(oddiy `str` — brauzerga ko'rinadigan redirect URL'da paydo bo'lishi
+mo'ljallangan, sezgir emas), `google_oauth_client_secret` (`SecretStr`,
+yuqoridagi telegram/database/redis maydonlari bilan bir xil "hech qachon
+loglanmasin" struktura asosida), `google_oauth_redirect_uri`,
+`frontend_base_url` — barchasi `None`/local-dev default bilan, shuning
+uchun sozlanmagan muhitlar (test, CI) ta'sirlanmaydi.
+
+`infrastructure/google_oidc_client.py` — Google'ning token-exchange
+(`POST /token`) va `userinfo` endpoint'lari uchun minimal klient, xuddi
+`telegram_client.py`ning DI naqshi bilan (chaqiruvchi `httpx.AsyncClient`ni
+beradi, testlar `httpx.MockTransport` bilan almashtiradi). **ID token
+JWT imzosi ataylab mahalliy tekshirilmaydi** — buning o'rniga exchange'dan
+qaytgan access token bilan Google'ning o'z `userinfo` endpoint'i
+chaqiriladi, bu access token'ni serverda tasdiqlaydi — Google'ning o'z
+hujjatlashtirilgan alternativi, yangi JWT/JWKS dependency qo'shishdan
+saqlaydi. Xavfsizlik intizomi `telegram_client.py`bilan bir xil: har bir
+xato yo'li faqat `type(exc).__name__`dan foydalanadi, client secret yoki
+access token hech qachon xato xabariga chiqmaydi (maxsus test bilan
+tasdiqlangan).
+
+`application/identity_service.py` — `get_or_create_user` (+ `hash_oidc_
+subject`, provider-prefiksli sha256, `User.oidc_subject_hash`ga mos).
+Test/seed skriptlaridan tashqari `User` qatori yaratiluvchi yagona joy.
+Race (ikki bir vaqtdagi birinchi-login) `kill_switch_service`ning engage
+funksiyalari bilan bir xil naqsh — `begin_nested`/`IntegrityError` tutib
+g'olibni qaytarish, xato emas (ikkalasi ham bir xil natijani xohlaydi).
+Haqiqiy, majburlanmagan `asyncio.gather` bilan isbotlandi — bu holatda
+forced-interleaving kerak emasligi alohida izohlangan: unique index'ga
+qarshi concurrent INSERT Postgres darajasida blokirovka qiladi, Python
+scheduling nozikligiga bog'liq emas.
+
+`application/oidc_login_service.py` — **kod bazasida birinchi marta
+`application/*.py` to'g'ridan-to'g'ri `infrastructure/`ga murojaat
+qiladi** (tekshirildi: bundan oldin yo'q edi). Bu ataylab: login redirect
+6.2'ning "har tashqi side effect outbox+relay orqali o'tadi" zanjiriga
+sig'maydi — brauzer aynan shu HTTP javobini kutib turgan, orqasida
+hal qiladigan asinxron worker yo'q (Action/connector side effect'laridan
+farqli kategoriya). `test_side_effect_boundary.py`ning `ALLOWED`
+ro'yxatiga shu sabab bilan hujjatlashtirilgan yagona yangi istisno
+(`infrastructure/google_oidc_client.py`) qo'shildi — boshqa hech narsa
+o'zgarmadi, chegara hamon qat'iy.
+
+`api/auth.py` — `GET /v1/auth/google/login` (state nonce generatsiya
+qiladi, httponly+samesite=lax cookie'ga yozadi, Google'ga redirect
+qiladi) va `GET /v1/auth/google/callback` (cookie'dagi state'ni query
+param bilan `secrets.compare_digest` orqali solishtiradi — CSRF himoyasi
+uchun server-side state storage shart emas, Redis ham emas — bu bitta
+brauzer-redirect round trip uchun noto'g'ri vosita bo'lardi va
+`test_only_the_outbox_workers_may_talk_to_the_broker`ning chegarasini
+buzardi). Muvaffaqiyatli bo'lsa frontend'ning `/auth/callback?session_
+id=...`iga redirect qiladi. Xato yo'llari (`OidcNotConfiguredError` →
+503, `OidcStateMismatchError` → 401, `GoogleOidcError` → 502) `api/
+errors.py`ning mavjud bitta-konvert naqshiga qo'shildi.
+
+Frontend: `/login`ga "Google orqali kirish" tugmasi (dev/test session-ID
+formasi bilan yonma-yon — ikkalasi ham ishlaydi, biri bekor qilinmadi),
+yangi `/auth/callback` sahifasi (`useSearchParams` + `Suspense` chegarasi,
+Next.js'ning o'z hujjatlashtirilgan naqshi — aks holda prerender
+bloklanadi) `session_id`ni o'qiydi, `listMySessions` bilan real backend'ga
+qarshi tasdiqlaydi, `storeSessionId`ga yozadi, `/workspaces`ga
+yo'naltiradi. "Missing session_id" holati render-vaqtida hosil qilinadi
+(useEffect ichida setState emas) — `useSession.ts`ning sentinel-qiymat
+naqshining o'zi, `react-hooks/set-state-in-effect`ni oldindan oldini
+olish uchun.
+
+Buni qurishda haqiqiy WCAG regressiyasi topildi va tuzatildi: yangi
+"yoki" ajratuvchisi (`text-gray-400`, 12px) kontrast nisbati 2.6:1 edi —
+kerak 4.5:1. `axe-core`ning birinchi haqiqiy (production build + real
+backend) ishga tushirilishida aniq shu elementni ko'rsatdi (`color-
+contrast`, `serious`). `text-gray-600`ga o'tkazib tuzatildi; bu jarayonda
+bitta amaliy tuzoq ham chiqdi — server qayta ishga tushirilgandan keyin
+ham eski `EADDRINUSE` jarayon portni band qilib turgani uchun birinchi
+qayta tekshirish yolg'on "hamon qizil" natija berdi; PID bo'yicha aniq
+`kill` qilib, qaytadan tasdiqlandi (0 topilma).
+
+**Halol chegara**: bu sessiya ishlayotgan muhitning tarmoq siyosati
+`accounts.google.com`/`oauth2.googleapis.com`/`openidconnect.googleapis.com`ga
+chiqishni bloklaydi (xuddi avvalroq Telegram'ning `api.telegram.org`si
+bilan bo'lgani kabi) — shuning uchun haqiqiy Google'ga qarshi token
+exchange/userinfo chaqiruvi bu yerda hech qachon ishga tushirilmagan.
+Faqat bitta haqiqiy tashqi tarmoq bosqichi (`httpx.MockTransport`/
+monkeypatch bilan) test double'ga almashtirilgan — qolgan butun zanjir
+(state cookie yozish/tekshirish, `get_or_create_user`, Session yaratish,
+frontend'ga redirect, audit yo'q — bu FR-AUTH-001, FR-AUD emas) real
+Postgres'ga qarshi HTTP orqali (`tests/integration/test_auth_api.py`)
+tasdiqlangan. Frontend tomoni (`/auth/callback`ning haqiqiy query-param
+handoff'i, real backend + real brauzer, production build) Playwright
+orqali (`e2e/auth-callback.spec.ts`, o'z seed prefiksi —
+`E2E_AUTHCALLBACK_`) tasdiqlangan — bu ham faqat frontend/backend'ning
+o'z mexanizmini isbotlaydi, Google'ning o'z consent screen'ini emas (buni
+haqiqiy hisobsiz headless tasdiqlash mumkin emas).
+
+Redirect URI hamon `http://localhost:8000/v1/auth/google/callback`
+(local-dev default) — Product Owner Google Console'da allaqachon
+`https://natsecurity.uz/auth/google/callback`ni ro'yxatdan o'tkazgan,
+bu haqiqiy production domeni bo'lishi mumkinligini ko'rsatadi, lekin
+bu hali aniqlashtirilmagan (hosting OD-005 qarori bilan mos kelishi
+kerak, `docs/open-decisions.md`/`ADR-006`). Aniqlashtirilganda faqat
+`DODA_GOOGLE_OAUTH_REDIRECT_URI`/`DODA_FRONTEND_BASE_URL`ni o'zgartirish
+kifoya — kodga tegish kerak emas.
+
+279 test, barchasi real Postgres(+Redis)'da; 8 E2E spec.

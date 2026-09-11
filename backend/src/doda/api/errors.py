@@ -17,11 +17,13 @@ from doda.application.authz_service import AuthorizationError
 from doda.application.customer_service import CustomerMembershipError, DuplicateMembershipError
 from doda.application.kill_switch_service import KillSwitchEngagedError
 from doda.application.notification_service import NotificationPreferenceError
+from doda.application.oidc_login_service import OidcNotConfiguredError, OidcStateMismatchError
 from doda.application.session_service import SessionInvalidError
 from doda.application.task_service import InvalidTaskTransition, TaskParentNotFoundError
 from doda.application.workspace_service import DuplicateWorkspaceMembershipError, WorkspaceMembershipError
 from doda.domain.action.state_machine import InvalidActionTransition
 from doda.domain.security.decisions import Decision
+from doda.infrastructure.google_oidc_client import GoogleOidcError
 
 
 def _envelope(
@@ -196,6 +198,46 @@ def register_exception_handlers(app: FastAPI) -> None:
                 message=f"{exc.scope.capitalize()} darajasida kill switch faol — yangi actionlar bloklangan.",
                 trace_id=_trace_id(request),
                 retryable=False,
+            ),
+        )
+
+    @app.exception_handler(OidcNotConfiguredError)
+    async def _oidc_not_configured(request: Request, exc: OidcNotConfiguredError) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content=_envelope(
+                code="OIDC_NOT_CONFIGURED",
+                message="Google login bu muhitda sozlanmagan.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(OidcStateMismatchError)
+    async def _oidc_state_mismatch(request: Request, exc: OidcStateMismatchError) -> JSONResponse:
+        return JSONResponse(
+            status_code=401,
+            content=_envelope(
+                code="OIDC_STATE_MISMATCH",
+                message="Login muddati tugagan yoki noto'g'ri so'rov. Qaytadan urinib ko'ring.",
+                trace_id=_trace_id(request),
+                retryable=True,
+            ),
+        )
+
+    @app.exception_handler(GoogleOidcError)
+    async def _google_oidc_error(request: Request, exc: GoogleOidcError) -> JSONResponse:
+        # 10.1: the real reason (exc's own message — never the client
+        # secret or an access token, see google_oidc_client.py's module
+        # docstring) stays server-side; the client gets a generic message.
+        logger.warning("google_oidc_error", trace_id=_trace_id(request), reason=str(exc))
+        return JSONResponse(
+            status_code=502,
+            content=_envelope(
+                code="OIDC_PROVIDER_ERROR",
+                message="Google bilan bog'lanishda xato yuz berdi. Qaytadan urinib ko'ring.",
+                trace_id=_trace_id(request),
+                retryable=True,
             ),
         )
 

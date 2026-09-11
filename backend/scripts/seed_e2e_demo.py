@@ -8,10 +8,11 @@ will read from, then prints the IDs the E2E tests need as plain
 KEY=VALUE lines so a CI step can capture them into env vars.
 
 Deliberately bypasses the public API for identity/session creation the
-same way tests/integration/conftest.py's seed_workspace_member does:
-FR-AUTH-001's real OIDC login is still S3 future work (see CLAUDE.md), so
-there is no HTTP-reachable way to mint a session yet. This is that same
-"dev/test seam", just as a standalone script instead of a pytest fixture.
+same way tests/integration/conftest.py's seed_workspace_member does: a
+real HTTP path exists now (api/auth.py's /v1/auth/google/login ->
+/callback, FR-AUTH-001), but it needs an actual Google account round trip
+this script cannot drive headlessly in CI. This is that same "dev/test
+seam", just as a standalone script instead of a pytest fixture.
 """
 
 import argparse

@@ -221,6 +221,46 @@ qaytarilib, test aynan kutilgan tarzda qizarishi ko'rsatilib) isbotlangan.
 **255 test, barchasi real Postgres(+Redis)'da; 7 E2E spec; 99% o'lchangan
 qamrov; CustomerRole.AUDITOR xatosi tuzatilgan.**
 
+**FR-AUTH-001 — haqiqiy Google OIDC login qurildi**, `session_service`ning
+dev/test seam'ini almashtirmasdan, uning ustiga: `GET /v1/auth/google/
+login` (state cookie o'rnatadi, Google'ga redirect qiladi) va `GET
+/v1/auth/google/callback` (state'ni tekshiradi, kodni access token'ga
+almashtiradi, Google'ning `userinfo` endpoint'idan subject+ism oladi,
+`get_or_create_user` orqali User'ni topadi/yaratadi, haqiqiy Session
+yaratadi, frontend'ning `/auth/callback?session_id=...`iga redirect
+qiladi). JWT/JWKS tekshiruvi ataylab yo'q — Google'ning `userinfo`
+endpoint'i access token'ni o'zi serverda tasdiqlaydi, bu Google'ning o'z
+hujjatlashtirilgan alternativi. `application/oidc_login_service.py` —
+kod bazasida birinchi marta application qatlami infrastructure qatlamiga
+to'g'ridan-to'g'ri murojaat qiladi (`test_side_effect_boundary.py`ga shu
+sabab bilan hujjatlashtirilgan istisno qo'shildi): login redirect outbox/
+relay zanjiriga sig'maydi — brauzer aynan shu HTTP javobini kutib turgan,
+orqasida asinxron worker yo'q.
+
+Frontend: `/login`ga "Google orqali kirish" tugmasi (dev/test session-ID
+formasi bilan yonma-yon, ikkalasi ham ishlaydi), yangi `/auth/callback`
+sahifasi (`session_id` query param'ni o'qiydi, tekshiradi, saqlaydi,
+`/workspaces`ga yo'naltiradi). Buni qurishda haqiqiy WCAG regressiyasi
+topildi va tuzatildi: yangi "yoki" ajratuvchisi `text-gray-400` bilan
+kontrast nisbati 2.6:1 edi (kerak — 4.5:1) — `axe-core` birinchi haqiqiy
+ishga tushirishda aniq shu elementni ko'rsatdi, `text-gray-600`ga
+o'tkazib tuzatildi, qayta tekshirilib 0 topilma tasdiqlandi.
+
+Uchta haqiqiy credential (Telegram bot tokeni, Google Client ID/Secret)
+Product Owner tomonidan xavfsiz taqdim etildi va faqat `.env`ga yozildi —
+chatga, kodga yoki commitga hech qachon chiqmagan. **Halol chegara**: bu
+muhitning tarmoq siyosati Google'ning API'siga chiqish so'rovlarini
+bloklaydi, shuning uchun haqiqiy token exchange/userinfo chaqiruvi bu
+yerda real Google'ga qarshi ishga tushirilmagan — faqat bitta haqiqiy
+tashqi tarmoq bosqichi (`httpx.MockTransport`) test double bilan
+almashtirilgan, qolgan butun zanjir (state cookie, get_or_create_user,
+Session yaratish, redirect) real Postgres'ga qarshi HTTP orqali
+tasdiqlangan. Frontend tomoni (callback sahifasining query-param
+handoff'i) real backend+brauzer'ga qarshi Playwright orqali (`e2e/
+auth-callback.spec.ts`, o'z seed prefiksi bilan) tasdiqlandi.
+
+279 test, barchasi real Postgres(+Redis)'da; 8 E2E spec.
+
 ## Ishga tushirish (local dev)
 
 ```bash
