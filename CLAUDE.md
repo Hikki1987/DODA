@@ -3629,3 +3629,38 @@ BUILD ARG ekanligi — render.yaml buni runtime env var sifatida
 sozlamoqchi bo'lishi mumkin, bu ishlamaydi, Render dashboard'ida alohida
 "Docker Build Args" bo'limi orqali qo'lda to'g'rilash kerak bo'lishi
 mumkin).
+
+**Birinchi Render Blueprint sinovi natijasi keldi (skrinshot orqali) —
+`doda-postgres` va `doda-frontend` muvaffaqiyatli, `doda-backend`
+"Failed deploy".** Render'ning o'z loglariga kira olmasdan (bu
+sessiyaning tarmoq siyosati render.com'ni butunlay bloklaydi, yuqoriga
+qarang) eng ehtimolli sababni aniqladim va tuzatdim: Render'ning
+Postgres'i oddiy `postgres://`/`postgresql://` ulanish satrini beradi,
+lekin SQLAlchemy'ning async dvigateli aniq `+asyncpg` drayverini talab
+qiladi — aks holda o'rnatilmagan sync drayverga aylanadi va xato
+ko'taradi. `db.py`ning dvigateli MODUL darajasida (import vaqtida)
+yaratiladi, demak bu ilovani portga ulanishdan OLDIN qulatadi — bu
+aynan "failed deploy" bilan mos keladi.
+
+Tuzatish `Settings`ning o'zida (bir martalik dashboard tahriri emas):
+`database_url`/`migration_database_url`ga `field_validator(mode=
+"before")` qo'shildi — xom `postgres(ql)://`ni avtomatik `postgresql+
+asyncpg://`ga o'zgartiradi. Audit-zanjiri uslubida isbotlandi: validator
+vaqtincha bo'shatib qo'yilganda yangi test aynan kutilgan tarzda
+qizarishi ko'rsatildi, keyin qaytarilib yashil ekani tasdiqlandi. Bu
+Render'ga xos emas — har qanday managed Postgres provider (Railway,
+Supabase va h.k.) uchun ham ishlaydi, operator har safar qo'lda
+tuzatishi shart emas.
+
+**Halol, tekshirilmagan nuance**: Render'ning managed Postgres'ida
+mahalliy dev'dagi kabi ikkita rol (doda/doda_app) yo'q — bitta rol
+hammasini qiladi. Bu rol superuser emas, va `FORCE ROW LEVEL SECURITY`
+(allaqachon har bir tenant-scoped jadvalda bor) aynan jadval egasiga
+ham RLS'ni qo'llash uchun mo'ljallangan — shuning uchun tenant
+izolyatsiyasi saqlanishi kerak, lekin bu Render'ning haqiqiy Postgres'iga
+qarshi tekshirilmagan (mahalliy/CI'dagi kabi
+`test_app_connects_as_a_role_that_cannot_bypass_row_level_security`
+ekvivalenti Render'da ishga tushirilmagan) — asosli kutish, tasdiqlangan
+fakt emas, `deploy/README.md`da aniq shunday yozildi.
+
+281 test, barchasi real Postgres(+Redis)'da.

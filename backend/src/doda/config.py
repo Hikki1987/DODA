@@ -22,6 +22,30 @@ class Settings(BaseSettings):
     # Alembic only: needs superuser to CREATE EXTENSION vector/pgcrypto and
     # run arbitrary DDL. Never used for application runtime queries.
     migration_database_url: SecretStr = SecretStr("postgresql+asyncpg://doda:doda@localhost:5432/doda")
+
+    @field_validator("database_url", "migration_database_url", mode="before")
+    @classmethod
+    def _default_to_the_asyncpg_driver(cls, value: object) -> object:
+        """Managed Postgres providers (Render, Railway, Supabase, Heroku-
+        style hosts) hand out a plain `postgres://...`/`postgresql://...`
+        connection string with no driver suffix — SQLAlchemy's async engine
+        needs `+asyncpg` explicitly, or create_async_engine resolves to a
+        sync driver that isn't even installed here and raises at import
+        time (db.py builds the engine at module scope, so this fails before
+        the app can even start, let alone answer a health check). Rewriting
+        the scheme here means the exact value a provider's dashboard
+        generates just works, instead of requiring every operator to
+        hand-edit it in that platform's env var UI. Only a bare
+        `postgres(ql)://` is rewritten — a value that already names a
+        driver (`+asyncpg`, `+psycopg`, ...) is left alone."""
+        if not isinstance(value, str):
+            return value
+        if value.startswith("postgres://"):
+            return "postgresql+asyncpg://" + value.removeprefix("postgres://")
+        if value.startswith("postgresql://"):
+            return "postgresql+asyncpg://" + value.removeprefix("postgresql://")
+        return value
+
     # SecretStr for the same reason as the two database URLs above: the
     # default here carries no password, but a managed/production Redis
     # (Redis Cloud, Upstash, ElastiCache with AUTH) commonly embeds one in

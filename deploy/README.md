@@ -45,6 +45,45 @@ processes touch Redis; the API itself never does — see
 Login, workspaces, tasks, audit, kill switch — everything except
 actually sending a Telegram message — works with no Redis at all.
 
+### First real attempt: `doda-backend` failed to deploy — diagnosed and fixed
+
+The first Blueprint sync (commit `d231456`) created `doda-postgres` and
+`doda-frontend` successfully but `doda-backend` failed. Without access
+to Render's own logs (this session can't reach render.com at all — see
+above), the most likely cause by far: Render's Postgres gives out a
+plain `postgres://...`/`postgresql://...` connection string, but
+SQLAlchemy's async engine needs the `+asyncpg` driver named explicitly
+or it resolves to a sync driver that isn't installed — and `db.py`
+builds that engine at **module import time**, so the app would crash
+before it could even bind to a port or answer a health check, which
+matches "failed deploy" exactly.
+
+Fixed at the config layer (`Settings`, not a one-off dashboard edit):
+a `field_validator` on `database_url`/`migration_database_url` rewrites
+a bare `postgres(ql)://` to `postgresql+asyncpg://` automatically —
+proven with a revert-test-restore cycle (`tests/test_config.py`). This
+means whatever connection string any managed Postgres provider hands
+out (Render, Railway, Supabase, ...) just works, with no per-provider
+manual edit. Render's Blueprint auto-redeploys `doda-backend` on the
+next push to this branch; **if it still fails after that, the actual
+cause is something else — check Render's own build/deploy logs on the
+`doda-backend` service page and share them** so this can be diagnosed
+for real rather than guessed at twice.
+
+**Related, unverified nuance worth knowing**: Render's managed Postgres
+gives one role for everything (no local-dev-style `doda`/`doda_app`
+split — `infra/postgres-init/01-create-app-role.sql` only runs via
+`docker-entrypoint-initdb.d`, which a managed Postgres service doesn't
+use). That role is not a Postgres superuser, and `FORCE ROW LEVEL
+SECURITY` (already on every tenant-scoped table, per
+`test_rls_coverage.py`) is specifically what makes RLS apply even to a
+table's own owner — so tenant isolation should still hold. This has
+**not** been verified against Render's actual Postgres the way
+`test_app_connects_as_a_role_that_cannot_bypass_row_level_security`
+verifies it locally/in CI (this session cannot reach Render to check),
+so treat it as a reasoned expectation, not a confirmed fact, until
+someone runs that same check against the real service.
+
 ### Steps
 
 1. **Sign up at [render.com](https://render.com)** using your GitHub

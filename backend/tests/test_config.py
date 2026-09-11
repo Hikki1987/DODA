@@ -67,6 +67,29 @@ def test_database_urls_never_appear_in_the_settings_repr() -> None:
     )
 
 
+def test_a_bare_postgres_url_is_rewritten_to_use_the_asyncpg_driver() -> None:
+    """Real, not hypothetical: found while diagnosing a failed Render.com
+    deploy — a managed Postgres provider's own connection string has no
+    driver suffix, and create_async_engine (db.py, module scope) would
+    otherwise resolve to a sync driver that isn't installed here, crashing
+    the app before it can even bind to a port."""
+    settings = Settings(
+        database_url="postgres://u:p@host:5432/db",  # type: ignore[call-arg]
+        migration_database_url="postgresql://u2:p2@host2:5432/db2",  # type: ignore[call-arg]
+    )
+
+    assert settings.database_url.get_secret_value() == "postgresql+asyncpg://u:p@host:5432/db"
+    assert settings.migration_database_url.get_secret_value() == "postgresql+asyncpg://u2:p2@host2:5432/db2"
+
+
+def test_a_url_that_already_names_a_driver_is_left_alone() -> None:
+    settings = Settings(
+        database_url="postgresql+psycopg://u:p@host:5432/db",  # type: ignore[call-arg]
+    )
+
+    assert settings.database_url.get_secret_value() == "postgresql+psycopg://u:p@host:5432/db"
+
+
 def test_redis_url_never_appears_in_the_settings_repr() -> None:
     """Same guarantee, for redis_url. The default carries no password, but a
     managed/production Redis (Redis Cloud, Upstash, ElastiCache with AUTH)
