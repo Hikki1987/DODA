@@ -101,16 +101,23 @@ someone runs that same check against the real service.
      wait for Redis to exist before the Telegram connector can do
      anything useful anyway.
 4. **Google Cloud Console** — add an Authorized redirect URI for the
-   `doda-backend` service Render just created:
-   `https://doda-backend.onrender.com/v1/auth/google/callback` (swap in
-   the real service URL Render assigns if it differs from this guess —
-   Render's dashboard shows the exact URL on the service's page).
+   `doda-backend` service Render just created. Render assigned this
+   Blueprint's services suffixed hostnames rather than the clean
+   `doda-backend.onrender.com`/`doda-frontend.onrender.com` this file's
+   `name:` fields ask for (a prior failed-deploy attempt still held the
+   bare names when this Blueprint was recreated from scratch) — the
+   actual live URL is `https://doda-backend-jv8e.onrender.com`, so the
+   redirect URI to register is
+   `https://doda-backend-jv8e.onrender.com/v1/auth/google/callback`.
+   Always double-check against the service's own page in Render's
+   dashboard, since a future from-scratch recreation could get the
+   clean names back (or a different suffix).
 5. Wait for both services to finish their first build (Render's
    dashboard shows live build logs) — the backend's build also runs
    `alembic upgrade head` before starting (see `render.yaml`'s
    `dockerCommand`), so the schema is ready the moment it's live.
-6. Open `https://doda-frontend.onrender.com/login` and try "Google
-   orqali kirish."
+6. Open `https://doda-frontend-joh4.onrender.com/login` and try "Google
+   orqali kirish." (again, the real suffixed hostname — see step 4.)
 
 ### If the frontend calls the wrong backend URL
 
@@ -145,8 +152,10 @@ URI without `/v1` reaches the frontend and 404s instead of completing
 login. Add it alongside whatever is already registered there rather than
 replacing it — an unused extra URI is harmless. This is separate from
 whatever redirect URI is (or isn't) registered for the live Render MVP's
-own domain (`doda-backend.onrender.com`) — check that one is present too
-if Google login on the Render deploy hasn't been tried yet.
+own domain (`https://doda-backend-jv8e.onrender.com` — see the "Free MVP
+deploy" section above for why this isn't the clean `doda-backend.onrender.com`
+name) — check that one is present too if Google login on the Render
+deploy hasn't been tried yet.
 
 ## What still needs a human (or credentials handed to this agent)
 

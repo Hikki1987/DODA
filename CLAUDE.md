@@ -3769,3 +3769,51 @@ faol bazadan ortiqni taqiqlagani uchun rad etildi, va shu bilan bog'liq
 xatti-harakati, kod yoki render.yaml xatosi emas — hech narsa o'chirilmadi
 yoki buzilmadi, faqat keraksiz ikkinchi resurs yaratish rad etildi. To'g'ri
 yo'l — doim xizmat sahifasidagi (1) tugmani ishlatish.
+
+**Butun Blueprint noldan (barcha uchta resurs o'chirilib, qaytadan
+"Apply") tozalab qayta qurilgandan keyin — Product Owner'ning o'z
+skrinshotlari bilan tasdiqlangan — uchtasi ham birinchi marta bir vaqtda
+Live/Available holatga keldi (`doda-postgres` Available, `doda-backend`
+Live commit `6c40c69`, `doda-frontend` Live commit `6c40c69`). Lekin
+Render haqiqiy xizmatlarga `render.yaml`ning `name:` maydonlari so'ragan
+toza nomlar (`doda-backend.onrender.com`/`doda-frontend.onrender.com`)
+o'rniga tasodifiy prefiks bilan (`doda-backend-jv8e.onrender.com`,
+`doda-frontend-joh4.onrender.com`) nom berdi — sababi aniq emas (bu
+sessiya render.com'ga hech qachon murojaat qila olmagani uchun
+tasdiqlanmagan, lekin eng ehtimolli izoh: eski, muvaffaqiyatsiz
+`doda-backend` urinishlari toza nomni hali egallab turgan edi, shuning
+uchun qayta yaratishda Render suffiks qo'shdi).**
+
+Bu **yangi, aniq xato edi**: `render.yaml`ning o'zi to'rt joyda
+(`DODA_CORS_ALLOWED_ORIGINS`, `DODA_FRONTEND_BASE_URL`,
+`DODA_GOOGLE_OAUTH_REDIRECT_URI`, `NEXT_PUBLIC_API_BASE_URL`) hamon eski,
+suffiksiz nomlarni qattiq yozilgan holda saqlardi — demak CORS haqiqiy
+frontend origin'ini rad etardi, Google OAuth redirect_uri backend haqiqiy
+manzilidan farq qilardi, va frontend backend'ga noto'g'ri (mavjud
+bo'lmagan) manzilga so'rov yuborardi. Product Owner aniq ko'rsatma berdi:
+"o'zing github ga kirgan holda professional darajada bu muammolarni hal
+qilgin" — ya'ni bu Render dashboard'ida qo'lda emas, GitHub orqali
+(render.yaml'ni version-controlled fayl sifatida commit+push qilib) hal
+qilinishi kerak edi, chunki bu to'rttasi `sync: false` emas, oddiy
+`value:` maydonlari.
+
+To'rttasi ham haqiqiy, tasdiqlangan URL'larga (`-jv8e`/`-joh4`)
+yangilandi, va `render.yaml`ga aniq izoh qo'shildi — bu suffiks Render'ning
+o'zi tanlagan, `name:` maydonidagi toza nomga mos kelmaydi, va kelajakda
+Blueprint noldan qayta qurilsa (toza nom yana bo'sh bo'lib qolsa) bu
+qiymatlar yana qo'lda yangilanishi kerak bo'lishi mumkin — Render buni
+o'zi moslashtirmaydi. `deploy/README.md`ning mos joylari (4/6-qadamlar,
+VPS bo'limidagi Render MVP domeniga havola) ham xuddi shunday yangilandi.
+
+**Halol chegara, bu butun deploy ishining boshidan beri takrorlangan
+bilan bir xil sinf**: bu o'zgarish ham render.com'ga murojaat qila
+olmaganim uchun haqiqiy muhitda tasdiqlanmagan — faqat Product Owner'ning
+o'z skrinshotlaridan o'qilgan, haqiqiy URL'larga mos qilib yozilgan.
+Keyingi qadam — push qilingandan keyin Render avtomatik qayta deploy
+qilishini (yoki kerak bo'lsa, xizmat sahifasining o'z Manual Deploy
+tugmasi bilan, Blueprint'ning "Syncs" sahifasi emas — yuqoridagi darsga
+ko'ra) kutish, keyin Product Owner'ning o'zi Google Cloud Console'da
+`https://doda-backend-jv8e.onrender.com/v1/auth/google/callback`ni
+Authorized redirect URI ro'yxatiga (mavjudini o'chirmasdan, qo'shimcha
+sifatida) qo'shishi — bu ham faqat Product Owner bajara oladigan qadam,
+bu agentning Google Console'ga kirish huquqi yo'q.

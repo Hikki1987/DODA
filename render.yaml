@@ -59,12 +59,23 @@ services:
         fromDatabase:
           name: doda-postgres
           property: connectionString
+      # These hostnames carry the random suffix Render actually assigned
+      # this Blueprint's live services (-jv8e / -joh4), NOT the clean
+      # `doda-backend`/`doda-frontend` names this file's service `name:`
+      # fields ask for — Render appends a suffix when it can't claim the
+      # bare name (e.g. a prior failed-deploy service still held it at
+      # creation time). Check the service's own page in Render's
+      # dashboard for its actual URL before trusting these literally; if
+      # a future from-scratch Blueprint recreation gets clean names
+      # again, these three values (plus NEXT_PUBLIC_API_BASE_URL below)
+      # need updating to match — Render does not do this substitution
+      # for you.
       - key: DODA_CORS_ALLOWED_ORIGINS
-        value: https://doda-frontend.onrender.com
+        value: https://doda-frontend-joh4.onrender.com
       - key: DODA_FRONTEND_BASE_URL
-        value: https://doda-frontend.onrender.com
+        value: https://doda-frontend-joh4.onrender.com
       - key: DODA_GOOGLE_OAUTH_REDIRECT_URI
-        value: https://doda-backend.onrender.com/v1/auth/google/callback
+        value: https://doda-backend-jv8e.onrender.com/v1/auth/google/callback
       - key: DODA_GOOGLE_OAUTH_CLIENT_ID
         value: 486151726620-h39q5r8lt5neplnh83t7t9o5ac3ah9di.apps.googleusercontent.com
       # sync: false = Render prompts for this in its dashboard instead of
@@ -92,5 +103,8 @@ services:
       # if the deployed frontend calls the wrong backend URL, this is the
       # first thing to check, and deploy/README.md's manual fallback
       # says precisely where to set it by hand in Render's dashboard.
+      # -jv8e: the actual assigned hostname, see the comment on
+      # DODA_CORS_ALLOWED_ORIGINS above — not the clean `doda-backend`
+      # this Blueprint's service `name:` field asks for.
       - key: NEXT_PUBLIC_API_BASE_URL
-        value: https://doda-backend.onrender.com
+        value: https://doda-backend-jv8e.onrender.com
