@@ -134,6 +134,20 @@ works, then delete the Render services (or leave them as a free
 staging environment — Render's free web services just sleep when idle,
 costing nothing).
 
+**Before that first real VPS deploy, a Google Console step is required**
+(found while reviewing this deployment shape, not yet done): add
+`https://natsecurity.uz/v1/auth/google/callback` — **with** the `/v1`
+prefix — as an Authorized redirect URI on the OAuth 2.0 Client in Google
+Cloud Console. `deploy/Caddyfile` only routes `/v1/*` to the backend
+(everything else goes to the frontend, which has no `/auth/google/callback`
+route), and `api/auth.py`'s router is mounted at `/v1/auth` — so a redirect
+URI without `/v1` reaches the frontend and 404s instead of completing
+login. Add it alongside whatever is already registered there rather than
+replacing it — an unused extra URI is harmless. This is separate from
+whatever redirect URI is (or isn't) registered for the live Render MVP's
+own domain (`doda-backend.onrender.com`) — check that one is present too
+if Google login on the Render deploy hasn't been tried yet.
+
 ## What still needs a human (or credentials handed to this agent)
 
 This agent cannot sign up for a hosting account or register a payment

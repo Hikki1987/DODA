@@ -3664,3 +3664,38 @@ ekvivalenti Render'da ishga tushirilmagan) — asosli kutish, tasdiqlangan
 fakt emas, `deploy/README.md`da aniq shunday yozildi.
 
 281 test, barchasi real Postgres(+Redis)'da.
+
+**`doda-backend` Render deployi uchun tuzatish kutilayotgan paytda, hali
+qo'lda tekshirilmagan qolgan deployment fayllari (`render.yaml`dan
+tashqari — u allaqachon tekshirilgan edi) qayta ko'rib chiqildi va real
+xato topildi: `.env.prod.example`dagi `DODA_GOOGLE_OAUTH_REDIRECT_URI`
+`/v1` prefiksisiz yozilgan edi** (`https://natsecurity.uz/auth/google/
+callback`), holbuki `api/auth.py`ning o'z router'i aniq `/v1/auth`
+prefiksi bilan ro'yxatdan o'tgan (haqiqiy yo'l:
+`/v1/auth/google/callback`) va `deploy/Caddyfile` faqat `/v1/*`ni
+backend'ga yo'naltiradi — qolgan hammasi frontend'ga tushadi. Demak bu
+shablon bo'yicha sozlangan VPS/Caddy deploy'da Google login muvaffaqiyatli
+callback qilgandan keyin ham 404 bilan tugagan bo'lardi (so'rov
+frontend'ga tushib, u yerda bunday yo'l yo'q). `render.yaml`da bu aynan
+to'g'ri yozilgan edi (`.../v1/auth/google/callback`) — faqat shu bitta
+shablon fayli nomuvofiq edi. Tuzatildi, izoh bilan (nega /v1 shart).
+
+**Bundan ham muhimrog'i — bu avvalroq yozilgan eslatmaning o'zida allaqachon
+ko'rinib turardi, lekin hech qachon aniq bayon qilinmagan edi**: yuqoridagi
+("Redirect URI hamon...") paragraf Product Owner Google Console'da
+AYNAN shu noto'g'ri, `/v1`siz URI'ni (`https://natsecurity.uz/auth/
+google/callback`) ro'yxatdan o'tkazganini qayd etadi. Demak haqiqiy
+VPS/Caddy deploy qilinganda — hatto `.env.prod`ning o'zi endi to'g'ri
+(`/v1` bilan) bo'lsa ham — Google bu qiymatni backend yuborgan
+`redirect_uri`ga solishtirib, **mos kelmaydi** deb rad etadi
+(`redirect_uri_mismatch`), chunki Google Console'dagi ro'yxatga olingan
+qiymat boshqacha. Bu faqat Product Owner hal qila oladigan haqiqiy
+qadam — Google Cloud Console → OAuth 2.0 Client → Authorized redirect
+URIs'ga `https://natsecurity.uz/v1/auth/google/callback`ni (mavjudiga
+QO'SHIMCHA, uni o'chirmasdan — eski qiymat zararsiz qoladi) qo'shish
+kerak, VPS'ga deploy qilishdan oldin. Render MVP'ning o'zi bunga
+ta'sirlanmaydi (boshqa domen, `doda-backend.onrender.com`, va
+`render.yaml`da to'g'ri yozilgan) — lekin Google Console'da SHU domen
+uchun ham alohida Authorized redirect URI ro'yxatga olingan-olinmagani
+bu kod bazasidan ko'rinmaydi; agar olinmagan bo'lsa, Render'dagi Google
+login ham xuddi shu sababdan muvaffaqiyatsiz bo'ladi.
