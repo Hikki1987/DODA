@@ -1,0 +1,121 @@
+# Render.com Blueprint — free-tier MVP deploy (no credit card required).
+#
+# HONEST LIMITATION: this file is written from well-established,
+# long-stable knowledge of Render's Blueprint format, NOT verified
+# against Render's current docs or API — this session's network policy
+# blocks render.com entirely (confirmed: even Anthropic's own WebFetch
+# tool got EGRESS_BLOCKED fetching render.com and, as a sanity check,
+# plain en.wikipedia.org too — this is a blanket policy, not something
+# specific to Render). If Render's dashboard rejects a field name here,
+# that is the most likely reason, not a deeper problem — see
+# deploy/README.md's manual fallback steps for exactly this case.
+#
+# Scope of this free deploy: Postgres + the API service + the frontend.
+# Deliberately NOT included: Redis, outbox-relay, telegram-relay — Render
+# has no free Redis tier, and nothing on the request path needs Redis to
+# be reachable (main.py/the FastAPI app never touches it — only the two
+# relay worker processes do, see tests/unit/test_side_effect_boundary.py's
+# own comment on this). So login, workspaces, tasks, actions-without-a-
+# connector, audit, kill switch — the whole MVP except actually sending a
+# Telegram message — all work with no Redis at all.
+databases:
+  - name: doda-postgres
+    plan: free
+    databaseName: doda
+    user: doda
+
+services:
+  - type: web
+    name: doda-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /v1/healthz
+    # Render provides $PORT at runtime and requires the service to bind
+    # to it — backend/Dockerfile's own CMD hardcodes 8000, so this
+    # overrides it. Also runs the migration that elsewhere
+    # (docker-compose.prod.yml) is its own one-shot `migrate` service —
+    # Render's free tier has no separate one-off job primitive, so it
+    # runs here, before the server starts, on every deploy (safe: Alembic
+    # migrations are themselves idempotent/no-ops once already applied).
+    #
+    # Two different inline `sh -c "..."` / `sh -c '...'` quotings both
+    # failed on a real Render deploy (exit 127, the whole command line
+    # looked up as one literal name instead of being shell-parsed) —
+    # whatever Render's exact string-parsing rule is, it doesn't survive
+    # a shell operator embedded in this field. A single space-free path to
+    # a real script removes the ambiguity entirely: nothing left for
+    # Render to mis-split. See backend/docker-entrypoint.sh.
+    dockerCommand: ./docker-entrypoint.sh
+    envVars:
+      - key: DODA_ENV
+        value: production
+      - key: DODA_DATABASE_URL
+        fromDatabase:
+          name: doda-postgres
+          property: connectionString
+      - key: DODA_MIGRATION_DATABASE_URL
+        fromDatabase:
+          name: doda-postgres
+          property: connectionString
+      # These hostnames carry the random suffix Render actually assigned
+      # this Blueprint's live services (-jv8e / -joh4), NOT the clean
+      # `doda-backend`/`doda-frontend` names this file's service `name:`
+      # fields ask for — Render appends a suffix when it can't claim the
+      # bare name (e.g. a prior failed-deploy service still held it at
+      # creation time). Check the service's own page in Render's
+      # dashboard for its actual URL before trusting these literally; if
+      # a future from-scratch Blueprint recreation gets clean names
+      # again, these three values (plus NEXT_PUBLIC_API_BASE_URL below)
+      # need updating to match — Render does not do this substitution
+      # for you.
+      - key: DODA_CORS_ALLOWED_ORIGINS
+        value: https://doda-frontend-joh4.onrender.com
+      - key: DODA_FRONTEND_BASE_URL
+        value: https://doda-frontend-joh4.onrender.com
+      - key: DODA_GOOGLE_OAUTH_REDIRECT_URI
+        value: https://doda-backend-jv8e.onrender.com/v1/auth/google/callback
+      # This is a separate OAuth 2.0 Client from whatever (if anything)
+      # backs DODA_GOOGLE_OAUTH_REDIRECT_URI's natsecurity.uz counterpart
+      # in .env.prod.example — a client ID's own registered Authorized
+      # redirect URIs are per-client, so this one needs the Render
+      # callback URL above added to IT specifically, not assumed from
+      # another client's list.
+      - key: DODA_GOOGLE_OAUTH_CLIENT_ID
+        value: 486151726620-8sls7at6d3u3f800f8guvbu63vud9kve.apps.googleusercontent.com
+      # sync: false = Render prompts for this in its dashboard instead of
+      # reading a value from this file — this is how a secret stays out
+      # of the repo. Fill it in AFTER the Blueprint creates the service;
+      # never put the real value here. IMPORTANT: this must be the
+      # Client Secret belonging to the Client ID above — if the ID was
+      # just swapped to a new OAuth client, whatever secret is currently
+      # saved in Render's dashboard for this key is now for the WRONG
+      # client and must be replaced with the new client's own secret,
+      # or Google will reject the token exchange with invalid_client.
+      - key: DODA_GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: DODA_TELEGRAM_BOT_TOKEN
+        sync: false
+
+  - type: web
+    name: doda-frontend
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    plan: free
+    envVars:
+      # NEXT_PUBLIC_API_BASE_URL must be a Docker BUILD ARG (see
+      # frontend/Dockerfile's own comment — Next.js inlines NEXT_PUBLIC_*
+      # at build time, a runtime env var has no effect on an already-
+      # built page). Whether render.yaml can set a Docker build arg via
+      # envVars the same way it sets a runtime env var is exactly the
+      # kind of Render-schema detail this file can't verify right now —
+      # if the deployed frontend calls the wrong backend URL, this is the
+      # first thing to check, and deploy/README.md's manual fallback
+      # says precisely where to set it by hand in Render's dashboard.
+      # -jv8e: the actual assigned hostname, see the comment on
+      # DODA_CORS_ALLOWED_ORIGINS above — not the clean `doda-backend`
+      # this Blueprint's service `name:` field asks for.
+      - key: NEXT_PUBLIC_API_BASE_URL
+        value: https://doda-backend-jv8e.onrender.com

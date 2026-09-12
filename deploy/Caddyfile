@@ -1,0 +1,17 @@
+# Reverse proxy + automatic HTTPS (Let's Encrypt) for the production
+# domain. Path-based routing under one origin means the frontend's own
+# fetch() calls (src/lib/api.ts) are same-origin in production — CORS
+# stays configured (DODA_CORS_ALLOWED_ORIGINS) for any client that calls
+# the API directly from a different origin, but the browser app itself
+# doesn't depend on it here.
+{$DODA_DOMAIN} {
+	@api path /v1/* /metrics
+
+	handle @api {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}
