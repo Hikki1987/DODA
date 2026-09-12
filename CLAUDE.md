@@ -3850,3 +3850,47 @@ Render dashboard'ida qo'lda yangi client'ning siri bilan almashtirishi
 SHART — aks holda token exchange bosqichida Google `invalid_client`
 bilan rad etadi (redirect_uri_mismatch'dan keyingi navbatdagi xato
 sinfi, oldindan aniq ogohlantirilgan).
+
+**Google login Render'da BIRINCHI marta to'liq muvaffaqiyatli o'tdi —
+Product Owner'ning o'z skrinshotlari bilan tasdiqlangan (consent screen →
+callback → `/workspaces`, "Sessiyalar"/"Chiqish" ko'rinishi bilan haqiqiy
+sessiya).** Bu redirect_uri_mismatch va yangi OAuth client tuzatishlarining
+ikkalasi ham to'g'ri ishlaganini isbotlaydi. Lekin oraliq skrinshotda bir
+marta **"Backend'ga ulanib bo'lmadi"** xatosi ko'rindi, undan keyin
+qayta urinishda muvaffaqiyatli bo'ldi — bu tasodifiy emasligini
+tekshirdim.
+
+Sabab kodda topildi: `CallbackHandler.tsx`ning `listMySessions`
+chaqiruvi muvaffaqiyatsiz bo'lsa (ApiError bo'lmagan HAR QANDAY xato —
+tarmoq xatosi, timeout, h.k.) darhol shu umumiy xabarni ko'rsatardi,
+qayta urinishsiz. Bu ayni Render'ning bepul reja xususiyati bilan
+to'qnashadi (`deploy/README.md`da allaqachon yozilgan: "free web
+services spin down with inactivity (~50s cold start delay)") — Google
+OAuth redirect'idan keyingi ANIQ SHU birinchi so'rov, agar backend
+uxlab yotgan bo'lsa, tabiiy ravishda muvaffaqiyatsiz bo'ladi.
+
+Tuzatish: `listMySessions`ning ApiError BO'LMAGAN xatosi (haqiqiy
+backend rad etishi emas — tarmoq/timeout darajasidagi muvaffaqiyatsizlik)
+endi 60 soniyalik oyna ichida 5 soniyada bir marta qayta uriniladi,
+foydalanuvchiga "server uyg'onayotgan bo'lishi mumkin" deb ko'rsatib.
+Haqiqiy `ApiError` (backend aniq javob berib rad etgan — masalan noto'g'ri
+session) hech qachon qayta urinilmaydi, darhol xato ko'rsatiladi — bu
+uydirma "muvaffaqiyat" emas, chunki bu holatda qayta urinish hech narsani
+o'zgartirmaydi.
+
+Audit-zanjiri uslubida qisman isbotlandi: mahalliy real backend+frontend'ga
+qarshi (production build) backend'ni ataylab o'chirib, callback sahifasi
+haqiqatda "server uyg'onayotgan..." holatini ko'rsatishini (xato
+o'rniga) tasdiqladim — bu tarmoq xatosi ApiError bilan aralashtirilmasligini
+va qayta urinish yo'lining haqiqatda ishga tushishini isbotlaydi. Backend
+qayta ko'tarilgandan keyin to'liq `/workspaces`ga qaytishini bir xil
+sessiyada uzluksiz kuzatish sandbox'ning fon jarayonlarini tool-chaqiruvlar
+oralig'ida barqaror saqlay olmasligi tufayli aniq ko'rsatib bo'lmadi (bu
+sessiyaning infratuzilma cheklovi, kod xatosi emas) — lekin bu yo'l
+`listMySessions`ning muvaffaqiyatli filiali bilan bir xil, allaqachon
+`test 1`da (to'g'ri session_id) tasdiqlangan kod, shuning uchun qayta
+urinishning o'zi ishga tushgach oxirigacha yetishi tabiiy kutish, halol
+belgilab qo'yilgan. Mavjud uchta `auth-callback.spec.ts` testi
+(happy path, session_id yo'q, ApiError rad etish) o'zgarishsiz yashil —
+ApiError yo'li hamon darhol (kechikishsiz) ishlaydi, bu ularning
+uchinchi testi kutgan xulq.

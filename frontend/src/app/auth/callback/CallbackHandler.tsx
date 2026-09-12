@@ -19,13 +19,28 @@ export default function CallbackHandler() {
   // established for avoiding react-hooks/set-state-in-effect.
   const sessionId = searchParams.get("session_id");
   const [asyncError, setAsyncError] = useState<string | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
+
+  // Render's free-tier backend spins down when idle and can take up to
+  // ~50s to wake on its first request (see deploy/README.md) — the
+  // request this page makes right after the OAuth redirect is exactly
+  // that first request. A plain network-level failure here (not a real
+  // backend rejection) is far more likely to be a cold start than an
+  // actual outage, so retry for a bounded window instead of immediately
+  // showing a scary error for what's usually a ~50s wait. A real
+  // rejection (ApiError — the backend answered but said no) is never
+  // retried; that's a definitive answer, not a transient blip.
+  const RETRY_WINDOW_MS = 60_000;
+  const RETRY_INTERVAL_MS = 5_000;
 
   useEffect(() => {
     if (!sessionId) {
       return;
     }
     let cancelled = false;
-    (async () => {
+    const startedAt = Date.now();
+
+    const attempt = async (): Promise<void> => {
       try {
         // Same "is this really a live session" check the dev/test login
         // form does — confirms the backend's own redirect handed us
@@ -36,11 +51,26 @@ export default function CallbackHandler() {
           router.replace("/workspaces");
         }
       } catch (err) {
+        if (cancelled) {
+          return;
+        }
+        if (err instanceof ApiError) {
+          setAsyncError(err.message);
+          return;
+        }
+        if (Date.now() - startedAt >= RETRY_WINDOW_MS) {
+          setAsyncError("Backend'ga ulanib bo'lmadi.");
+          return;
+        }
+        setIsRetrying(true);
+        await new Promise((resolve) => setTimeout(resolve, RETRY_INTERVAL_MS));
         if (!cancelled) {
-          setAsyncError(err instanceof ApiError ? err.message : "Backend'ga ulanib bo'lmadi.");
+          await attempt();
         }
       }
-    })();
+    };
+
+    void attempt();
 
     return () => {
       cancelled = true;
@@ -60,5 +90,11 @@ export default function CallbackHandler() {
     );
   }
 
-  return <p className="text-sm text-gray-500">Kirish tasdiqlanmoqda...</p>;
+  return (
+    <p className="text-sm text-gray-500">
+      {isRetrying
+        ? "Kirish tasdiqlanmoqda... (server uyg'onayotgan bo'lishi mumkin, biroz kuting)"
+        : "Kirish tasdiqlanmoqda..."}
+    </p>
+  );
 }
