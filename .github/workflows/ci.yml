@@ -250,6 +250,7 @@ jobs:
           python scripts/seed_e2e_demo.py --prefix E2E_LOGOUT_ >> "$GITHUB_ENV"
           python scripts/seed_e2e_demo.py --prefix E2E_AUDITOR_ >> "$GITHUB_ENV"
           python scripts/seed_e2e_demo.py --prefix E2E_AUTHCALLBACK_ >> "$GITHUB_ENV"
+          python scripts/seed_e2e_demo.py --prefix E2E_CHAT_ >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"

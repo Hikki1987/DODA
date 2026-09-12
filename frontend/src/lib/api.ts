@@ -472,3 +472,245 @@ export function setNotificationPreference(
     body: JSON.stringify({ enabled }),
   });
 }
+
+// ---- AI: /v1/workspaces/{id}/conversations — FR-CONV ----
+
+export type AiProvider = "OPENAI" | "GEMINI" | "CLAUDE";
+export const AI_PROVIDERS: AiProvider[] = ["OPENAI", "GEMINI", "CLAUDE"];
+export type ChatMode = "FAST" | "STANDARD" | "DEEP";
+export type MessageRole = "USER" | "ASSISTANT" | "TOOL";
+
+export interface ConversationOut {
+  id: string;
+  workspace_id: string;
+  owner_id: string;
+  title: string | null;
+  pinned_provider: AiProvider | null;
+  pinned_model: string | null;
+  created_at: string;
+}
+
+export interface MessageOut {
+  id: string;
+  conversation_id: string;
+  role: MessageRole;
+  content: string;
+  tool_call_id: string | null;
+  tool_name: string | null;
+  provider: AiProvider | null;
+  model: string | null;
+  finish_reason: string | null;
+  created_at: string;
+}
+
+export function createConversation(
+  sessionId: string,
+  workspaceId: string,
+  title?: string,
+): Promise<ConversationOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/conversations`, sessionId, {
+    method: "POST",
+    body: JSON.stringify({ title: title ?? null }),
+  });
+}
+
+export function listConversations(sessionId: string, workspaceId: string): Promise<ConversationOut[]> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/conversations`, sessionId);
+}
+
+export function listConversationMessages(
+  sessionId: string,
+  workspaceId: string,
+  conversationId: string,
+): Promise<MessageOut[]> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/conversations/${conversationId}/messages`, sessionId);
+}
+
+export function switchConversationProvider(
+  sessionId: string,
+  workspaceId: string,
+  conversationId: string,
+  provider: AiProvider,
+  model?: string | null,
+): Promise<ConversationOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/conversations/${conversationId}/provider`, sessionId, {
+    method: "POST",
+    body: JSON.stringify({ provider, model: model ?? null }),
+  });
+}
+
+// The one endpoint that isn't plain request/response JSON: the backend
+// replies over SSE (`text/event-stream`) because a turn can take several
+// tool-call rounds (see backend/src/doda/api/conversations.py's own
+// docstring). `fetch()` + a manual ReadableStream reader is the only way
+// to consume a streaming POST body from the browser — EventSource only
+// supports GET. Event names match the backend's `_sse_frame`/TurnChunk
+// kinds exactly: "text"/"tool_status" carry `{text}`, "done" carries
+// `{message}` (the persisted final assistant Message, or null if the
+// turn ended without producing one — e.g. a write-tool call), "error" is
+// the mid-stream failure frame (`api/conversations.py`'s `_error_frame`).
+export type ConversationStreamEvent =
+  | { kind: "text" | "tool_status"; text: string }
+  | { kind: "done"; message: MessageOut | null }
+  | { kind: "error"; code: string; message: string; trace_id: string; retryable: boolean };
+
+export async function* streamConversationMessage(
+  sessionId: string,
+  workspaceId: string,
+  conversationId: string,
+  content: string,
+  mode: ChatMode = "STANDARD",
+): AsyncGenerator<ConversationStreamEvent> {
+  const response = await fetch(
+    `${API_BASE_URL}/v1/workspaces/${workspaceId}/conversations/${conversationId}/messages`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${sessionId}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ content, mode }),
+    },
+  );
+
+  if (!response.ok) {
+    // Pre-stream failure (budget/capability/provider error on round 0) —
+    // a normal JSON error body, same shape as every other endpoint.
+    const body = await response.json().catch(() => ({}));
+    throw new ApiError(
+      response.status,
+      body.code ?? "UNKNOWN",
+      body.message ?? "Noma'lum xato yuz berdi",
+      body.trace_id ?? "",
+    );
+  }
+  if (response.body === null) return;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let frameEnd = buffer.indexOf("\n\n");
+    while (frameEnd !== -1) {
+      const frame = buffer.slice(0, frameEnd);
+      buffer = buffer.slice(frameEnd + 2);
+      const eventLine = frame.split("\n").find((line) => line.startsWith("event: "));
+      const dataLine = frame.split("\n").find((line) => line.startsWith("data: "));
+      if (eventLine && dataLine) {
+        const kind = eventLine.slice("event: ".length);
+        const data = JSON.parse(dataLine.slice("data: ".length));
+        yield { kind, ...data } as ConversationStreamEvent;
+      }
+      frameEnd = buffer.indexOf("\n\n");
+    }
+  }
+}
+
+// ---- AI: /v1/customers/{id}/ai-providers, /ai-fallback — ADR-009's settings gap ----
+
+export interface ProviderStatusOut {
+  provider: AiProvider;
+  configured: boolean;
+  enabled: boolean;
+  verified_at: string | null;
+  verified_ok: boolean | null;
+  verified_error: string | null;
+}
+
+export function listProviderStatuses(sessionId: string, customerId: string): Promise<ProviderStatusOut[]> {
+  return apiFetch(`/v1/customers/${customerId}/ai-providers`, sessionId);
+}
+
+export function setProviderEnabled(
+  sessionId: string,
+  customerId: string,
+  provider: AiProvider,
+  enabled: boolean,
+): Promise<ProviderStatusOut> {
+  return apiFetch(`/v1/customers/${customerId}/ai-providers/${provider}/enabled`, sessionId, {
+    method: "PUT",
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export interface TestProviderConnectionOut {
+  provider: AiProvider;
+  ok: boolean;
+  error: string | null;
+}
+
+export function testProviderConnection(
+  sessionId: string,
+  customerId: string,
+  provider: AiProvider,
+): Promise<TestProviderConnectionOut> {
+  return apiFetch(`/v1/customers/${customerId}/ai-providers/${provider}/test-connection`, sessionId, {
+    method: "POST",
+  });
+}
+
+export interface AiFallbackSettingOut {
+  enabled: boolean;
+}
+
+export function getAiFallbackSetting(sessionId: string, customerId: string): Promise<AiFallbackSettingOut> {
+  return apiFetch(`/v1/customers/${customerId}/ai-fallback`, sessionId);
+}
+
+export function setAiFallbackSetting(
+  sessionId: string,
+  customerId: string,
+  enabled: boolean,
+): Promise<AiFallbackSettingOut> {
+  return apiFetch(`/v1/customers/${customerId}/ai-fallback`, sessionId, {
+    method: "PUT",
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+// ---- AI preference — 4-tier: conversation pin > user > workspace > system default ----
+
+export interface AiPreferenceOut {
+  provider: AiProvider | null;
+  model: string | null;
+}
+
+export function getMyAiPreference(sessionId: string, customerId: string): Promise<AiPreferenceOut> {
+  return apiFetch(`/v1/customers/${customerId}/me/ai-preference`, sessionId);
+}
+
+export function setMyAiPreference(
+  sessionId: string,
+  customerId: string,
+  provider: AiProvider,
+  model?: string | null,
+): Promise<AiPreferenceOut> {
+  return apiFetch(`/v1/customers/${customerId}/me/ai-preference`, sessionId, {
+    method: "PUT",
+    body: JSON.stringify({ provider, model: model ?? null }),
+  });
+}
+
+export function clearMyAiPreference(sessionId: string, customerId: string): Promise<void> {
+  return apiFetch(`/v1/customers/${customerId}/me/ai-preference`, sessionId, { method: "DELETE" });
+}
+
+export function getWorkspaceAiPreference(sessionId: string, workspaceId: string): Promise<AiPreferenceOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/ai-preference`, sessionId);
+}
+
+export function setWorkspaceAiPreference(
+  sessionId: string,
+  workspaceId: string,
+  provider: AiProvider,
+  model?: string | null,
+): Promise<AiPreferenceOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/ai-preference`, sessionId, {
+    method: "PUT",
+    body: JSON.stringify({ provider, model: model ?? null }),
+  });
+}
+
+export function clearWorkspaceAiPreference(sessionId: string, workspaceId: string): Promise<void> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/ai-preference`, sessionId, { method: "DELETE" });
+}

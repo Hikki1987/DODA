@@ -207,13 +207,18 @@ export default function WorkspacePage() {
         <Link href="/workspaces" className="text-sm text-gray-500 hover:text-black">
           &larr; Workspace&apos;lar
         </Link>
-        <button
-          onClick={handleArchiveWorkspace}
-          disabled={archivingWorkspace}
-          className="text-xs text-red-600 hover:underline disabled:opacity-50"
-        >
-          Workspace&apos;ni arxivlash
-        </button>
+        <div className="flex items-center gap-4">
+          <Link href={`/workspaces/${workspaceId}/chat`} className="text-xs text-blue-600 hover:underline">
+            Chat
+          </Link>
+          <button
+            onClick={handleArchiveWorkspace}
+            disabled={archivingWorkspace}
+            className="text-xs text-red-600 hover:underline disabled:opacity-50"
+          >
+            Workspace&apos;ni arxivlash
+          </button>
+        </div>
       </div>
 
       <KillSwitchPanel

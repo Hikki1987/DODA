@@ -4126,11 +4126,8 @@ capability override'lar (hozir faqat provider darajasida); "agent run"
 alohida cost-tracking o'lchovi (conversation turn eng yaqin ekvivalenti);
 FR-CONV-001/002/004/005/006/007 (til aniqlash, cancel, noaniqlik, 
 strukturalangan bloklar, tarix qidirish, tahrirlash) — barchasi haqiqiy
-model javobini talab qiladi. Frontend chat UI'si hamon qurilmagan —
-backend to'liq, lekin "hali mavjud bo'lmagan haqiqiy AI javobi uchun
-soxta frontend" qurish bu ham sabab bo'lib qolmoqda (OpenAI/Gemini/
-Claude'ga HAQIQIY so'rov bu muhitdan hech qachon yuborilmagan — tarmoq
-siyosati barchasini bloklaydi).
+model javobini talab qiladi. Frontend chat UI'si o'shanda hali qurilmagan
+edi — pastga qarang, endi qurildi.
 
 `docs/open-decisions.md`ning OD-003 qatori YANGILANDI — endi "hali real
 harm yo'q" emas, **haqiqiy jonli xavf**: AI provider tanlovi hal
@@ -4147,3 +4144,93 @@ bu muhitda faqat `NullModelGateway`ga qarshi ishlatilgan (halol
 chegara, skriptning o'z docstring'ida yozilgan).
 
 353 test, barchasi real Postgres(+Redis)'da. `ruff`/`mypy` toza.
+
+**Frontend chat UI + AI provayder sozlamalari qurildi — S3/FR-CONV'ning
+frontend qismidagi ikkita bo'sh vazifa (Task tracker #10/#17) yopildi.**
+Backend to'liq, real (mock emas) uchta provayder bilan ishlaydi
+(yuqoriga qarang), lekin brauzer orqali chaqiradigan hech narsa yo'q
+edi — bu vazifa xuddi S3'ning qolgan "backend bor, ulanish yo'q"
+bo'shliqlari bilan bir xil naqsh (`GET /v1/me/workspaces`, Actions
+bo'limi, va h.k. — yuqoriga qarang).
+
+`frontend/src/lib/api.ts`ga qo'shildi: conversation CRUD (`createConversation`,
+`listConversations`, `listConversationMessages`, `switchConversationProvider`)
+va `streamConversationMessage` — backend'ning SSE javobini (`api/
+conversations.py`) o'qiydigan yagona funksiya. Bu yerda `EventSource`
+ishlatib bo'lmasligi aniqlandi: u faqat GET so'rovlarni qo'llab-
+quvvatlaydi, backend esa POST orqali suhbat xabarini qabul qiladi —
+shuning uchun `fetch()` + qo'lda yozilgan `ReadableStream` reader va
+SSE frame parser (`event: X\ndata: Y\n\n`) ishlatildi, backend'ning
+`_sse_frame`/`TurnChunk.kind` qiymatlariga ("text"/"tool_status"/"done"/
+"error") aniq mos keladigan tipik union bilan. Shuningdek AI provider
+settings client'i: `listProviderStatuses`, `setProviderEnabled`,
+`testProviderConnection`, `getAiFallbackSetting`/`setAiFallbackSetting`,
+va 2 ta preference juftligi (`get/set/clearMyAiPreference` — customer-
+scoped, `get/set/clearWorkspaceAiPreference` — workspace-scoped).
+
+Yangi `/workspaces/[id]/chat` sahifasi: suhbatlar ro'yxati + "Yangi
+suhbat", tanlangan suhbatning xabar tarixi, kompozitor (matn + FAST/
+STANDARD/DEEP rejim tanlovi), va ikkita provayder tanlovi — suhbatning
+o'z pin'i (`switchConversationProvider`, faqat shu suhbat uchun) va
+workspace'ning standart provayderi (`get/setWorkspaceAiPreference`,
+WorkspaceAdmin-only yozish, lekin forma har doim ko'rinadi — boshqa
+sahifalar bilan bir xil "UI-gating yo'q, backend 403 qaytaradi"
+konventsiyasi). Xabar yuborilganda foydalanuvchi xabari darhol
+(optimistik) ko'rsatiladi, assistant javobi esa SSE orqali kelgan
+"text"/"tool_status" bo'laklaridan real vaqtda yig'iladi; oqim
+tugagach, haqiqiy manba sifatida `listConversationMessages` qayta
+chaqiriladi (boshqa har bir sahifaning `refresh()` naqshi bilan bir
+xil — qo'lda state solishtirish o'rniga).
+
+`/customers/[id]`ga "AI provayderlar" bo'limi qo'shildi: har uch
+provayder (OPENAI/GEMINI/CLAUDE) uchun sozlangan/yoqilgan/tekshirilgan
+holati, "Ulanishni tekshirish" (haqiqiy `test_provider_connection`ni
+chaqiradi — bu muhitda kalit yo'qligi uchun halol "muvaffaqiyatsiz"
+natija qaytaradi, soxta muvaffaqiyat emas), yoqish/o'chirish tugmasi.
+Shu yerga "Avtomatik fallback" (standart o'chirilgan, ADR-009) va
+"Mening AI afzalligim" (4 pog'onali tanlov zanjirining foydalanuvchi
+darajasi, customer-scoped endpoint bo'lgani uchun bu sahifada — chat
+sahifasi faqat workspace_id'ni biladi, customer_id emas, xuddi audit/
+notification-preferences'ning workspace sahifasida QURILMAGAN bo'lish
+sababi bilan bir xil) ham qo'shildi.
+
+Bitta haqiqiy ESLint xatosi topildi va tuzatildi: `refreshMessages`ning
+dastlabki versiyasi `selectedId === null` bo'lganda effekt ichida
+to'g'ridan-to'g'ri `setMessages(null)` chaqirardi —
+`react-hooks/set-state-in-effect` qoidasi buni "effekt ichida sinxron
+setState" deb rad etdi (boshqa sahifalarning `refresh()` funksiyalari
+bunday sinxron filialga ega emas, faqat `.then(setX)` orqali yozadi).
+Shu sinxron filial olib tashlandi — suhbat almashtirilganda eski
+xabarlar yangisi kelguncha bir zum ko'rinib turishi mumkin, bu android
+murakkablik qo'shishga arzimaydigan, kichik UX narxi.
+
+Real backend+frontend'ga (production build, `next build && next start`)
+qarshi qo'lda (Playwright orqali, brauzer skrinshotlari bilan) tekshirildi:
+yangi suhbat yaratish → xabar yuborish → real `NullModelGateway`ning
+"AI javob provayderi hali tanlanmagan yoki sozlanmagan..." javobini olish
+→ provayderni GEMINI'ga pin qilish → customer sahifasida "Ulanishni
+tekshirish" bosilganda haqiqiy "kalit yo'q · tekshirilgan: no API key is
+configured for this provider" natijasi ko'rinishi — barchasi konsol
+xatosiz.
+
+Keyin doimiy `frontend/e2e/chat.spec.ts` yozildi (o'z mustaqil seed'i —
+`E2E_CHAT_`, chunki bu spec customer-keng AI sozlamalarini (provider
+enable/disable, fallback) o'zgartiradi va boshqa spec'larning seed'ini
+bo'lishsa ularga ta'sir qilardi, xuddi `workspace-kill-switch.spec.ts`
+o'zining seed'ini talab qilgani kabi). Ikki test: (1) suhbat yaratish →
+xabar yuborish → real NullModelGateway javobi → provayder pin qilish,
+to'g'ridan-to'g'ri backend so'rovi bilan ham tasdiqlangan (pin haqiqatan
+saqlanganini `GET .../conversations` orqali tekshiradi); (2) provayder
+yoqish/o'chirish, ulanishni tekshirish, fallback yoqish (`GET .../
+ai-fallback` bilan ham tasdiqlangan), "mening AI afzalligim"ni
+o'rnatish. `.github/workflows/ci.yml`ning E2E job'iga yangi
+`E2E_CHAT_` seed qadami qo'shildi. Barcha 12 E2E spec (10 mavjud + 2
+yangi) birga qayta ishga tushirilib yashil, jumladan accessibility
+skaneri (yangi sahifa/bo'limlar `serious`/`critical` WCAG buzilishi
+keltirmadi) va butun backend suite (353 test, o'zgarishsiz).
+
+Ataylab QURILMAGAN (backend hali yo'q yoki haqiqiy AI javob talab
+qiladi): FR-CONV-001/002/004/005/006/007 (til aniqlash, cancel,
+noaniqlikda savol, strukturalangan javob bloklari, suhbat tarixini
+qidirish, tahrirlash/qayta generatsiya) — bularning frontend qismi ham
+tegishlicha qurilmagan.

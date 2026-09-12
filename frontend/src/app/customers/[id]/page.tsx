@@ -6,9 +6,12 @@ import { useParams } from "next/navigation";
 import {
   ApiError,
   changeCustomerMemberRole,
+  clearMyAiPreference,
   disengageCustomerKillSwitch,
   engageCustomerKillSwitch,
+  getAiFallbackSetting,
   getCustomerKillSwitch,
+  getMyAiPreference,
   inviteCustomerMember,
   listArchivedWorkspaces,
   listCustomerAudit,
@@ -16,11 +19,20 @@ import {
   listCustomerNotifications,
   listMyCustomers,
   listNotificationPreferences,
+  listProviderStatuses,
   markCustomerNotificationRead,
   removeCustomerMember,
   restoreWorkspace,
+  setAiFallbackSetting,
+  setMyAiPreference,
   setNotificationPreference,
+  setProviderEnabled,
+  testProviderConnection,
   verifyCustomerAuditChain,
+  AI_PROVIDERS,
+  type AiFallbackSettingOut,
+  type AiPreferenceOut,
+  type AiProvider,
   type AuditChainVerificationOut,
   type AuditEventOut,
   type CustomerMemberOut,
@@ -29,6 +41,7 @@ import {
   type NotificationOut,
   type NotificationPreferenceOut,
   type NotificationType,
+  type ProviderStatusOut,
   type WorkspaceOut,
 } from "@/lib/api";
 import { KillSwitchPanel } from "@/components/KillSwitchPanel";
@@ -57,6 +70,14 @@ export default function CustomerPage() {
   const [verifyingChain, setVerifyingChain] = useState(false);
   const [archivedWorkspaces, setArchivedWorkspaces] = useState<WorkspaceOut[] | null>(null);
   const [restoringWorkspaceId, setRestoringWorkspaceId] = useState<string | null>(null);
+  const [providerStatuses, setProviderStatuses] = useState<ProviderStatusOut[] | null>(null);
+  const [testingProvider, setTestingProvider] = useState<string | null>(null);
+  const [fallbackSetting, setFallbackSetting] = useState<AiFallbackSettingOut | null>(null);
+  const [togglingFallback, setTogglingFallback] = useState(false);
+  const [myAiPreference, setMyAiPreferenceState] = useState<AiPreferenceOut | null>(null);
+  const [myAiProviderChoice, setMyAiProviderChoice] = useState<AiProvider>("OPENAI");
+  const [myAiModelChoice, setMyAiModelChoice] = useState("");
+  const [savingMyAiPreference, setSavingMyAiPreference] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
@@ -83,6 +104,9 @@ export default function CustomerPage() {
     // member/auditor gets 403 here, so this fails silently like the other
     // optional sections above rather than surfacing a spurious error.
     listArchivedWorkspaces(sessionId, customerId).then(setArchivedWorkspaces).catch(() => {});
+    listProviderStatuses(sessionId, customerId).then(setProviderStatuses).catch(() => {});
+    getAiFallbackSetting(sessionId, customerId).then(setFallbackSetting).catch(() => {});
+    getMyAiPreference(sessionId, customerId).then(setMyAiPreferenceState).catch(() => {});
   }, [sessionId, customerId]);
 
   useEffect(() => {
@@ -179,6 +203,74 @@ export default function CustomerPage() {
     if (sessionId === null) return;
     await markCustomerNotificationRead(sessionId, customerId, notification.id).catch(() => {});
     refresh();
+  }
+
+  async function handleToggleProviderEnabled(provider: ProviderStatusOut) {
+    if (sessionId === null) return;
+    try {
+      await setProviderEnabled(sessionId, customerId, provider.provider, !provider.enabled);
+      refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Provayderni o'zgartirib bo'lmadi.");
+    }
+  }
+
+  async function handleTestProviderConnection(provider: ProviderStatusOut) {
+    if (sessionId === null || testingProvider !== null) return;
+    setTestingProvider(provider.provider);
+    try {
+      await testProviderConnection(sessionId, customerId, provider.provider);
+      refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Ulanishni tekshirib bo'lmadi.");
+    } finally {
+      setTestingProvider(null);
+    }
+  }
+
+  async function handleToggleFallback() {
+    if (sessionId === null || fallbackSetting === null || togglingFallback) return;
+    setTogglingFallback(true);
+    try {
+      const updated = await setAiFallbackSetting(sessionId, customerId, !fallbackSetting.enabled);
+      setFallbackSetting(updated);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Fallback sozlamasini o'zgartirib bo'lmadi.");
+    } finally {
+      setTogglingFallback(false);
+    }
+  }
+
+  async function handleSetMyAiPreference(event: FormEvent) {
+    event.preventDefault();
+    if (sessionId === null || savingMyAiPreference) return;
+    setSavingMyAiPreference(true);
+    try {
+      const updated = await setMyAiPreference(
+        sessionId,
+        customerId,
+        myAiProviderChoice,
+        myAiModelChoice.trim().length > 0 ? myAiModelChoice.trim() : null,
+      );
+      setMyAiPreferenceState(updated);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "AI afzalligini saqlab bo'lmadi.");
+    } finally {
+      setSavingMyAiPreference(false);
+    }
+  }
+
+  async function handleClearMyAiPreference() {
+    if (sessionId === null || savingMyAiPreference) return;
+    setSavingMyAiPreference(true);
+    try {
+      await clearMyAiPreference(sessionId, customerId);
+      setMyAiPreferenceState({ provider: null, model: null });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "AI afzalligini tozalab bo'lmadi.");
+    } finally {
+      setSavingMyAiPreference(false);
+    }
   }
 
   async function handleTogglePreference(preference: NotificationPreferenceOut) {
@@ -279,6 +371,110 @@ export default function CustomerPage() {
             <li className="text-sm text-gray-500">A&apos;zo yo&apos;q.</li>
           )}
         </ul>
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-lg font-semibold">AI provayderlar</h2>
+        <ul className="space-y-2">
+          {providerStatuses?.map((provider) => (
+            <li
+              key={provider.provider}
+              className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-sm"
+            >
+              <div className="flex flex-col">
+                <span className="font-medium">{provider.provider}</span>
+                <span className="text-xs text-gray-500">
+                  {provider.configured ? "sozlangan" : "kalit yo'q"}
+                  {provider.verified_at !== null &&
+                    (provider.verified_ok
+                      ? " · tekshirilgan: ishlaydi"
+                      : ` · tekshirilgan: ${provider.verified_error ?? "xato"}`)}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleTestProviderConnection(provider)}
+                  disabled={testingProvider !== null}
+                  className="text-xs text-blue-600 hover:underline disabled:opacity-50"
+                >
+                  {testingProvider === provider.provider ? "Tekshirilmoqda..." : "Ulanishni tekshirish"}
+                </button>
+                <button
+                  onClick={() => handleToggleProviderEnabled(provider)}
+                  className="text-xs text-gray-700 hover:underline"
+                >
+                  {provider.enabled ? "O'chirish" : "Yoqish"}
+                </button>
+              </div>
+            </li>
+          ))}
+          {providerStatuses !== null && providerStatuses.length === 0 && (
+            <li className="text-sm text-gray-500">Provayder ma&apos;lumoti yo&apos;q.</li>
+          )}
+        </ul>
+        {fallbackSetting !== null && (
+          <div className="mt-3 flex items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-sm">
+            <div className="flex flex-col">
+              <span>Avtomatik fallback</span>
+              <span className="text-xs text-gray-500">
+                Vaqtinchalik provayder xatosida (timeout/rate-limit) boshqa provayderga avtomatik o&apos;tish.
+                Standart — o&apos;chirilgan.
+              </span>
+            </div>
+            <button
+              onClick={handleToggleFallback}
+              disabled={togglingFallback}
+              className="text-xs text-blue-600 hover:underline disabled:opacity-50"
+            >
+              {fallbackSetting.enabled ? "O'chirish" : "Yoqish"}
+            </button>
+          </div>
+        )}
+
+        {myAiPreference !== null && (
+          <form onSubmit={handleSetMyAiPreference} className="mt-3 flex items-center gap-2 text-xs">
+            <span className="text-gray-500">
+              Mening AI afzalligim ({myAiPreference.provider ?? "tizim standart"}
+              {myAiPreference.model ? ` / ${myAiPreference.model}` : ""}):
+            </span>
+            <select
+              aria-label="Mening AI provayderim"
+              value={myAiProviderChoice}
+              onChange={(event) => setMyAiProviderChoice(event.target.value as AiProvider)}
+              className="rounded border border-gray-200 bg-gray-50 px-1 py-1"
+            >
+              {AI_PROVIDERS.map((provider) => (
+                <option key={provider} value={provider}>
+                  {provider}
+                </option>
+              ))}
+            </select>
+            <input
+              type="text"
+              value={myAiModelChoice}
+              onChange={(event) => setMyAiModelChoice(event.target.value)}
+              placeholder="model (ixtiyoriy)"
+              className="w-32 rounded border border-gray-200 px-1 py-1"
+            />
+            <button
+              type="submit"
+              disabled={savingMyAiPreference}
+              className="rounded border border-gray-300 px-2 py-1 font-medium text-gray-700 disabled:opacity-50"
+            >
+              Saqlash
+            </button>
+            {myAiPreference.provider !== null && (
+              <button
+                type="button"
+                onClick={handleClearMyAiPreference}
+                disabled={savingMyAiPreference}
+                className="text-red-600 hover:underline disabled:opacity-50"
+              >
+                Tizim standartga qaytarish
+              </button>
+            )}
+          </form>
+        )}
       </section>
 
       {archivedWorkspaces !== null && archivedWorkspaces.length > 0 && (

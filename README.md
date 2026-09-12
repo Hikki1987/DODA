@@ -62,7 +62,8 @@ OIDC hali yo'q (FR-AUTH-001), shuning uchun login sahifasi `session_
 service`ning dev/test seam'idan foydalanadi — bu aniq belgilangan. Knowledge/RAG ekrani hamon qurilmagan, chunki backend'da ham u yo'q
 ("DEMO ≠ PRODUCTION" qoidasi: mavjud bo'lmagan backend uchun soxta UI
 qurilmaydi). Chat (FR-CONV) uchun bu holat keyinroq o'zgardi — pastga
-qarang: backend to'liq qurildi, frontend chat UI'si hali yo'q. To'liq end-to-end oqim (login → workspace →
+qarang: backend to'liq qurildi va endi frontend chat UI'si ham bor
+(`/workspaces/[id]/chat`). To'liq end-to-end oqim (login → workspace →
 bildirishnoma → task yaratish/holat o'zgartirish → o'qildi belgilash →
 a'zolar) real backend'ga qarshi Playwright orqali browser'da qo'lda
 tasdiqlandi, faqat `npm run build` bilan emas.
@@ -354,9 +355,8 @@ chaqirib, `InvalidActionTransition` bilan qulardi) va
 yo'qligi (real `asyncpg.DataError`). To'liq tafsilot: `CLAUDE.md`.
 
 **Halol, ataylab ochiq qoldirilgan qismlar** (QOIDA 2): provayder
-model-darajasidagi capability override (hozir faqat provider darajasida);
-frontend chat UI'si (mavjud bo'lmagan "provayder tanlash" ekrani uchun
-soxta frontend qurilmaydi). **Eng muhim ochiq xavf** —
+model-darajasidagi capability override (hozir faqat provider darajasida).
+**Eng muhim ochiq xavf** —
 `docs/open-decisions.md`ning OD-003 qatori: qaysi ma'lumot sinflari AI
 provayderga yuborilmasin degan qaror hamon OCHIQ, va endi DOLZARB — real
 API kalit ulangan zahoti, foydalanuvchi chatga yozgan har qanday matn
@@ -367,6 +367,56 @@ bu muhitda real provayderga qarshi ishlatilmagan — tarmoq siyosati
 bloklaydi).
 
 353 test, barchasi real Postgres(+Redis)'da; ADR-008/ADR-009 yozildi.
+
+**Frontend chat UI va AI provayder sozlamalari qurildi — backend'ning
+to'liq multi-provider zanjiri (yuqoriga qarang) endi haqiqiy brauzer
+orqali ham ishlatiladi.** Yangi `/workspaces/[id]/chat` sahifasi:
+suhbatlar ro'yxati + yangi suhbat yaratish, xabar yuborish (backend'ning
+SSE oqimini brauzerning o'z `fetch()` + `ReadableStream`'i orqali o'qib,
+matnni real vaqtda ko'rsatadi — `EventSource` ishlatilmadi, chunki u
+faqat GET so'rovlarni qo'llab-quvvatlaydi, bu yerda esa POST kerak),
+rejim tanlovi (FAST/STANDARD/DEEP), suhbatning o'z provayder/model
+pin'ini o'rnatish, va workspace darajasidagi standart provayder/model
+tanlovi. Xatolarning ikki yo'li (module docstring'da hujjatlashtirilgan
+oqim bo'yicha) frontend'da ham aynan shunday ishlaydi: birinchi bayt
+oldingi xato oddiy `ApiError` (masalan byudjet tugashi), birinchi
+baytdan keyingi xato esa bitta `event: error` SSE freymi sifatida
+ko'rsatiladi, oqim esa toza tugaydi.
+
+Yangi `/customers/[id]` bo'limi — "AI provayderlar": har uch provayder
+(OPENAI/GEMINI/CLAUDE) uchun sozlangan/yoqilgan/tekshirilgan holatini
+ko'rsatadi, "Ulanishni tekshirish" tugmasi haqiqiy (garchi bu muhitda
+kalitsiz bo'lsa ham halol) `test_provider_connection` chaqiruvini
+ishga tushiradi, yoqish/o'chirish tugmasi bor. Shu yerga "Avtomatik
+fallback" (standart — o'chirilgan, ADR-009) va "Mening AI afzalligim"
+(4 pog'onali tanlov zanjirining foydalanuvchi darajasi) ham qo'shildi —
+ikkalasi ham allaqachon qurilgan/testlangan backend endpointlariga
+ulanadi, boshqa customer-darajasidagi bo'limlar (kill switch, audit)
+bilan bir xil "customer_id sahifaning o'zida bor" mantig'iga ergashib.
+
+Boshqa har bir sahifadagi kabi, bu yerda ham rol asosida UI-gating yo'q
+— tugmalar har doim ko'rsatiladi, ruxsat yo'q bo'lsa backend javob
+qaytaradi (masalan workspace AI afzalligini o'zgartirish faqat
+`WorkspaceAdmin`/`CustomerOwner`ga ruxsat, oddiy a'zo yozishga urinsa
+403 oladi, lekin forma baribir ko'rinadi).
+
+Real backend'ga (353 test o'zgarishsiz) va haqiqiy brauzerga (production
+build, `next build && next start`) qarshi Playwright orqali tasdiqlandi:
+yangi `frontend/e2e/chat.spec.ts` (o'z mustaqil seed'i — `E2E_CHAT_`,
+chunki bu spec customer-keng AI sozlamalarini (enable/disable, fallback)
+o'zgartiradi, boshqa spec'larning seed'i bilan bo'lishilsa ularga
+ta'sir qilardi) ikkita oqimni qamraydi: (1) yangi suhbat yaratish, xabar
+yuborish, real `NullModelGateway`ning halol "AI javob provayderi hali
+tanlanmagan yoki sozlanmagan" javobini olish (bu matn frontend'da
+qattiq yozilmagan — backend'ning o'zidan real HTTP orqali kelgan), va
+suhbat provayderini pin qilish, to'g'ridan-to'g'ri backend so'rovi bilan
+tasdiqlangan; (2) provayder yoqish/o'chirish, ulanishni tekshirish,
+fallback yoqish, va "mening AI afzalligim"ni o'rnatish — har biri
+sahifaning o'z fetch'idan tashqari to'g'ridan-to'g'ri backend so'rovi
+bilan ham tasdiqlangan (masalan fallback yoqilgani `GET .../ai-fallback`
+orqali). Barcha 12 E2E spec (10 mavjud + 2 yangi) birga qayta ishga
+tushirilib, konsol xatosiz va accessibility (`serious`/`critical` WCAG)
+regressiyasiz ekani tasdiqlandi.
 
 ## Ishga tushirish (local dev)
 
