@@ -19,6 +19,9 @@ from doda.db import async_session_factory
 # whatever else pytest collected first.
 from doda.domain.action import approval as _action_approval_models  # noqa: F401
 from doda.domain.action import models as _action_models  # noqa: F401
+from doda.domain.ai_preference import models as _ai_preference_models  # noqa: F401
+from doda.domain.ai_provider_settings import models as _ai_provider_settings_models  # noqa: F401
+from doda.domain.ai_usage import models as _ai_usage_models  # noqa: F401
 from doda.domain.audit import models as _audit_models  # noqa: F401
 from doda.domain.base import Base
 from doda.domain.conversation import models as _conversation_models  # noqa: F401

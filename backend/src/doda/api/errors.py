@@ -11,9 +11,20 @@ import structlog
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from doda.ai.capabilities import UnsupportedModelCapabilityError
+from doda.ai.errors import (
+    BudgetExceededError,
+    ModelAuthenticationError,
+    ModelNotConfiguredError,
+    ModelProviderError,
+    ModelRateLimitedError,
+    ModelTimeoutError,
+)
 from doda.api.middleware import TRACE_ID_HEADER
 from doda.application.action_service import ApprovalInvalidError
+from doda.application.ai_provider_settings_service import ProviderDisabledError
 from doda.application.authz_service import AuthorizationError
+from doda.application.conversation_service import DeepRequestCostCeilingExceededError
 from doda.application.customer_service import CustomerMembershipError, DuplicateMembershipError
 from doda.application.kill_switch_service import KillSwitchEngagedError
 from doda.application.notification_service import NotificationPreferenceError
@@ -238,6 +249,126 @@ def register_exception_handlers(app: FastAPI) -> None:
                 message="Google bilan bog'lanishda xato yuz berdi. Qaytadan urinib ko'ring.",
                 trace_id=_trace_id(request),
                 retryable=True,
+            ),
+        )
+
+    @app.exception_handler(BudgetExceededError)
+    async def _budget_exceeded(request: Request, exc: BudgetExceededError) -> JSONResponse:
+        return JSONResponse(
+            status_code=402,
+            content=_envelope(
+                code="BUDGET_EXCEEDED",
+                message="Oylik AI byudjeti tugadi.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(DeepRequestCostCeilingExceededError)
+    async def _deep_cost_ceiling_exceeded(
+        request: Request, exc: DeepRequestCostCeilingExceededError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=402,
+            content=_envelope(
+                code="DEEP_COST_CEILING_EXCEEDED",
+                message="Bu so'rov DEEP rejimning bitta so'rov uchun narx chegarasidan oshadi.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(ModelNotConfiguredError)
+    async def _model_not_configured(request: Request, exc: ModelNotConfiguredError) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content=_envelope(
+                code="AI_PROVIDER_NOT_CONFIGURED",
+                message="Tanlangan AI provayder sozlanmagan.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(ModelAuthenticationError)
+    async def _model_authentication_error(request: Request, exc: ModelAuthenticationError) -> JSONResponse:
+        # 10.1: the real reason (a rejected key) stays server-side; never
+        # echo the provider's own message, which could describe the key.
+        logger.warning("ai_provider_authentication_error", trace_id=_trace_id(request))
+        return JSONResponse(
+            status_code=502,
+            content=_envelope(
+                code="AI_PROVIDER_AUTH_ERROR",
+                message="AI provayder kalitini qabul qilmadi. Administrator bilan bog'laning.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(ModelRateLimitedError)
+    async def _model_rate_limited(request: Request, exc: ModelRateLimitedError) -> JSONResponse:
+        headers = {}
+        if exc.retry_after_seconds is not None:
+            headers["Retry-After"] = str(round(exc.retry_after_seconds))
+        return JSONResponse(
+            status_code=429,
+            content=_envelope(
+                code="AI_PROVIDER_RATE_LIMITED",
+                message="AI provayder vaqtincha band. Birozdan so'ng qayta urinib ko'ring.",
+                trace_id=_trace_id(request),
+                retryable=True,
+            ),
+            headers=headers,
+        )
+
+    @app.exception_handler(ModelTimeoutError)
+    async def _model_timeout(request: Request, exc: ModelTimeoutError) -> JSONResponse:
+        return JSONResponse(
+            status_code=504,
+            content=_envelope(
+                code="AI_PROVIDER_TIMEOUT",
+                message="AI provayderdan javob kutish vaqti tugadi.",
+                trace_id=_trace_id(request),
+                retryable=True,
+            ),
+        )
+
+    @app.exception_handler(ModelProviderError)
+    async def _model_provider_error(request: Request, exc: ModelProviderError) -> JSONResponse:
+        logger.warning("ai_provider_error", trace_id=_trace_id(request), status_code=exc.status_code)
+        return JSONResponse(
+            status_code=502,
+            content=_envelope(
+                code="AI_PROVIDER_ERROR",
+                message="AI provayder bilan bog'lanishda xato yuz berdi.",
+                trace_id=_trace_id(request),
+                retryable=True,
+            ),
+        )
+
+    @app.exception_handler(UnsupportedModelCapabilityError)
+    async def _unsupported_model_capability(
+        request: Request, exc: UnsupportedModelCapabilityError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content=_envelope(
+                code="AI_CAPABILITY_UNSUPPORTED",
+                message=str(exc),
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(ProviderDisabledError)
+    async def _provider_disabled(request: Request, exc: ProviderDisabledError) -> JSONResponse:
+        return JSONResponse(
+            status_code=403,
+            content=_envelope(
+                code="AI_PROVIDER_DISABLED",
+                message=f"{exc.provider.value} bu customer uchun o'chirilgan.",
+                trace_id=_trace_id(request),
+                retryable=False,
             ),
         )
 

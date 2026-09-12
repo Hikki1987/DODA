@@ -25,7 +25,24 @@ SRC_ROOT = pathlib.Path(__file__).resolve().parents[2] / "src" / "doda"
 # Libraries that reach the network on their own behalf. Redis is handled
 # separately below: it is the outbox's own transport (ADR-003), not an
 # external side effect, but it has a layering rule of its own.
-OUTBOUND_CLIENT_MODULES = {"httpx", "requests", "urllib.request", "aiohttp"}
+#
+# "openai"/"anthropic" (their own SDKs) and "google" (google-genai lives
+# at `google.genai`, so its root package is "google") are the three AI
+# provider SDKs — ADR-008/ADR-009. "httpx2" is the newer httpx successor
+# `openai`/`anthropic` moved to; test code constructs `httpx2.
+# MockTransport`-backed fakes for them, so it is intentionally NOT banned
+# from tests/ (this AST walk only scans src/doda — see SRC_ROOT below —
+# so that distinction doesn't need its own allowlist entry).
+OUTBOUND_CLIENT_MODULES = {
+    "httpx",
+    "httpx2",
+    "requests",
+    "urllib.request",
+    "aiohttp",
+    "openai",
+    "anthropic",
+    "google",
+}
 
 # The broker may only be touched by the workers that drain the outbox, plus
 # config (which merely holds its URL). The request path must reach Redis
@@ -52,6 +69,14 @@ ALLOWED = {
     # enforces (no asynchronous worker on the other end of a redirect the
     # browser is blocked on).
     "infrastructure/google_oidc_client.py",
+    # ADR-008/ADR-009: the three AI provider adapters. Same exemption
+    # shape as google_oidc_client.py above, not a new kind of exception —
+    # a chat request's own HTTP response is what the caller is blocked
+    # on (FR-CONV-002 streaming), so there is no asynchronous worker to
+    # place this behind the way Action/connector side effects are.
+    "infrastructure/openai_gateway.py",
+    "infrastructure/gemini_gateway.py",
+    "infrastructure/claude_gateway.py",
 }
 
 

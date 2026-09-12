@@ -19,6 +19,7 @@ from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProces
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from doda.api.actions import router as actions_router
+from doda.api.ai_settings import router as ai_settings_router
 from doda.api.audit import router as audit_router
 from doda.api.auth import router as auth_router
 from doda.api.conversations import router as conversations_router
@@ -91,6 +92,7 @@ def create_app() -> FastAPI:
     app.include_router(notifications_router)
     app.include_router(sessions_router)
     app.include_router(me_router)
+    app.include_router(ai_settings_router)
     FastAPIInstrumentor.instrument_app(app)
     # Unversioned by design, unlike every other route here — Prometheus
     # scrapers universally expect a fixed /metrics path, not a versioned

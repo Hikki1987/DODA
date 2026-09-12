@@ -3997,3 +3997,153 @@ qilinganda kimdir buni qaytadan qidirmasligi uchun.
 `test_conversations_api.py`), barchasi real Postgres'da. Migratsiya
 round-trip (0012→0013→0012→0013) qo'lda tasdiqlandi. `ruff`/`mypy`
 toza.
+
+**Product Owner yuqoridagi scaffolding cheklovini ATAYLAB bekor qildi —
+"faqat OpenAI, qolganlariga ulanish nuqtasi qoldir" o'rniga UCHTA real
+provayder: OpenAI (standart), Google Gemini, Anthropic Claude, bitta
+gateway ortida.** Bu qaror ADR-008 (OpenAI — real `ModelGateway`
+implementatsiyasi, Responses API, `store=False`, byudjet/tool-registry
+zanjiri) va ADR-009 (Gemini+Claude — `doda.ai.types`/`doda.ai.port`ga
+HECH QANDAY o'zgarishsiz qo'shilgan, arxitekturaning haqiqiy portativlik
+da'vosini isbotlagan) sifatida to'liq yozildi. Model ID'lari va SDK
+xususiyatlari (Responses API vs Chat Completions, Gemini'ning camelCase
+REST formati, Claude'ning SSE `event:` qatori talabi, Claude'da native
+structured output yo'qligi — forced-tool orqali emulyatsiya qilindi)
+HAR BIRI yangi, alohida `pip install`langan virtualenv orqali to'g'ridan-
+to'g'ri SDK manbasidan tasdiqlandi, xotiradan taxmin qilinmadi. Narx
+jadvali (`ai_pricing.py`) esa HALOL ravishda ikkinchi darajali manba
+sifatida belgilandi — bu muhitning tarmoq siyosati har uchala
+provayderning o'z narx sahifasini ham bloklaydi.
+
+Qurilgan to'liq zanjir: `doda.ai.port.ModelGateway` (provayderdan
+mustaqil Protocol) → `doda.ai.factory.get_gateway` (kalit yo'q bo'lsa
+`NullModelGateway`, HECH QACHON boshqa provayderga almashtirmaydi) →
+`doda.application.conversation_service.stream_message` — har bir
+suhbat burilishining markazi: xabarni saqlash → provayder/model tanlovi
+(`ai_preference_service`: suhbat pin > foydalanuvchi standart > workspace
+standart > tizim standart, 4 darajali, aralashtirmaydi) → capability
+tekshiruvi (`ai.capabilities.assert_supports_tools`) → DEEP rejim narx
+chegarasi → eng yomon holat byudjetini oldindan zahira qilish
+(`ai_budget_service`, `SELECT ... FOR UPDATE` bilan qulflangan oylik
+ledger) → tool-call davrlarini boshqarish (READ vositalar darhol
+bajariladi; WRITE vositalar HECH QACHON to'g'ridan-to'g'ri bajarilmaydi,
+mavjud Action/Approval zanjiri orqali o'tadi) → byudjetni moslashtirish
+(har qanday kutilmagan xatoda ham, `except Exception:` bilan
+umumlashtirilgan — aks holda qulab tushish "hech qachon ozod
+qilinmaydigan" zahirani qoldirardi).
+
+`POST /v1/workspaces/{id}/conversations/{id}/messages` SSE (`text/
+event-stream`) orqali javob beradi, ikki xil xato yo'li bilan: birinchi
+bayt OLDIN (byudjet, DEEP chegarasi, birinchi davrdagi xato) — oddiy HTTP
+4xx/5xx; birinchi bayt KEYIN — bitta yakuniy `event: error` SSE freymi,
+keyin generator toza tugaydi (aks holda tranzaksiya rollback bo'lib,
+allaqachon mijozga yuborilgan xabarlar tarixi yo'qolardi). Bu ikkalasi
+ham skriptlashtirilgan fake gateway bilan (haqiqiy xatoni
+soxtalashtirib) audit-zanjiri uslubida tasdiqlandi.
+
+**Keyin ikkita yangi acceptance-criteria qurildi**: (1) Provayder
+sozlamalari admin API'si (`api/ai_settings.py`) — "configured" (server
+darajasidagi kalit bor-yo'qligi) vs "enabled" (CustomerOwner o'chirib
+qo'ymagani, `CustomerAIProviderSetting`, qator yo'qligi = yoqilgan) vs
+"verified working" (haqiqiy test-connection chaqiruvi natijasi,
+`AIProviderVerification` — ATAYLAB customer-scoped EMAS, chunki
+kredensial o'zi server darajasidagi `Settings` qiymati, BYOK modeli
+yo'q) — uchta alohida, aralashtirilmagan fakt. Shu bilan birga
+`set_user_ai_preference`/`set_workspace_ai_preference` (ilgari faqat
+application-layer funksiya, HECH QANDAY HTTP yo'li yo'q edi — yana bir
+"backend bor, ulanish yo'q" bo'shlig'i) endi `GET/PUT/DELETE .../me/ai-
+preference` va `GET/PUT/DELETE /v1/workspaces/{id}/ai-preference` orqali
+ochildi. (2) Opt-in, standart O'CHIRILGAN avtomatik fallback
+(`CustomerAIFallbackSetting` — qator yo'qligi = O'CHIRILGAN, boshqa
+jadvaldan FARQLI standart, ataylab: jimgina almashtirish hech qachon
+aytilmagan standart bo'lmasligi kerak) — faqat `ModelTimeoutError`/
+`ModelRateLimitedError`/`ModelProviderError` uchun, FAQAT round 0da hali
+hech narsa (matn yoki tool-call) ishlab chiqarilmagan bo'lsa, bitta
+urinish, qat'iy tartibda (`FALLBACK_ORDER`). `ModelAuthenticationError`/
+`ModelNotConfiguredError` ATAYLAB chiqarib tashlandi (haqiqiy
+konfiguratsiya xatosini fallback bilan berkitish xato bo'lardi), va
+`BudgetExceededError`/`ProviderDisabledError`/
+`UnsupportedModelCapabilityError` strukturaviy jihatdan bu yerga
+YETOLMAYDI (barchasi round loop boshlanishidan OLDIN chiqariladi) —
+demak "xavfsizlik/byudjet rad etishini hech qachon chetlab o'tmaydi"
+talabi kodning o'zi tomonidan kafolatlangan, alohida tekshiruv emas.
+
+**Shu ishni qurish jarayonida haqiqiy, jiddiy xato topildi va
+tuzatildi — har bir MUVAFFAQIYATLI suhbat burilishi cheksiz tsiklga
+tushib qolardi.** Fallback uchun mavjud `for/else` round-tsiklini
+`while True:` bilan o'rab chiqishda, muvaffaqiyatli yakunlanish yo'lidagi
+`break` (while-tsiklni to'xtatishi kerak edi) FAQAT `else:` blokining
+ICHIGA joylashtirilgan edi — bu faqat `ai_max_tool_rounds` TUGAGANDA
+ishlaydi, lekin ODATDAGI, muvaffaqiyatli yakunlanish yo'li (for-tsiklni
+ICHKI `break` bilan erta tugatish, final javob tayyor bo'lganda)
+`else:` blokini UMUMAN chaqirmaydi (Python'ning for-else semantikasi) —
+demak `while True:` hech qachon to'xtamay, HAR bir muvaffaqiyatli
+javobdan keyin round 0dan qaytadan boshlab ketardi, xuddi shu xabarni
+qayta-qayta provayderga yuborib. Bu to'liq test suite'ni ishga
+tushirishda DARHOL aniqlandi — jarayon 99% CPU bilan cheksiz aylanib
+qoldi (oddiy ~25s o'rniga 2+ daqiqa, hech qanday progress'siz), "nima
+uchun sekin" deb o'tkazib yuborilmadi, balki process kill qilinib,
+sabab aniq topildi (`break` noto'g'ri joyda). Tuzatish: `break`ni
+`for/else` konstruksiyasining HAR IKKALA yo'lidan keyin (else blokining
+ICHIDAN TASHQARIGA, lekin `for`ning o'zi bilan bir xil darajada)
+chiqarib qo'yish — endi muvaffaqiyatli yakunlanish ham, tugash ham bir
+xil ishonchli tarzda while-tsiklni to'xtatadi. Bu xato HECH QACHON
+production'da sodir bo'lmagan bo'lardi — CI/production'da bu kod
+umuman push qilinmagan edi — lekin bu aynan "har safar to'liq test
+suite'ni ishga tushir" intizomining o'zi nima uchun shart ekanini
+ko'rsatadi: yolg'iz, tezkor birlik testlari bu xatoni HECH QACHON
+ko'rsatmagan bo'lardi (ular `NullModelGateway`ning bir martalik javobini
+tekshiradi, qayta-qayta chaqirilishini emas) — faqat to'liq integratsiya
+oqimi (real SSE javobini to'liq o'qish) buni ushladi.
+
+Shu izlanish jarayonida ikkita boshqa haqiqiy xato ham topildi: (1)
+`ai_tools.propose_write_tool_action` retry holatida (bir xil
+idempotency-key bilan ikkinchi chaqiruv) `submit_action_for_execution`ni
+SHARTSIZ qayta chaqirardi — allaqachon `AWAITING_APPROVAL`ga o'tgan
+action uchun `InvalidActionTransition` bilan qulardi; `api/actions.py`
+allaqachon to'g'ri qilgan `created`-tekshiruvi bilan bir xil naqshga
+o'tkazib tuzatildi (yangi `test_a_retried_write_tool_call_collapses_
+onto_the_same_action_not_a_duplicate` buni birinchi yozilganida DARHOL
+ushladi). (2) `AIProviderVerification.last_verified_at` ORM modelida
+`DateTime(timezone=True)` yo'q edi (migratsiyada bor edi, lekin model
+ustunida yo'q) — timezone-aware Python datetime'ni saqlashga urinishda
+haqiqiy `asyncpg.DataError` bilan qulashi real test orqali ushlandi.
+
+Testlash jarayonida yana bitta haqiqiy, kelajakda takrorlanishi mumkin
+bo'lgan naqsh topildi: `AIProviderVerification` ATAYLAB tenant-scoped
+EMAS (customer_id yo'q — kredensial server darajasida), demak har bir
+tenant-scoped jadvaldan farqli, tasodifiy `uuid.uuid4()` customer HAR
+TEST uchun uni izolyatsiya QILMAYDI — bir testning test-connection
+natijasi boshqa HAR QANDAY testga (va kelajakdagi har qanday pytest
+ishga tushirilishiga) ko'rinadi. `test_ai_settings_api.py`ga autouse
+fixture qo'shildi (`_reset_global_provider_verification_state` —
+har test oldidan jadvalni tozalaydi) — bu xuddi outbox PEL probe'ning
+`XDEL`si va E2E spec'larning alohida seed prefikslari bilan bir xil
+"boshqa testga iz qoldirma" intizomining yana bir nusxasi.
+
+Mavjud bo'shliqlar, ataylab: provider-specific model-darajasidagi
+capability override'lar (hozir faqat provider darajasida); "agent run"
+alohida cost-tracking o'lchovi (conversation turn eng yaqin ekvivalenti);
+FR-CONV-001/002/004/005/006/007 (til aniqlash, cancel, noaniqlik, 
+strukturalangan bloklar, tarix qidirish, tahrirlash) — barchasi haqiqiy
+model javobini talab qiladi. Frontend chat UI'si hamon qurilmagan —
+backend to'liq, lekin "hali mavjud bo'lmagan haqiqiy AI javobi uchun
+soxta frontend" qurish bu ham sabab bo'lib qolmoqda (OpenAI/Gemini/
+Claude'ga HAQIQIY so'rov bu muhitdan hech qachon yuborilmagan — tarmoq
+siyosati barchasini bloklaydi).
+
+`docs/open-decisions.md`ning OD-003 qatori YANGILANDI — endi "hali real
+harm yo'q" emas, **haqiqiy jonli xavf**: AI provider tanlovi hal
+qilindi va Chat HAQIQATDA ishlaydi, shuning uchun birinchi real API
+kalit ulanishi ZAHOTI, OD-003 hal qilinmagan holda, foydalanuvchi chatga
+yozgan har qanday matn filtrlashsiz tashqi provayderga ketadi.
+`docs/risk-register.md`'ning RISK-004 (vendor lock-in — endi mitigated,
+real amalga oshirilgan) va RISK-005 (token/xarajat — endi qisman
+mitigated, real enforcement kodi bilan) yangilandi.
+
+`backend/scripts/run_ai_eval_suite.py` — 11 ta o'zbek tilidagi vazifa
+bilan eval harness, real orkestratsiya (`stream_message`) orqali, lekin
+bu muhitda faqat `NullModelGateway`ga qarshi ishlatilgan (halol
+chegara, skriptning o'z docstring'ida yozilgan).
+
+353 test, barchasi real Postgres(+Redis)'da. `ruff`/`mypy` toza.

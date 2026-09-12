@@ -59,10 +59,10 @@ Bosqich **S3 (qisman)** boshlandi: `frontend/` — Next.js + TypeScript web
 qobig'i (login, workspace tanlash, task/bildirishnoma/a'zolar/kill-switch
 ekranlari), backend'ning real, testlangan endpointlariga ulangan. Haqiqiy
 OIDC hali yo'q (FR-AUTH-001), shuning uchun login sahifasi `session_
-service`ning dev/test seam'idan foydalanadi — bu aniq belgilangan. Chat
-(FR-CONV) va Knowledge/RAG ekranlari qurilmagan, chunki backend'da ham
-ular yo'q ("DEMO ≠ PRODUCTION" qoidasi: mavjud bo'lmagan backend uchun
-soxta UI qurilmaydi). To'liq end-to-end oqim (login → workspace →
+service`ning dev/test seam'idan foydalanadi — bu aniq belgilangan. Knowledge/RAG ekrani hamon qurilmagan, chunki backend'da ham u yo'q
+("DEMO ≠ PRODUCTION" qoidasi: mavjud bo'lmagan backend uchun soxta UI
+qurilmaydi). Chat (FR-CONV) uchun bu holat keyinroq o'zgardi — pastga
+qarang: backend to'liq qurildi, frontend chat UI'si hali yo'q. To'liq end-to-end oqim (login → workspace →
 bildirishnoma → task yaratish/holat o'zgartirish → o'qildi belgilash →
 a'zolar) real backend'ga qarshi Playwright orqali browser'da qo'lda
 tasdiqlandi, faqat `npm run build` bilan emas.
@@ -271,6 +271,102 @@ build` haqiqiy ishga tushirilmagan, faqat `docker compose config` orqali
 YAML to'g'riligi tasdiqlangan. `deploy/README.md`da aniq yozilgan: real
 server provisioning/DNS — bu agent bajara olmaydigan, inson (yoki
 kredensial) kerak bo'ladigan qadam.
+
+**FR-CONV (Chat) backend'i to'liq qurildi — uch provayderli AI
+integratsiyasi bilan (ADR-008: OpenAI, standart; ADR-009: Google Gemini
+va Anthropic Claude, Product Owner'ning aniq, qamrovni kengaytiruvchi
+ko'rsatmasi bilan).** `doda.ai.port.ModelGateway` — bitta provayderdan
+mustaqil Protocol (`stream_chat`, streaming events: text/tool-call/
+structured-output/completion/error); `doda.ai.factory.get_gateway` har
+bir provayder uchun mustaqil ravishda haqiqiy adapter
+(`infrastructure/{openai,gemini,claude}_gateway.py`) yoki, kalit
+sozlanmagan bo'lsa, `NullModelGateway`ni tanlaydi — **bitta provayderning
+sozlanmaganligi hech qachon boshqa provayderga almashtirilmaydi**
+(testlangan). `doda.application.conversation_service.stream_message` —
+har bir suhbat burilishining markazi: foydalanuvchi xabarini saqlash →
+provayder/model tanlovini hal qilish (`ai_preference_service`: suhbat
+pin > foydalanuvchi standart > workspace standart > tizim standart,
+to'rt darajali, hech qachon aralashtirmaydi) → butun burilish uchun
+eng yomon holat byudjetini oldindan zahira qilish (`ai_budget_service`,
+`SELECT ... FOR UPDATE` bilan qulflangan oylik ledger — besh marta
+isbotlangan concurrency-xavfsiz naqsh) → gateway bilan, tool-call
+davrlarini boshqarib (READ vositalar darhol bajariladi; WRITE vositalar
+HECH QACHON to'g'ridan-to'g'ri bajarilmaydi, mavjud Action/Approval
+zanjiri orqali o'tadi va burilishni aniq, model yaratmagan status xabari
+bilan tugatadi) → byudjetni haqiqiy sarfga moslashtirish (har qanday
+kutilmagan xatoda ham — `except Exception:` bilan umumlashtirilgan, aks
+holda qulab tushish "hech qachon ozod qilinmaydigan" zahirani qoldirardi).
+
+`POST /v1/workspaces/{id}/conversations/{id}/messages` — SSE (`text/
+event-stream`) orqali javob beradi. Ikki xil xato yo'li ataylab farqli:
+birinchi bayt OLDIN (byudjet tugashi, DEEP narx chegarasi, birinchi
+davrdagi provayder xatosi) — oddiy HTTP 4xx/5xx (headerlar hali
+yuborilmagan); birinchi bayt KEYIN (masalan ikkinchi tool-call davrida
+provayder xatosi) — bitta yakuniy `event: error` SSE freymi, keyin
+generator toza tugaydi (aks holda tranzaksiya rollback bo'lib, allaqachon
+mijozga yuborilgan xabarlar tarixi yo'qolardi). Ikkalasi ham real
+HTTP/SSE orqali, skriptlashtirilgan fake gateway bilan (haqiqiy provayder
+xatosini soxtalashtirib) tasdiqlandi — audit-zanjiri uslubida: himoya
+vaqtincha olib tashlanib, test aniq kutilgan tarzda buzilishi, keyin
+qaytarilib yashil ekani ko'rsatildi.
+
+**Shu ishni yozish jarayonida haqiqiy xato topildi va tuzatildi**:
+`ai_tools.propose_write_tool_action` retry holatida (bir xil
+idempotency-key bilan ikkinchi chaqiruv) `submit_action_for_execution`ni
+SHARTSIZ qayta chaqirardi — allaqachon `AWAITING_APPROVAL`ga o'tgan
+action uchun bu `InvalidActionTransition` bilan qulardi. `api/
+actions.py`ning allaqachon to'g'ri qilgan `created`-tekshiruvi bilan bir
+xil naqshga o'tkazib tuzatildi. Bu xato hech qachon ishlatilmagan
+edi — yangi `test_a_retried_write_tool_call_collapses_onto_the_same_
+action_not_a_duplicate` uni birinchi marta yozilganida DARHOL ushladi.
+
+**Provayder sozlamalari admin API'si va opt-in fallback ham qurildi**
+(`api/ai_settings.py`, `ai_provider_settings_service.py`) —
+"configured" (server darajasidagi kalit) / "enabled" (CustomerOwner
+o'chirib qo'ymagani) / "verified working" (haqiqiy test-connection
+natijasi) uchta alohida fakt, `GET /v1/customers/{id}/ai-providers` +
+`PUT .../enabled` + `POST .../test-connection`; shuningdek ilgari
+hech qanday HTTP yo'li bo'lmagan `set_user_ai_preference`/
+`set_workspace_ai_preference` endi `GET/PUT/DELETE .../me/ai-preference`
+va `.../workspaces/{id}/ai-preference` orqali ochildi. Fallback
+(`CustomerAIFallbackSetting`, standart O'CHIRILGAN) faqat uchta
+vaqtinchalik xato turida (`ModelTimeoutError`/`ModelRateLimitedError`/
+`ModelProviderError`), faqat round 0da hali hech narsa ishlab
+chiqarilmagan bo'lsa, bitta urinish — byudjet/ruxsat rad etishlarini
+hech qachon chetlab o'ta olmaydi (strukturaviy jihatdan ularga
+yetolmaydi, alohida tekshiruv emas).
+
+**Bu ishni qurish jarayonida haqiqiy, jiddiy xato topildi va tuzatildi —
+har bir MUVAFFAQIYATLI suhbat burilishi cheksiz tsiklga tushib qolardi.**
+Fallback uchun round-tsiklni `while True:`ga o'rashda, muvaffaqiyatli
+yakunlanishni belgilaydigan `break` xato joyga (`for/else`ning faqat
+`else` qismi ichiga) qo'yilgan edi — oddiy, muvaffaqiyatli yakunlanish
+yo'li (erta `break` bilan) `else`ni umuman chaqirmaydi, demak
+`while True:` hech qachon to'xtamay qolardi. To'liq test suite'ni ishga
+tushirishda DARHOL aniqlandi (99% CPU, progress'siz ~2+ daqiqa) — bu
+aynan "har safar to'liq suite'ni ishga tushir" intizomining nima uchun
+shart ekanini ko'rsatadi: yolg'iz birlik testlari buni hech qachon
+ko'rsatmagan bo'lardi. Shu jarayonda ikkita boshqa haqiqiy xato ham
+topildi: `ai_tools.propose_write_tool_action`ning retry yo'li
+(idempotent replay'da `submit_action_for_execution`ni shartsiz qayta
+chaqirib, `InvalidActionTransition` bilan qulardi) va
+`AIProviderVerification.last_verified_at`da `DateTime(timezone=True)`
+yo'qligi (real `asyncpg.DataError`). To'liq tafsilot: `CLAUDE.md`.
+
+**Halol, ataylab ochiq qoldirilgan qismlar** (QOIDA 2): provayder
+model-darajasidagi capability override (hozir faqat provider darajasida);
+frontend chat UI'si (mavjud bo'lmagan "provayder tanlash" ekrani uchun
+soxta frontend qurilmaydi). **Eng muhim ochiq xavf** —
+`docs/open-decisions.md`ning OD-003 qatori: qaysi ma'lumot sinflari AI
+provayderga yuborilmasin degan qaror hamon OCHIQ, va endi DOLZARB — real
+API kalit ulangan zahoti, foydalanuvchi chatga yozgan har qanday matn
+filtrlashsiz tashqi provayderga ketadi. `backend/scripts/
+run_ai_eval_suite.py` — 11 ta o'zbek tilidagi vazifa bilan eval harness
+(real orkestratsiya orqali, `NullModelGateway`dan tashqari hech qachon
+bu muhitda real provayderga qarshi ishlatilmagan — tarmoq siyosati
+bloklaydi).
+
+353 test, barchasi real Postgres(+Redis)'da; ADR-008/ADR-009 yozildi.
 
 ## Ishga tushirish (local dev)
 

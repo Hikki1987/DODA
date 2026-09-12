@@ -8,6 +8,9 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from doda.config import get_settings
 from doda.domain.action import approval as action_approval_models  # noqa: F401
 from doda.domain.action import models as action_models  # noqa: F401
+from doda.domain.ai_preference import models as ai_preference_models  # noqa: F401
+from doda.domain.ai_provider_settings import models as ai_provider_settings_models  # noqa: F401
+from doda.domain.ai_usage import models as ai_usage_models  # noqa: F401
 from doda.domain.audit import models as audit_models  # noqa: F401
 from doda.domain.base import Base
 from doda.domain.conversation import models as conversation_models  # noqa: F401

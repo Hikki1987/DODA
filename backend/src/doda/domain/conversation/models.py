@@ -26,6 +26,10 @@ from doda.domain.base import Base, CreatedAtMixin, UUIDPrimaryKeyMixin
 class MessageRole(enum.StrEnum):
     USER = "USER"
     ASSISTANT = "ASSISTANT"
+    TOOL = "TOOL"
+    """The result of a tool call fed back to the model — `tool_call_id`
+    links it to the ASSISTANT message that requested it (0015-migratsiya).
+    """
 
 
 class Conversation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
@@ -35,6 +39,18 @@ class Conversation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     workspace_id: Mapped[uuid.UUID] = mapped_column(index=True)
     owner_id: Mapped[str] = mapped_column(String(256))
     title: Mapped[str | None] = mapped_column(String(256), default=None)
+
+    # Set only once a user explicitly switches provider/model INSIDE this
+    # conversation (0015-migratsiya) — None means "use whatever the
+    # resolution chain currently says" (doda.application.
+    # ai_preference_service): conversation pin > user default > workspace
+    # default > system default. Pinning a conversation deliberately does
+    # NOT change the user's or workspace's saved default — the explicit
+    # instruction "Standart tanlovni o'zgartirish mavjud suhbatlarning
+    # tanlovini avtomatik o'zgartirmasin" is symmetric: neither direction
+    # auto-propagates into the other.
+    pinned_provider: Mapped[str | None] = mapped_column(String(16), default=None)
+    pinned_model: Mapped[str | None] = mapped_column(String(64), default=None)
 
 
 class Message(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
@@ -53,4 +69,32 @@ class Message(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     # kontentini audit/logga yozma" rule is honored by construction: no
     # code path in this scaffolding ever passes a Message's content to
     # record_audit_event.
-    content: Mapped[str] = mapped_column(Text)
+    content: Mapped[str] = mapped_column(Text, default="")
+
+    # --- Tool-call turns (0015-migratsiya) ------------------------------
+    # An ASSISTANT message with tool_name set means "the model requested
+    # this tool call" (content is usually empty); the matching TOOL
+    # message carries the result, linked by tool_call_id. Deliberately
+    # provider-neutral — call_id is whatever the ORIGINATING provider
+    # assigned (or a synthesized one, for providers that don't), and
+    # every adapter (doda.infrastructure.*_gateway) re-mints its OWN
+    # native call-id shape when replaying this as history, never reusing
+    # another provider's id directly — the explicit instruction "boshqa
+    # provayderga to'g'ridan-to'g'ri yubormaslik" (provider-specific
+    # session/call ids must not cross providers).
+    tool_call_id: Mapped[str | None] = mapped_column(String(128), default=None)
+    tool_name: Mapped[str | None] = mapped_column(String(128), default=None)
+    tool_arguments_json: Mapped[str | None] = mapped_column(Text, default=None)
+
+    # --- Provider/model attribution (0015-migratsiya) -------------------
+    # "Har bir javobda uni yaratgan provayder va model haqidagi metadata
+    # saqlansin. Oldingi javoblarning provayder yorlig'i yangi tanlov
+    # sababli o'zgarmasin" — set once, at write time, on each ASSISTANT
+    # message; never recomputed from the conversation's current
+    # provider/model choice.
+    provider: Mapped[str | None] = mapped_column(String(16), default=None)
+    model: Mapped[str | None] = mapped_column(String(64), default=None)
+    finish_reason: Mapped[str | None] = mapped_column(String(16), default=None)
+    """FR-CONV-008: "stop"/"tool_calls"/"length"/"cancelled"/"error" — a
+    "length" or "cancelled" message must be rendered as incomplete, never
+    presented as a full answer."""

@@ -28,6 +28,16 @@ def test_a_normal_origin_list_is_accepted() -> None:
     assert settings.cors_allowed_origins == "http://localhost:3000,https://app.example.com"
 
 
+def test_unknown_default_ai_provider_is_rejected() -> None:
+    with pytest.raises(ValidationError, match="ai_default_provider"):
+        Settings(ai_default_provider="OLLAMA")
+
+
+def test_the_three_known_providers_are_all_accepted_as_default() -> None:
+    for provider in ("OPENAI", "GEMINI", "CLAUDE"):
+        assert Settings(ai_default_provider=provider).ai_default_provider == provider
+
+
 def test_telegram_bot_token_never_appears_in_the_settings_repr() -> None:
     """config.py's own docstring promises SecretStr makes "never logged"
     structural: a stray `logger.info(..., settings=settings)`, an

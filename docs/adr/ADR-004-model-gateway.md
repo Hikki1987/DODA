@@ -1,6 +1,6 @@
 # ADR-004: Model gateway for AI provider abstraction
 
-**Status:** Accepted (TRD 6.4) — **not yet implemented**
+**Status:** Accepted (TRD 6.4) — **implemented, see ADR-008/ADR-009**
 
 ## Context
 
@@ -47,7 +47,15 @@ this gateway.
 
 ## Status note
 
-This ADR records a decision, not a delivered feature. There is no AI/model
-integration code anywhere in this codebase as of this ADR — grep for
-`ModelGateway` or `model_gateway` returns nothing. Do not assume this
-abstraction exists when planning stage 2/6 work; it has to be built.
+**Update**: implemented. `doda.ai.port.ModelGateway` exists, with a real
+OpenAI adapter (ADR-008) and, following an explicit Product Owner scope
+expansion, Google Gemini and Anthropic Claude adapters (ADR-009) behind
+the exact same Protocol with zero changes to it. The "never log prompt
+content" discipline this ADR called for is honored by
+`doda.ai.errors`/every adapter's error-scrubbing (structured fields only,
+never `str(exc)` on a raw SDK exception) and by
+`doda.application.ai_budget_service`'s usage accounting, which records
+token counts and cost, never message content. See ADR-008/ADR-009 for
+what was actually built, what was verified (mock-transport only — this
+environment's network egress policy blocks all three providers' real
+APIs) and what remains open (provider settings API, automatic fallback).

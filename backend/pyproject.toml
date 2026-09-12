@@ -17,6 +17,14 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.49b0",
     "prometheus-fastapi-instrumentator>=7.0",
     "structlog>=24.4",
+    # ADR-008/ADR-009: the three real AI provider adapters. Each pinned
+    # to the major version verified against this codebase, installed
+    # fresh from PyPI 2026-09-12 — only the matching
+    # `doda.infrastructure.*_gateway` module may import each one
+    # (enforced by tests/unit/test_side_effect_boundary.py).
+    "openai>=3.0,<4.0",
+    "google-genai>=2.0,<3.0",
+    "anthropic>=1.0,<2.0",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +35,13 @@ dev = [
     "ruff>=0.7",
     "mypy>=1.13",
     "pip-audit>=2.7",
+    # `openai`/`anthropic` (3.x/1.x, 2026-09-12) both moved to `httpx2`
+    # (a newer, separate major-version successor to `httpx`, same
+    # author) for their own HTTP transport — test code needs this
+    # directly to build `httpx2.MockTransport`-backed fakes for them.
+    # `google-genai` still uses plain `httpx` (already a dependency), so
+    # no separate test dependency is needed for that adapter.
+    "httpx2>=2.0",
 ]
 
 [tool.pytest.ini_options]

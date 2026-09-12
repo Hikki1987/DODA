@@ -277,3 +277,27 @@ def authorize_view_archived_workspaces(context: CustomerContext) -> None:
     workspace_admin on that one workspace, unaffected by this."""
     if context.role is not CustomerRole.CUSTOMER_OWNER:
         raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not view archived workspaces")
+
+
+def authorize_manage_ai_provider_settings(context: CustomerContext) -> None:
+    """No 10.2 row names AI provider settings directly (they didn't exist
+    when that matrix was written) — follows the same restrictiveness as
+    every other customer-wide, no-existing-row precedent here (kill
+    switch, audit, archived workspaces): CustomerOwner only. Enabling/
+    disabling a provider or re-running its test-connection affects every
+    workspace under this customer, not just the caller's own."""
+    if context.role is not CustomerRole.CUSTOMER_OWNER:
+        raise AuthorizationError(
+            Decision.DENY, f"role {context.role.value} may not manage AI provider settings"
+        )
+
+
+def authorize_manage_workspace_ai_preference(context: WorkspaceContext) -> None:
+    """Same shape as authorize_manage_workspace_members: setting the
+    workspace's own default provider/model affects every member's chat,
+    not just the caller's — Member = No, WorkspaceAdmin/CustomerOwner
+    (resolves as WORKSPACE_ADMIN, see get_workspace_context) = Yes."""
+    if context.role is not WorkspaceRole.WORKSPACE_ADMIN:
+        raise AuthorizationError(
+            Decision.DENY, f"role {context.role.value} may not set the workspace's AI preference"
+        )
