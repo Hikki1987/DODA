@@ -21,6 +21,7 @@ from doda.domain.action import approval as _action_approval_models  # noqa: F401
 from doda.domain.action import models as _action_models  # noqa: F401
 from doda.domain.audit import models as _audit_models  # noqa: F401
 from doda.domain.base import Base
+from doda.domain.conversation import models as _conversation_models  # noqa: F401
 from doda.domain.customer import models as _customer_models  # noqa: F401
 from doda.domain.identity import models as _identity_models  # noqa: F401
 from doda.domain.notification import models as _notification_models  # noqa: F401

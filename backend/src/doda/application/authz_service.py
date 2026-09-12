@@ -162,6 +162,16 @@ def authorize_create_task(context: WorkspaceContext) -> None:
         raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not create tasks")
 
 
+def authorize_use_chat(context: WorkspaceContext) -> None:
+    """10.2 'Chat va task' row: Member/WorkspaceAdmin/CustomerOwner = Ha.
+    Same three roles and the same fail-closed shape as
+    authorize_create_task (written as its own explicit check rather than
+    reused, so a future role split between chat and task access doesn't
+    require re-deriving which function covers which row)."""
+    if context.role not in (WorkspaceRole.MEMBER, WorkspaceRole.WORKSPACE_ADMIN):
+        raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not use chat")
+
+
 def authorize_manage_workspace_members(context: WorkspaceContext) -> None:
     """10.2 'Rol biriktirish' row: Member = Yo'q; WorkspaceAdmin = Workspace
     ichida; CustomerOwner = Ha (resolves as WORKSPACE_ADMIN — see

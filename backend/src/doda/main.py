@@ -21,6 +21,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from doda.api.actions import router as actions_router
 from doda.api.audit import router as audit_router
 from doda.api.auth import router as auth_router
+from doda.api.conversations import router as conversations_router
 from doda.api.customer_admin import router as customer_admin_router
 from doda.api.errors import register_exception_handlers
 from doda.api.health import router as health_router
@@ -82,6 +83,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(actions_router)
     app.include_router(tasks_router)
+    app.include_router(conversations_router)
     app.include_router(workspace_admin_router)
     app.include_router(customer_admin_router)
     app.include_router(kill_switch_router)

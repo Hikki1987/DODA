@@ -10,6 +10,7 @@ from doda.domain.action import approval as action_approval_models  # noqa: F401
 from doda.domain.action import models as action_models  # noqa: F401
 from doda.domain.audit import models as audit_models  # noqa: F401
 from doda.domain.base import Base
+from doda.domain.conversation import models as conversation_models  # noqa: F401
 from doda.domain.customer import models as customer_models  # noqa: F401
 
 # Import every domain's models so Base.metadata is complete for autogenerate.

@@ -3920,3 +3920,80 @@ qachon yopilishi noaniq bo'lgan bo'shliq sifatida belgilangan.
 Backend kodi o'zgarmadi — sof hujjat aniqligi (amaliy qamrovni kodning
 haqiqiy holatiga moslashtirish), 281 test o'zgarishsiz (`pytest
 --collect-only` bilan haqiqatda qayta sanalib tasdiqlandi).
+
+**FR-CONV (Chat) uchun birinchi qadam qurildi — lekin ataylab faqat
+scaffolding, real AI EMAS.** Product Owner keyingi ustunlik sifatida
+"Chat + AI yordamchi"ni tanladi, lekin ikkita to'g'ridan-to'g'ri bog'liq
+Product Owner qarorini ("Hali aniq emas" — AI provider; "Keyinroq
+alohida belgilayman" — OD-003, qaysi ma'lumot sinflari providerga
+umuman yuborilmasin) ataylab hozircha ochiq qoldirdi. OD-002/004/005'ning
+o'z tarixi ("Google/Telegram/Hetzner kabi qarorlarni agent hech qachon
+o'zi taxmin qilmaydi") shu ikkisini taxmin qilib real model chaqiruv
+kodi yozishni to'g'ridan-to'g'ri man qiladi — shuning uchun bu safar
+qurilgan narsa provider-agnostik **skeleton**: ma'lumot modeli,
+application servisi, va ADR-004'ning "model gateway" qatlami uchun bitta
+stub implementatsiya. Real provider ulanganda o'zgaradigan narsa faqat
+shu bitta stub'ning o'zi — domain model, API yo'llari yoki mavjud
+testlarning birortasi emas.
+
+`domain/conversation/models.py` — `Conversation` (customer_id,
+workspace_id, owner_id, title) va `Message` (customer_id,
+conversation_id, role: USER/ASSISTANT, content) — Task/Action bilan bir
+xil naqsh: RLS (0013-migratsiya, ADR-005), `tests/integration/
+test_rls_coverage.py`ning KNOWN_RLS_EXEMPT_TABLES ro'yxatiga qo'shilmadi
+(ikkalasi ham to'liq FORCE RLS'ga ega, istisno emas).
+
+`ai/port.py` — ADR-004'ning "model gateway" qatlamining o'zi, bugungi
+kunda bitta implementatsiya bilan: `NullAIPort`. Hech qanday tashqi
+so'rov yubormaydi, `conversation_history`ni hech qachon o'qimaydi
+(`del conversation_history` bilan ataylab) — shuning uchun strukturaviy
+jihatdan hech narsa sizib chiqa olmaydi, provider/OD-003 hali
+hal qilinmagan bo'lsa ham. Har bir javob FR-CONV-008'ning ("model
+xatosi/timeout'da xavfsiz degradatsiya") eng sodda, halol shaklini
+qaytaradi: "AI provayder hali tanlanmagan" — hech qachon soxta,
+haqiqiy javobga o'xshab ko'rinadigan matn emas.
+
+`application/conversation_service.py` — `start_conversation`/
+`list_conversations_for_workspace`/`post_message`/`list_messages`,
+Task servisining o'zi bilan bir xil "har so'rov aniq workspace_id bilan
+filtrlanadi" intizomi (6.2/NFR-ISO-002) — RLS'ning o'ziga tayanib
+qolinmaydi. `authz_service.py`ga `authorize_use_chat` qo'shildi (10.2
+"Chat va task" qatori — Member/WorkspaceAdmin/CustomerOwner = Ha,
+`authorize_create_task`bilan bir xil rollar, lekin alohida funksiya —
+kelajakda chat/task huquqlari ajralib qolsa, ikkalasini ajratish oson
+bo'lishi uchun).
+
+`api/conversations.py` — `POST/GET /v1/workspaces/{id}/conversations`,
+`GET/POST /v1/workspaces/{id}/conversations/{id}/messages` — Task
+API'ning o'z authoritative-chain naqshi (RequestContext orqali,
+client-supplied customer_id/actor_id yo'q). Xabar yozish va AI javobi
+BIR XIL tranzaksiyada (chunki hozircha hech qanday tashqi side effect
+yo'q — `NullAIPort` hech qayerga chiqmaydi); real provider ulanganda bu
+tranzaksiya chegarasi (timeout, FR-CONV-002'ning cancel'i) qayta ko'rib
+chiqilishi kerak bo'ladi — bu hozirgi scaffolding qarori emas, keyingi
+o'zgarishning ishi.
+
+**Nima QURILMADI, ataylab**: FR-CONV-001 (til aniqlash), FR-CONV-002
+(streaming/cancel), FR-CONV-004 (noaniqlikda savol berish), FR-CONV-005
+(strukturalangan javob bloklari), FR-CONV-006 (suhbat tarixini qidirish),
+FR-CONV-007 (tahrirlash/qayta generatsiya) — bularning barchasi haqiqiy
+model javobini talab qiladi, hozircha yo'q. FR-CONV-003 (workspace
+scope'ida qat'iy izolyatsiya) esa haqiqatda testlangan — yangi
+`test_conversations_api.py`ning `test_conversation_list_and_messages_
+do_not_leak_across_workspaces` boshqa workspace'ning suhbati/xabari
+hech qachon ko'rinmasligini (ro'yxatda ham, to'g'ridan-to'g'ri ID
+bo'yicha ham — 404) real HTTP orqali tasdiqlaydi.
+
+Frontend'ga hech narsa qo'shilmadi — chat UI'sini qurish "hali
+mavjud bo'lmagan haqiqiy AI javobi uchun soxta frontend" bo'lardi, xuddi
+"Ataylab qurilmagan" bo'limida Chat/Knowledge haqida allaqachon yozilgan
+sabab bilan bir xil.
+
+`docs/open-decisions.md`ning OD-003 qatoriga bu scaffolding'ning aniq
+manzili (`doda.ai.port.AIPort`) qo'shildi — provider/OD-003 hal
+qilinganda kimdir buni qaytadan qidirmasligi uchun.
+
+288 test (281 + 7: 3 unit — `test_ai_port.py`, 4 integration —
+`test_conversations_api.py`), barchasi real Postgres'da. Migratsiya
+round-trip (0012→0013→0012→0013) qo'lda tasdiqlandi. `ruff`/`mypy`
+toza.
