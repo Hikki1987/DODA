@@ -24,11 +24,12 @@ COPY pyproject.toml alembic.ini ./
 COPY src ./src
 COPY migrations ./migrations
 COPY scripts ./scripts
+COPY docker-entrypoint.sh ./
 
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir .
 
-RUN chown -R doda:doda /app
+RUN chmod +x docker-entrypoint.sh && chown -R doda:doda /app
 USER doda
 
 EXPOSE 8000

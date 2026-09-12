@@ -3731,3 +3731,41 @@ murojaat qila olmaganim uchun (tarmoq siyosati) haqiqiy Render muhitida
 tekshirilmagan — faqat kuzatilgan xato xabariga mos, standart POSIX shell
 qoidalariga asoslangan tuzatish. Manual Sync bosilib, natija (muvaffaqiyat
 yoki yangi log) qayta tekshirilishi kerak.
+
+**Ikkinchi tirnoq gipotezasi ham (`sh -c '...'`, bitta tirnoq) real
+Render'da muvaffaqiyatsiz bo'ldi — Product Owner `doda-backend`ning o'z
+"Event timeline"idan buni tasdiqladi (`aa38737` uchun "Deploy failed").**
+Bu Render'ning `dockerCommand` maydonini aynan qanday parslashini ikki
+marta ketma-ket noto'g'ri taxmin qilganimni ko'rsatdi — uchinchi tirnoq
+uslubini yana taxmin qilish o'rniga, butun noaniqlik sinfini yo'q qilish
+qarori qabul qilindi: `backend/docker-entrypoint.sh` (haqiqiy shell skript
+fayli, Dockerfile ichida `COPY`+`chmod +x` qilingan) yaratildi va
+`render.yaml`ning `dockerCommand`i endi shunchaki
+`./docker-entrypoint.sh` — bo'sh joysiz, bitta yo'l. Render buni qanday
+exec qilishidan (to'g'ridan-to'g'ri `execve` yoki o'z ichki shell'i orqali)
+qat'i nazar, endi mos kelmaydigan tirnoq/parslash muammosi umuman
+bo'lishi mumkin emas — bo'sh joy yoki maxsus belgi (`&&`, `"`, `'`) YO'Q.
+Skriptning o'zi (`set -e`; `alembic upgrade head`; `exec uvicorn ...
+--port "$PORT"`) `sh -n` bilan sintaksisi tekshirildi va butun backend
+test suite'i (281 test) o'zgarishsiz yashil ekani tasdiqlandi — bu
+o'zgarish faqat deploy-vaqtidagi buyruqni almashtiradi, ilova kodiga
+tegmaydi. Yana Manual Sync (aynan `doda-backend` xizmatining O'Z
+sahifasidan, Blueprint'ning "Syncs" sahifasidan emas — pastga qarang)
+bosilib natija qayta tekshirilishi kerak.
+
+**Alohida, Render'ning o'z ishlash tartibiga oid, kod bilan bog'liq
+bo'lmagan chalkashlik ham aniqlandi va Product Owner'ga tushuntirildi**:
+Render'da IKKITA turli "Manual Sync" tugmasi bor — (1) alohida xizmat
+sahifasidagi (masalan `doda-backend`) tugma faqat O'SHA xizmatni oxirgi
+commit bilan qayta deploy qiladi (to'g'ri ishlaydi, haqiqiy build+deploy
+log chiqaradi); (2) Blueprint'ning o'z "Syncs" sahifasidagi tugma esa
+BUTUN stackni (`doda-postgres`+`doda-backend`+`doda-frontend`) noldan
+"reconcile" qilishga urinadi. Product Owner ikkinchisini bosganda, avvalgi
+muvaffaqiyatsiz `doda-backend` deploy'lari tufayli Render mavjud
+`doda-postgres`ni yangilash o'rniga **yangi**, ikkinchi
+`doda-postgres-<suffix>` bazasini yaratishga urindi — bepul reja bitta
+faol bazadan ortiqni taqiqlagani uchun rad etildi, va shu bilan bog'liq
+`doda-backend-<suffix>` yaratish ham bekor qilindi. Bu Render'ning o'z UI
+xatti-harakati, kod yoki render.yaml xatosi emas — hech narsa o'chirilmadi
+yoki buzilmadi, faqat keraksiz ikkinchi resurs yaratish rad etildi. To'g'ri
+yo'l — doim xizmat sahifasidagi (1) tugmani ishlatish.

@@ -40,16 +40,14 @@ services:
     # runs here, before the server starts, on every deploy (safe: Alembic
     # migrations are themselves idempotent/no-ops once already applied).
     #
-    # Single quotes around the inner script, not double: a real deploy
-    # attempt (exit 127, "sh: 1: alembic upgrade head && uvicorn ...: not
-    # found") showed the whole "alembic ... $PORT" string being looked up
-    # as one literal command name instead of being shell-parsed — Render
-    # evidently wraps this value in its own outer double quotes when it
-    # invokes it, and the nested \"...\" here collided with that, closing
-    # early and leaving "&&" as plain unquoted text instead of a shell
-    # operator. Single quotes for the inner script sidestep that collision
-    # regardless of how Render's own wrapping works.
-    dockerCommand: "sh -c 'alembic upgrade head && uvicorn doda.main:app --host 0.0.0.0 --port $PORT'"
+    # Two different inline `sh -c "..."` / `sh -c '...'` quotings both
+    # failed on a real Render deploy (exit 127, the whole command line
+    # looked up as one literal name instead of being shell-parsed) —
+    # whatever Render's exact string-parsing rule is, it doesn't survive
+    # a shell operator embedded in this field. A single space-free path to
+    # a real script removes the ambiguity entirely: nothing left for
+    # Render to mis-split. See backend/docker-entrypoint.sh.
+    dockerCommand: ./docker-entrypoint.sh
     envVars:
       - key: DODA_ENV
         value: production
