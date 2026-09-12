@@ -75,3 +75,21 @@ credentials handed to this agent): provisioning an actual server
 `natsecurity.uz`'s DNS at it — an AI agent cannot create a billing
 account or a DNS record it has no credentials for. Local dev and CI
 remain the only environments actually exercised.
+
+**Update — VPS path explicitly deferred; Render is the live surface for
+now.** Product Owner: no VPS, no domain needed right now — **Render.com's
+free tier is the current production deployment**, until told otherwise.
+This does not reverse the Hetzner/hybrid choice above — it remains the
+plan for whenever real capacity (Redis, a custom domain, always-on
+services) is actually needed — it just means that point hasn't arrived
+yet. Render itself was reasoned through and built in this same session
+(`render.yaml`, plus a real, multi-round debugging cycle covering a
+driver-string fix, a `dockerCommand` quoting failure resolved by
+introducing `backend/docker-entrypoint.sh`, a Blueprint-assigned-hostname
+mismatch, `redirect_uri_mismatch`, an OAuth client swap, and a cold-start
+retry fix in the frontend) — full account in `CLAUDE.md`. Google login,
+workspaces, tasks, actions, kill switch, audit, notifications, and
+data export are all confirmed working end-to-end on Render today. Not
+available on Render (deliberately, per `render.yaml`'s own comments): no
+Redis, so the outbox-relay and telegram-relay workers don't run there —
+Telegram messages are not actually sent from this deployment.

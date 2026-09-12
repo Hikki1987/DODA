@@ -3894,3 +3894,29 @@ belgilab qo'yilgan. Mavjud uchta `auth-callback.spec.ts` testi
 (happy path, session_id yo'q, ApiError rad etish) o'zgarishsiz yashil —
 ApiError yo'li hamon darhol (kechikishsiz) ishlaydi, bu ularning
 uchinchi testi kutgan xulq.
+
+**Product Owner amaliy qamrovni aniq toraytirdi: hozircha VPS ham, domen
+ham kerak emas — Render production sirti sifatida qoladi, boshqa
+ko'rsatma kelmaguncha.** Bu OD-005/ADR-006'ning Hetzner/hybrid uzoq
+muddatli qarorini bekor qilmaydi — bu qaror joyida qoladi, kelajakda
+haqiqiy quvvat (Redis, maxsus domen, doimiy ishlaydigan worker'lar)
+kerak bo'lganda ishlatish uchun. Lekin BUGUN faol reja emas: `deploy/
+README.md`ning VPS bo'limi ("Upgrading from here", "What still needs a
+human") aniq "hozircha so'ralmagan, kelajak uchun saqlanmoqda" deb
+belgilandi, `docs/open-decisions.md`ning OD-005 qatori va `ADR-006`ning
+o'zi ham shu aniqlik bilan yangilandi — hujjatlar amaliy holatga mos
+bo'lishi uchun (ilgari ular VPS'ni "keyingi tabiiy qadam" sifatida
+yozgan edi, bu endi noto'g'ri taassurot qoldirardi).
+
+Bu qaror Render'ning o'z cheklovini ham qayta tasdiqlaydi: Redis yo'q
+(render.yaml'ning o'zi ataylab shunday yozgan), demak `outbox-relay`/
+`telegram-relay` worker'lari Render'da ishlamaydi — Telegram orqali
+haqiqiy xabar yuborish hozircha HECH QANDAY muhitda (na bu sandbox'da,
+na Render'da) ishlamaydi, faqat pipeline'ning outbox→Stream→consumer→DB
+qismi mahalliy/CI'da real Postgres+Redis'ga qarshi tasdiqlangan (yuqoriga
+qarang). Bu yangi cheklov emas — faqat endi aniq, VPS kelmaguncha
+qachon yopilishi noaniq bo'lgan bo'shliq sifatida belgilangan.
+
+Backend kodi o'zgarmadi — sof hujjat aniqligi (amaliy qamrovni kodning
+haqiqiy holatiga moslashtirish), 281 test o'zgarishsiz (`pytest
+--collect-only` bilan haqiqatda qayta sanalib tasdiqlandi).

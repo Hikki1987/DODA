@@ -133,9 +133,21 @@ for a distinct "Docker Build Args" section (separate from the regular
 env vars) → add `NEXT_PUBLIC_API_BASE_URL` = the real backend URL there
 → trigger a manual redeploy.
 
-### Upgrading from here
+### Upgrading from here — deferred, not currently needed
 
-Once a real VPS exists (see below), migrating is: point DNS, fill in
+**Product Owner explicitly decided: no VPS, no domain, for now — Render
+is the live production surface until further notice.** Everything below
+this point (VPS provisioning, `natsecurity.uz` DNS, `docker-compose.prod.yml`)
+is real, already-written infrastructure-as-code, kept ready for when that
+changes — but it is not the active plan today, and nothing here should be
+acted on without a fresh Product Owner instruction to do so. Google login,
+workspaces, tasks, actions, kill switch, audit, notifications, and export
+already work end-to-end on Render alone (confirmed against the real
+deployed site, see `CLAUDE.md`); the VPS path only adds Redis/outbox-relay/
+telegram-relay (real Telegram sends) and a custom domain, neither of
+which is required right now.
+
+Once a real VPS *is* wanted, migrating is: point DNS, fill in
 `.env.prod`, run the `docker-compose.prod.yml` sequence, confirm it
 works, then delete the Render services (or leave them as a free
 staging environment — Render's free web services just sleep when idle,
@@ -157,11 +169,14 @@ deploy" section above for why this isn't the clean `doda-backend.onrender.com`
 name) — check that one is present too if Google login on the Render
 deploy hasn't been tried yet.
 
-## What still needs a human (or credentials handed to this agent)
+## What still needs a human (or credentials handed to this agent) — for whenever the VPS path is actually wanted
 
-This agent cannot sign up for a hosting account or register a payment
-method — that is a real-world identity/billing action, not an
-engineering one. Concretely, someone needs to either:
+**Not currently requested** (Product Owner: no VPS, no domain, for now —
+see above). Kept here so the next step is already written down for when
+that changes, rather than re-derived from scratch. This agent cannot
+sign up for a hosting account or register a payment method — that is a
+real-world identity/billing action, not an engineering one. Concretely,
+someone needs to either:
 
 1. **Provision a server** — ADR-006 already picked Hetzner Cloud as the
    default (cheap, plain VPS, fits this Docker Compose shape with no
