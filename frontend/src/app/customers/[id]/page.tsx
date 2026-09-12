@@ -9,6 +9,7 @@ import {
   clearMyAiPreference,
   disengageCustomerKillSwitch,
   engageCustomerKillSwitch,
+  getAiBudgetStatus,
   getAiFallbackSetting,
   getCustomerKillSwitch,
   getMyAiPreference,
@@ -30,6 +31,7 @@ import {
   testProviderConnection,
   verifyCustomerAuditChain,
   AI_PROVIDERS,
+  type AiBudgetStatusOut,
   type AiFallbackSettingOut,
   type AiPreferenceOut,
   type AiProvider,
@@ -71,6 +73,7 @@ export default function CustomerPage() {
   const [archivedWorkspaces, setArchivedWorkspaces] = useState<WorkspaceOut[] | null>(null);
   const [restoringWorkspaceId, setRestoringWorkspaceId] = useState<string | null>(null);
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatusOut[] | null>(null);
+  const [budgetStatus, setBudgetStatus] = useState<AiBudgetStatusOut | null>(null);
   const [testingProvider, setTestingProvider] = useState<string | null>(null);
   const [fallbackSetting, setFallbackSetting] = useState<AiFallbackSettingOut | null>(null);
   const [togglingFallback, setTogglingFallback] = useState(false);
@@ -106,6 +109,9 @@ export default function CustomerPage() {
     listArchivedWorkspaces(sessionId, customerId).then(setArchivedWorkspaces).catch(() => {});
     listProviderStatuses(sessionId, customerId).then(setProviderStatuses).catch(() => {});
     getAiFallbackSetting(sessionId, customerId).then(setFallbackSetting).catch(() => {});
+    // CustomerOwner/Auditor-only (authorize_view_ai_budget) — fails
+    // silently for a plain member, same as archived workspaces above.
+    getAiBudgetStatus(sessionId, customerId).then(setBudgetStatus).catch(() => {});
     getMyAiPreference(sessionId, customerId).then(setMyAiPreferenceState).catch(() => {});
   }, [sessionId, customerId]);
 
@@ -375,6 +381,21 @@ export default function CustomerPage() {
 
       <section>
         <h2 className="mb-3 text-lg font-semibold">AI provayderlar</h2>
+        {budgetStatus !== null && (
+          <div
+            className={`mb-3 rounded-md border p-3 text-sm ${
+              budgetStatus.over_soft_budget
+                ? "border-amber-300 bg-amber-50 text-amber-900"
+                : "border-gray-200 text-gray-700"
+            }`}
+          >
+            <span className="font-medium">{budgetStatus.year_month} AI byudjeti:</span>{" "}
+            ${budgetStatus.spent_usd.toFixed(2)} / ${budgetStatus.hard_cap_usd.toFixed(2)}
+            {budgetStatus.over_soft_budget && (
+              <span> — oylik byudjetning katta qismi sarflandi (soft cap: ${budgetStatus.soft_cap_usd.toFixed(2)}).</span>
+            )}
+          </div>
+        )}
         <ul className="space-y-2">
           {providerStatuses?.map((provider) => (
             <li

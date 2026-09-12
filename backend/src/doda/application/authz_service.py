@@ -292,6 +292,19 @@ def authorize_manage_ai_provider_settings(context: CustomerContext) -> None:
         )
 
 
+def authorize_view_ai_budget(context: CustomerContext) -> None:
+    """NFR-COST-001's monthly spend/cap figures are financial oversight
+    information, the same sensitivity class as customer-wide audit
+    (`authorize_view_customer_audit`) rather than the "not sensitive"
+    provider-status list — so this follows that precedent exactly:
+    CustomerOwner = full customer scope, Auditor = read-only oversight
+    (2.2's whole reason for existing). A plain Member has no equivalent
+    workspace-scoped view here, unlike audit's split, because spend is
+    tracked per customer-month, not per workspace."""
+    if context.role not in (CustomerRole.CUSTOMER_OWNER, CustomerRole.AUDITOR):
+        raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not view the AI budget")
+
+
 def authorize_manage_workspace_ai_preference(context: WorkspaceContext) -> None:
     """Same shape as authorize_manage_workspace_members: setting the
     workspace's own default provider/model affects every member's chat,

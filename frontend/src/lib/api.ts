@@ -714,3 +714,20 @@ export function setWorkspaceAiPreference(
 export function clearWorkspaceAiPreference(sessionId: string, workspaceId: string): Promise<void> {
   return apiFetch(`/v1/workspaces/${workspaceId}/ai-preference`, sessionId, { method: "DELETE" });
 }
+
+// ---- AI budget — NFR-COST-001's "byudjet va alert" ----
+
+export interface AiBudgetStatusOut {
+  year_month: string;
+  soft_cap_usd: number;
+  hard_cap_usd: number;
+  spent_usd: number;
+  over_soft_budget: boolean;
+}
+
+// CustomerOwner/Auditor only (authorize_view_ai_budget) — a plain member
+// gets 403, so callers should swallow the error like every other
+// optional, role-gated section on this page (archived workspaces, audit).
+export function getAiBudgetStatus(sessionId: string, customerId: string): Promise<AiBudgetStatusOut> {
+  return apiFetch(`/v1/customers/${customerId}/ai-budget`, sessionId);
+}

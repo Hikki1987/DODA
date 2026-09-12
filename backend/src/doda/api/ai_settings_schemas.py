@@ -46,3 +46,11 @@ class AIFallbackSettingOut(BaseModel):
 
 class SetAIFallbackSettingRequest(BaseModel):
     enabled: bool
+
+
+class AIBudgetStatusOut(BaseModel):
+    year_month: str
+    soft_cap_usd: float
+    hard_cap_usd: float
+    spent_usd: float
+    over_soft_budget: bool

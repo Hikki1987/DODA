@@ -29,6 +29,7 @@ this runs. This only decides whether a customer's account can still
 afford the call.
 """
 
+import dataclasses
 import uuid
 
 from sqlalchemy import select
@@ -102,22 +103,41 @@ async def reserve_budget(session: AsyncSession, *, customer_id: uuid.UUID, estim
     await session.flush()
 
 
-async def is_over_soft_budget(session: AsyncSession, *, customer_id: uuid.UUID) -> bool:
-    """Non-blocking warning check — the caller proceeds regardless, but
-    may surface this to the user (e.g. "oylik byudjetning katta qismi
-    sarflandi"). No locking needed: a stale read here costs nothing,
-    unlike the hard-cap check in `reserve_budget`."""
+@dataclasses.dataclass(frozen=True)
+class BudgetStatus:
+    """NFR-COST-001's "byudjet va alert" — until `api/ai_settings.py`
+    exposed this, nothing could ever surface it: a customer only
+    discovered they were near/over budget when a real chat turn suddenly
+    402'd with BudgetExceededError, with zero visibility beforehand. No
+    locking needed to compute this — same "a stale read here costs
+    nothing" reasoning this replaces (`is_over_soft_budget`, unused and
+    untested before this)."""
+
+    year_month: str
+    soft_cap_cents: int
+    hard_cap_cents: int
+    spent_cents: int
+    over_soft_budget: bool
+
+
+async def get_budget_status(session: AsyncSession, *, customer_id: uuid.UUID) -> BudgetStatus:
     settings = get_settings()
     soft_cap_cents = round(settings.ai_budget_soft_usd_per_customer_month * CENTS_PER_DOLLAR)
+    hard_cap_cents = round(settings.ai_budget_hard_usd_per_customer_month * CENTS_PER_DOLLAR)
     year_month = current_year_month()
     ledger = await session.scalar(
         select(AIBudgetLedger).where(
             AIBudgetLedger.customer_id == customer_id, AIBudgetLedger.year_month == year_month
         )
     )
-    if ledger is None:
-        return False
-    return (ledger.reserved_cents + ledger.actual_cents) > soft_cap_cents
+    spent_cents = (ledger.reserved_cents + ledger.actual_cents) if ledger is not None else 0
+    return BudgetStatus(
+        year_month=year_month,
+        soft_cap_cents=soft_cap_cents,
+        hard_cap_cents=hard_cap_cents,
+        spent_cents=spent_cents,
+        over_soft_budget=spent_cents > soft_cap_cents,
+    )
 
 
 async def reconcile_budget(

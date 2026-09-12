@@ -4234,3 +4234,54 @@ qiladi): FR-CONV-001/002/004/005/006/007 (til aniqlash, cancel,
 noaniqlikda savol, strukturalangan javob bloklari, suhbat tarixini
 qidirish, tahrirlash/qayta generatsiya) — bularning frontend qismi ham
 tegishlicha qurilmagan.
+
+**OD-008/NFR-COST-001'ning "alert" bo'shlig'i topildi va yopildi —
+byudjet hisoblanardi, lekin hech kim uni ko'ra olmasdi.**
+`ai_budget_service.py`da `is_over_soft_budget` funksiyasi bor edi
+("caller proceeds regardless, but may surface this to the user" deb
+izohlangan), lekin `grep` bilan tasdiqlandi: bu funksiyani HECH QANDAY
+kod yo'li chaqirmasdi — na `conversation_service`, na bironta test.
+Amaliy oqibat: mijoz o'zining oylik AI xarajati soft/hard cap'ga
+qanchalik yaqinligini HECH QACHON oldindan bila olmasdi — yagona signal
+haqiqiy chat so'rovi to'satdan `BUDGET_EXCEEDED` (402) bilan rad
+etilishi edi, hech qanday oldindan ogohlantirishsiz. Bu xuddi shu
+sessiyada bir necha marta topilgan "backend qobiliyati bor, uni ko'radigan
+hech narsa yo'q" naqshining yana bir nusxasi (`GET /v1/me/workspaces`,
+Actions/Members ro'yxatlash, kill-switch holati va h.k.).
+
+Tuzatish: `is_over_soft_budget` (hech qachon test qilinmagan, hech qachon
+chaqirilmagan) yangi `get_budget_status` bilan almashtirildi — bitta
+funksiya bool o'rniga to'liq holatni (`year_month`, soft/hard cap,
+sarflangan summa, `over_soft_budget`) qaytaradi, xuddi shu qulflashsiz
+o'qish mulohazasi bilan ("stale read costs nothing" — faqat ko'rsatish
+uchun, `reserve_budget`ning o'zi hamon `SELECT ... FOR UPDATE` bilan
+qulflaydi). Yangi `GET /v1/customers/{id}/ai-budget` — yangi
+`authorize_view_ai_budget` (CustomerOwner/Auditor, `authorize_view_
+customer_audit`bilan bir xil moliyaviy-nazorat mulohazasi: bu financial
+oversight ma'lumoti, "provider status ro'yxati" kabi "sezgir emas"
+toifasiga kirmaydi) bilan himoyalangan. Frontend: customer sahifasining
+"AI provayderlar" bo'limiga banner qo'shildi — normal holatda kulrang,
+soft cap'dan oshganda amber ogohlantirish bilan ("oylik byudjetning katta
+qismi sarflandi"). Boshqa har bir ixtiyoriy, rol bilan cheklangan bo'lim
+kabi (arxivlangan workspace'lar), 403 bo'lsa jimgina yashirinadi.
+
+Haqiqiylik real backend+frontend'ga qarshi tasdiqlandi: qo'lda
+`AIBudgetLedger` qatorini soft cap'dan yuqori (`actual_cents=2450`, soft
+cap $20) yozib, customer sahifasida haqiqiy amber banner
+("2026-09 AI byudjeti: $24.50 / $80.00 — oylik byudjetning katta qismi
+sarflandi") ko'rinishi brauzer skrinshoti bilan tasdiqlandi. Uchta yangi
+test (`test_ai_budget_status.py`): ledger yo'qligida 0 sarf/soft cap
+ostida; ledger bilan to'g'ri summa/soft cap ustida; HTTP darajasida oddiy
+a'zo rad etiladi (403), owner va auditor ikkalasi ham to'g'ri USD
+qiymatlar bilan 200 oladi. 356 test, barchasi real Postgres'da; `ruff`/
+`mypy` toza; barcha 12 E2E spec (frontend, yangi banner bilan) qayta
+ishga tushirilib yashil, accessibility skaneri ham yangi banner'ning
+matn kontrastini muammosiz deb tasdiqladi.
+
+Ataylab QURILMAGAN: NFR-COST-001'ning to'liq FinOps qismi — customer/
+workspace/model bo'yicha batafsil xarajat hisoboti. `AIUsageEvent`ning
+o'zida bu ma'lumot allaqachon bor (har bir chaqiruv provider/model/
+workspace/conversation bilan yozilgan), lekin hech qanday agregatsiya
+so'rovi yoki hisobot UI'si yo'q — bu banner faqat customer-oylik
+umumiy summani ko'rsatadi. Bu alohida, kattaroq ish (haqiqiy hisobot
+dizayni talab qiladi), minimal-diff doirasidan tashqarida.

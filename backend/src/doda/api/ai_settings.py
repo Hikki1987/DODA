@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends
 from doda.ai.factory import is_provider_configured
 from doda.ai.types import Provider
 from doda.api.ai_settings_schemas import (
+    AIBudgetStatusOut,
     AIFallbackSettingOut,
     AIPreferenceOut,
     ProviderStatusOut,
@@ -33,13 +34,15 @@ from doda.api.dependencies import (
     get_customer_request_context,
     get_request_context,
 )
-from doda.application import ai_preference_service, ai_provider_settings_service
+from doda.application import ai_budget_service, ai_preference_service, ai_provider_settings_service
 from doda.application.authz_service import (
     authorize_manage_ai_provider_settings,
     authorize_manage_workspace_ai_preference,
     authorize_use_chat,
+    authorize_view_ai_budget,
 )
 from doda.config import get_settings
+from doda.infrastructure.ai_pricing import CENTS_PER_DOLLAR
 
 router = APIRouter(tags=["ai-settings"])
 
@@ -132,6 +135,24 @@ async def set_fallback_setting(
         ctx.db, customer_id=ctx.customer.customer_id, enabled=body.enabled
     )
     return AIFallbackSettingOut(enabled=setting.enabled)
+
+
+@router.get("/v1/customers/{customer_id}/ai-budget", response_model=AIBudgetStatusOut)
+async def get_ai_budget_status(
+    ctx: CustomerRequestContext = Depends(get_customer_request_context),
+) -> AIBudgetStatusOut:
+    """NFR-COST-001's "byudjet va alert" — the only way to see this
+    before this endpoint existed was a real chat turn suddenly 402'ing
+    with BUDGET_EXCEEDED, with zero visibility beforehand."""
+    authorize_view_ai_budget(ctx.customer)
+    status = await ai_budget_service.get_budget_status(ctx.db, customer_id=ctx.customer.customer_id)
+    return AIBudgetStatusOut(
+        year_month=status.year_month,
+        soft_cap_usd=status.soft_cap_cents / CENTS_PER_DOLLAR,
+        hard_cap_usd=status.hard_cap_cents / CENTS_PER_DOLLAR,
+        spent_usd=status.spent_cents / CENTS_PER_DOLLAR,
+        over_soft_budget=status.over_soft_budget,
+    )
 
 
 @router.get("/v1/customers/{customer_id}/me/ai-preference", response_model=AIPreferenceOut)

@@ -418,6 +418,16 @@ orqali). Barcha 12 E2E spec (10 mavjud + 2 yangi) birga qayta ishga
 tushirilib, konsol xatosiz va accessibility (`serious`/`critical` WCAG)
 regressiyasiz ekani tasdiqlandi.
 
+**OD-008/NFR-COST-001'ning "alert" bo'shlig'i yopildi — oylik AI byudjeti
+endi haqiqatda ko'rinadi, faqat hisoblanmaydi.** Yangi `GET /v1/
+customers/{id}/ai-budget` (CustomerOwner/Auditor) va customer sahifasidagi
+"AI byudjeti" banner (soft cap'dan oshganda amber ogohlantirish) — avval
+mavjud bo'lgan, lekin hech qachon chaqirilmagan `is_over_soft_budget`
+funksiyasi endi to'liq `get_budget_status`ga aylantirilib, real client'ga
+ochildi. 3 yangi test, 356 test barchasi real Postgres'da; barcha 12 E2E
+spec (yangi banner bilan) qayta ishga tushirilib yashil. To'liq tafsilot:
+`CLAUDE.md`.
+
 ## Ishga tushirish (local dev)
 
 ```bash
