@@ -76,12 +76,23 @@ services:
         value: https://doda-frontend-joh4.onrender.com
       - key: DODA_GOOGLE_OAUTH_REDIRECT_URI
         value: https://doda-backend-jv8e.onrender.com/v1/auth/google/callback
+      # This is a separate OAuth 2.0 Client from whatever (if anything)
+      # backs DODA_GOOGLE_OAUTH_REDIRECT_URI's natsecurity.uz counterpart
+      # in .env.prod.example — a client ID's own registered Authorized
+      # redirect URIs are per-client, so this one needs the Render
+      # callback URL above added to IT specifically, not assumed from
+      # another client's list.
       - key: DODA_GOOGLE_OAUTH_CLIENT_ID
-        value: 486151726620-h39q5r8lt5neplnh83t7t9o5ac3ah9di.apps.googleusercontent.com
+        value: 486151726620-8sls7at6d3u3f800f8guvbu63vud9kve.apps.googleusercontent.com
       # sync: false = Render prompts for this in its dashboard instead of
       # reading a value from this file — this is how a secret stays out
       # of the repo. Fill it in AFTER the Blueprint creates the service;
-      # never put the real value here.
+      # never put the real value here. IMPORTANT: this must be the
+      # Client Secret belonging to the Client ID above — if the ID was
+      # just swapped to a new OAuth client, whatever secret is currently
+      # saved in Render's dashboard for this key is now for the WRONG
+      # client and must be replaced with the new client's own secret,
+      # or Google will reject the token exchange with invalid_client.
       - key: DODA_GOOGLE_OAUTH_CLIENT_SECRET
         sync: false
       - key: DODA_TELEGRAM_BOT_TOKEN

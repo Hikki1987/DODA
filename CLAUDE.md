@@ -3817,3 +3817,36 @@ ko'ra) kutish, keyin Product Owner'ning o'zi Google Cloud Console'da
 Authorized redirect URI ro'yxatiga (mavjudini o'chirmasdan, qo'shimcha
 sifatida) qo'shishi — bu ham faqat Product Owner bajara oladigan qadam,
 bu agentning Google Console'ga kirish huquqi yo'q.
+
+**Render'da haqiqiy `redirect_uri_mismatch` (Google Error 400) tasdiqlandi
+— skrinshot orqali, taxmin emas.** Yuqoridagi hostname tuzatishi
+(commit `893a9e0`) push qilingandan keyin Product Owner Render'da
+"Google orqali kirish"ni haqiqatda sinab ko'rdi: backend to'g'ri ishga
+tushib Google'ga redirect qilgani tasdiqlandi (bu o'zi Render deploy
+muvaffaqiyatli bo'lganini isbotlaydi — oldingi uchta deploy xatosi
+endi haqiqatan orqada qoldi), lekin Google "Error 400:
+redirect_uri_mismatch" bilan rad etdi — bu sof Google Cloud Console
+konfiguratsiyasi, GitHub orqali tuzatib bo'lmaydi. Product Owner'ga
+aniq qadam (Console → OAuth Client → Authorized redirect URIs →
+`https://doda-backend-jv8e.onrender.com/v1/auth/google/callback`ni
+qo'shish) ko'rsatildi.
+
+**Shundan keyin Product Owner YANGI Google OAuth Client ID yubordi**
+(`486151726620-8sls7at6d3u3f800f8guvbu63vud9kve...`,
+`render.yaml`dagi eski `...h39q5r8lt5neplnh83t7t9o5ac3ah9di...`dan farqli)
+— demak avvalgi client bilan davom etish o'rniga, Render domeni uchun
+alohida yangi OAuth Client yaratilgan bo'lishi kerak (yoki, eski client
+biror sababga ko'ra chalkash bo'lib qolgan). `render.yaml`ning
+`DODA_GOOGLE_OAUTH_CLIENT_ID`si yangi qiymatga yangilandi va ikkita
+aniq eslatma qo'shildi: (1) bu YANGI client — Render callback URL'i
+aynan SHU client'ning o'z "Authorized redirect URIs" ro'yxatiga
+qo'shilishi kerak, eski client'da qo'shilgan bo'lsa ham bu yangisiga
+tarqalmaydi (Google'da har bir client mustaqil ro'yxatga ega); (2)
+agar bu haqiqatan yangi client bo'lsa, uning **Client Secret**i ham
+eskisidan farq qiladi — Render dashboard'idagi `DODA_GOOGLE_OAUTH_
+CLIENT_SECRET` (`sync: false`, repo'da saqlanmaydi) hamon ESKI
+client'ning siri bo'lib qolishi mumkin, buni Product Owner alohida,
+Render dashboard'ida qo'lda yangi client'ning siri bilan almashtirishi
+SHART — aks holda token exchange bosqichida Google `invalid_client`
+bilan rad etadi (redirect_uri_mismatch'dan keyingi navbatdagi xato
+sinfi, oldindan aniq ogohlantirilgan).
