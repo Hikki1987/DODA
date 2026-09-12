@@ -3699,3 +3699,35 @@ ta'sirlanmaydi (boshqa domen, `doda-backend.onrender.com`, va
 uchun ham alohida Authorized redirect URI ro'yxatga olingan-olinmagani
 bu kod bazasidan ko'rinmaydi; agar olinmagan bo'lsa, Render'dagi Google
 login ham xuddi shu sababdan muvaffaqiyatsiz bo'ladi.
+
+**Ikkinchi Render deploy urinishi ham muvaffaqiyatsiz bo'ldi — bu safar
+haqiqiy Render loglari (skrinshot orqali) taqdim etildi, va bu birinchi
+marta taxmin emas, aniq ko'rilgan xato bilan tuzatildi.** `doda-backend`
+"Deploy failed", `Exited with status 127`, log qatori:
+
+    sh: 1: alembic upgrade head && uvicorn doda.main:app --host 0.0.0.0 --port 10000: not found
+
+Docker build'ning o'zi muvaffaqiyatli tugagan edi (birinchi tuzatish —
+`postgres://`→`postgresql+asyncpg://` — ishladi) — bu YANGI, ikkinchi
+xato: butun `alembic upgrade head && uvicorn ...` qatori (`&&` ham ichida)
+BITTA, mavjud bo'lmagan buyruq nomi sifatida qidirilmoqda, shell operatori
+sifatida emas. Sabab `render.yaml`ning o'z `dockerCommand`idagi qo'sh
+tirnoq ichma-ich muammosi:
+
+    dockerCommand: "sh -c \"alembic upgrade head && uvicorn ... --port $PORT\""
+
+Render dockerCommand qiymatini o'zining tashqi qo'sh tirnog'i bilan
+o'rab chaqirsa (aniq tasdiqlanmagan, lekin kuzatilgan xatoning yagona
+oqilona izohi), mening ichki `\"..\"` qo'sh tirnog'im o'sha tashqi
+qatordan ERTA yopilib ketadi — natijada `&&` shell operatori sifatida
+emas, oddiy matn sifatida qoladi. Tuzatish: ichki skript uchun qo'sh
+tirnoq o'rniga BITTA tirnoq (`'...'`) ishlatildi — bu Render qanday
+o'rasa ham, tirnoq turlari mos kelmagani uchun to'qnashuvni oldini oladi:
+
+    dockerCommand: "sh -c 'alembic upgrade head && uvicorn ... --port $PORT'"
+
+**Halol chegara**: bu tuzatish ham render.com'ga bu sessiyadan hech qachon
+murojaat qila olmaganim uchun (tarmoq siyosati) haqiqiy Render muhitida
+tekshirilmagan — faqat kuzatilgan xato xabariga mos, standart POSIX shell
+qoidalariga asoslangan tuzatish. Manual Sync bosilib, natija (muvaffaqiyat
+yoki yangi log) qayta tekshirilishi kerak.
