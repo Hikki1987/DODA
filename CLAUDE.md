@@ -4285,3 +4285,36 @@ workspace/conversation bilan yozilgan), lekin hech qanday agregatsiya
 so'rovi yoki hisobot UI'si yo'q — bu banner faqat customer-oylik
 umumiy summani ko'rsatadi. Bu alohida, kattaroq ish (haqiqiy hisobot
 dizayni talab qiladi), minimal-diff doirasidan tashqarida.
+
+**NFR-OBS-001'ning O'QISH yarmidagi yana bir "backend qobiliyati bor,
+UI yo'q" bo'shlig'i yopildi: audit ko'rish endpointlari `?trace_id=`
+filtrini allaqachon qo'llab-quvvatlardi (backend testlari bilan
+tasdiqlangan, 222-test atrofida), lekin frontend'da uni ishlatadigan
+hech narsa yo'q edi.** Amaliy oqibat: NFR-OBS-001'ning o'z va'dasi —
+"shu HTTP so'rov qaysi Action/audit yozuvlarini yaratdi" degan savolga
+javob berish — operator uchun faqat qo'lda `curl` orqali ishlardi,
+frontend orqali emas. `frontend/src/lib/api.ts`dagi
+`listWorkspaceAudit`/`listCustomerAudit`ga ixtiyoriy `traceId`
+parametri qo'shildi; ikkala sahifaning Audit bo'limiga kichik filtr
+formasi (matn input + "Filtr"/"Tozalash") va har bir audit yozuvining
+o'z `trace_id`sini bosilganda AYNAN shu qiymat bilan filtrlaydigan
+tugma sifatida ko'rsatish qo'shildi — operator boshqa joyda ko'rgan
+trace_id'ni qo'lda yozish shart emas, ro'yxatdagi istalgan yozuvdan
+bir bosishda "shu so'rov bilan bog'liq hamma narsa"ni ko'ra oladi.
+
+Real backend'ga qarshi (356 test, o'zgarishsiz) va haqiqiy brauzerga
+(production build) qarshi Playwright orqali tasdiqlandi: seed qilingan
+workspace'da uchta audit yozuvi (`action.proposed.v1`/`validating.v1`/
+`awaiting_approval.v1`) bir xil trace_id'ni bo'lishishini kutib, ro'yxatda
+shu trace_id'ga bosilganda aynan shu uchtasi qolishi va "Tozalash"
+bosilganda to'liq ro'yxat (8 yozuv) qaytishi tasdiqlandi.
+
+Bu ishni tekshirishda haqiqiy accessibility regressiyasi topildi va
+tuzatildi: yangi trace_id tugmalari uchun ishlatilgan `text-gray-400`
+(oldinroq xuddi shu sabab bilan `text-gray-600`ga almashtirilgan
+"yoki" ajratuvchisi bilan bir xil sinf — 12px matn uchun 4.5:1 kontrast
+talabidan past) `axe-core`ning `serious: color-contrast` bilan darhol
+ushlandi (5 ta node, `/workspaces/[id]`). `text-gray-500`ga o'tkazib
+tuzatildi, keyin butun 12 E2E spec (accessibility skaneri bilan birga)
+toza seed'ga qarshi qayta ishga tushirilib, hammasi yashil ekani
+tasdiqlandi.

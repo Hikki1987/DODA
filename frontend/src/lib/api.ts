@@ -304,14 +304,24 @@ export interface AuditEventOut {
   hash: string;
 }
 
-export function listWorkspaceAudit(sessionId: string, workspaceId: string): Promise<AuditEventOut[]> {
-  return apiFetch(`/v1/workspaces/${workspaceId}/audit`, sessionId);
+export function listWorkspaceAudit(
+  sessionId: string,
+  workspaceId: string,
+  traceId?: string,
+): Promise<AuditEventOut[]> {
+  const query = traceId ? `?trace_id=${encodeURIComponent(traceId)}` : "";
+  return apiFetch(`/v1/workspaces/${workspaceId}/audit${query}`, sessionId);
 }
 
 // ---- /v1/customers/{id}/audit ----
 
-export function listCustomerAudit(sessionId: string, customerId: string): Promise<AuditEventOut[]> {
-  return apiFetch(`/v1/customers/${customerId}/audit`, sessionId);
+export function listCustomerAudit(
+  sessionId: string,
+  customerId: string,
+  traceId?: string,
+): Promise<AuditEventOut[]> {
+  const query = traceId ? `?trace_id=${encodeURIComponent(traceId)}` : "";
+  return apiFetch(`/v1/customers/${customerId}/audit${query}`, sessionId);
 }
 
 export interface AuditChainViolationOut {

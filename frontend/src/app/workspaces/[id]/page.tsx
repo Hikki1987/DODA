@@ -62,6 +62,8 @@ export default function WorkspacePage() {
   const [creatingTask, setCreatingTask] = useState(false);
   const [archivingWorkspace, setArchivingWorkspace] = useState(false);
   const [openTaskHistory, setOpenTaskHistory] = useState<Record<string, TaskHistoryEntryOut[]>>({});
+  const [traceIdInput, setTraceIdInput] = useState("");
+  const [appliedTraceId, setAppliedTraceId] = useState("");
 
   const refresh = useCallback(() => {
     if (sessionId === null) return;
@@ -72,8 +74,10 @@ export default function WorkspacePage() {
     listActions(sessionId, workspaceId).then(setActions).catch(() => {});
     listNotifications(sessionId, workspaceId).then(setNotifications).catch(() => {});
     listWorkspaceMembers(sessionId, workspaceId).then(setMembers).catch(() => {});
-    listWorkspaceAudit(sessionId, workspaceId).then(setAuditEvents).catch(() => {});
-  }, [sessionId, workspaceId]);
+    listWorkspaceAudit(sessionId, workspaceId, appliedTraceId || undefined)
+      .then(setAuditEvents)
+      .catch(() => {});
+  }, [sessionId, workspaceId, appliedTraceId]);
 
   useEffect(() => {
     refresh();
@@ -382,6 +386,39 @@ export default function WorkspacePage() {
 
       <section>
         <h2 className="mb-3 text-lg font-semibold">Audit</h2>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            setAppliedTraceId(traceIdInput.trim());
+          }}
+          className="mb-3 flex gap-2 text-xs"
+        >
+          <input
+            type="text"
+            value={traceIdInput}
+            onChange={(event) => setTraceIdInput(event.target.value)}
+            placeholder="trace_id bo'yicha filtrlash"
+            className="flex-1 rounded-md border border-gray-300 px-2 py-1.5 font-mono focus:border-black focus:outline-none"
+          />
+          <button
+            type="submit"
+            className="rounded border border-gray-300 px-2 py-1 font-medium text-gray-700"
+          >
+            Filtr
+          </button>
+          {appliedTraceId !== "" && (
+            <button
+              type="button"
+              onClick={() => {
+                setTraceIdInput("");
+                setAppliedTraceId("");
+              }}
+              className="text-red-600 hover:underline"
+            >
+              Tozalash
+            </button>
+          )}
+        </form>
         <ul className="space-y-2">
           {auditEvents?.map((event) => (
             <li key={event.id} className="rounded-md border border-gray-200 px-3 py-2 text-sm">
@@ -391,7 +428,19 @@ export default function WorkspacePage() {
                   {new Date(event.occurred_at).toLocaleString()}
                 </span>
               </div>
-              <div className="text-xs text-gray-500">{event.actor_id}</div>
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>{event.actor_id}</span>
+                <button
+                  onClick={() => {
+                    setTraceIdInput(event.trace_id);
+                    setAppliedTraceId(event.trace_id);
+                  }}
+                  className="font-mono text-gray-500 hover:text-blue-600 hover:underline"
+                  title="Shu trace_id bo'yicha filtrlash"
+                >
+                  {event.trace_id}
+                </button>
+              </div>
             </li>
           ))}
           {auditEvents !== null && auditEvents.length === 0 && (

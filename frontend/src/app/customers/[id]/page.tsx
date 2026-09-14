@@ -81,6 +81,8 @@ export default function CustomerPage() {
   const [myAiProviderChoice, setMyAiProviderChoice] = useState<AiProvider>("OPENAI");
   const [myAiModelChoice, setMyAiModelChoice] = useState("");
   const [savingMyAiPreference, setSavingMyAiPreference] = useState(false);
+  const [traceIdInput, setTraceIdInput] = useState("");
+  const [appliedTraceId, setAppliedTraceId] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
@@ -102,7 +104,9 @@ export default function CustomerPage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : "Yuklab bo'lmadi."));
     listCustomerNotifications(sessionId, customerId).then(setNotifications).catch(() => {});
     listNotificationPreferences(sessionId, customerId).then(setPreferences).catch(() => {});
-    listCustomerAudit(sessionId, customerId).then(setAuditEvents).catch(() => {});
+    listCustomerAudit(sessionId, customerId, appliedTraceId || undefined)
+      .then(setAuditEvents)
+      .catch(() => {});
     // CustomerOwner-only (authorize_view_archived_workspaces) — a plain
     // member/auditor gets 403 here, so this fails silently like the other
     // optional sections above rather than surfacing a spurious error.
@@ -113,7 +117,7 @@ export default function CustomerPage() {
     // silently for a plain member, same as archived workspaces above.
     getAiBudgetStatus(sessionId, customerId).then(setBudgetStatus).catch(() => {});
     getMyAiPreference(sessionId, customerId).then(setMyAiPreferenceState).catch(() => {});
-  }, [sessionId, customerId]);
+  }, [sessionId, customerId, appliedTraceId]);
 
   useEffect(() => {
     refresh();
@@ -601,6 +605,39 @@ export default function CustomerPage() {
             )}
           </div>
         )}
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            setAppliedTraceId(traceIdInput.trim());
+          }}
+          className="mb-3 flex gap-2 text-xs"
+        >
+          <input
+            type="text"
+            value={traceIdInput}
+            onChange={(event) => setTraceIdInput(event.target.value)}
+            placeholder="trace_id bo'yicha filtrlash"
+            className="flex-1 rounded-md border border-gray-300 px-2 py-1.5 font-mono focus:border-black focus:outline-none"
+          />
+          <button
+            type="submit"
+            className="rounded border border-gray-300 px-2 py-1 font-medium text-gray-700"
+          >
+            Filtr
+          </button>
+          {appliedTraceId !== "" && (
+            <button
+              type="button"
+              onClick={() => {
+                setTraceIdInput("");
+                setAppliedTraceId("");
+              }}
+              className="text-red-600 hover:underline"
+            >
+              Tozalash
+            </button>
+          )}
+        </form>
         <ul className="space-y-2">
           {auditEvents?.map((event) => (
             <li key={event.id} className="rounded-md border border-gray-200 px-3 py-2 text-sm">
@@ -610,7 +647,19 @@ export default function CustomerPage() {
                   {new Date(event.occurred_at).toLocaleString()}
                 </span>
               </div>
-              <div className="text-xs text-gray-500">{event.actor_id}</div>
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>{event.actor_id}</span>
+                <button
+                  onClick={() => {
+                    setTraceIdInput(event.trace_id);
+                    setAppliedTraceId(event.trace_id);
+                  }}
+                  className="font-mono text-gray-500 hover:text-blue-600 hover:underline"
+                  title="Shu trace_id bo'yicha filtrlash"
+                >
+                  {event.trace_id}
+                </button>
+              </div>
             </li>
           ))}
           {auditEvents !== null && auditEvents.length === 0 && (
