@@ -4382,3 +4382,76 @@ replay_of_a_chat_derived_key_never_returns_the_nonce`,
 `test_ai_tools.py`) — tekshiruvni vaqtincha olib tashlab, test aynan
 kutilgan tarzda qizarishi, keyin qaytarib yashil ekani tasdiqlandi.
 358 test, barchasi real Postgres'da; `ruff`/`mypy` toza.
+
+**Coverage qayta o'lchandi — multi-provider AI chat tizimi (dbb28cd..8a8f725
+atrofida qurilgan, ~2500 qator) hech qachon coverage nuqtai nazaridan
+ko'rib chiqilmagan edi.** Umumiy qamrov 99%dan 96%ga tushgani aniqlandi —
+yangi fayllar (`ai_provider_settings_service.py` 66%, `conversation_
+service.py` 95%, `api/errors.py`ning AI-specific handler'lari, uchta
+provider gateway adapteri 82-86%) hisobiga. Eng muhim topilmalar ikki
+guruhga bo'linadi, ikkalasi ham **hujjatlashtirilgan, lekin hech qachon
+real HTTP/DB orqali tekshirilmagan xulq** — RISK-006'ning "testi yo'q
+kontrol — nazorat emas" darsining uchinchi marta takrori (auditor bo'shlig'i,
+append-only trigger tasdiqlovidan keyin):
+
+1. **`api/errors.py`ning olti AI-xato konverti hech qachon HTTP orqali
+   ishga tushmagan edi**: `DEEP_COST_CEILING_EXCEEDED` (402),
+   `BUDGET_EXCEEDED` (402, chat oqimining o'zidan — avvalgi budjet testlari
+   faqat `ai_budget_service`ning o'zini, HTTP'siz sinagan edi),
+   `AI_PROVIDER_NOT_CONFIGURED` (503), `AI_PROVIDER_AUTH_ERROR` (502 —
+   10.1'ning "xom provider xabari hech qachon klientga chiqmasin" da'vosi
+   shu paytgacha hech qanday real javob tanasiga qarshi tasdiqlanmagan
+   edi), `AI_PROVIDER_RATE_LIMITED` (429, `Retry-After` header bilan), va
+   `AI_CAPABILITY_UNSUPPORTED` (422). Har biri uchun `test_conversations_
+   api.py`ga yangi test qo'shildi — skriptlashtirilgan soxta gateway orqali
+   mos xatoni chiqarib, to'g'ri status/kod/header'ni va (auth-error/
+   provider-error holatlarida) xom xabar matnining klient javobida
+   HECH QACHON ko'rinmasligini tekshiradi. `pick_fallback_provider`ning
+   "hech qanday mos almashtiruvchi topilmadi" filiali (conversation_
+   service.py'ning o'z "raise" qatori bilan birga) ham shu bilan birga
+   yopildi — fallback yoqilgan, lekin faqat asosiy provider "configured"
+   deb belgilangan holat.
+2. **`ai_provider_settings_service.py`ning race-safe upsert qatlami
+   (boshqa xuddi shu naqshdagi funksiyalar — `ai_preference_service`,
+   `notification_service`, `kill_switch_service` — uchun allaqachon
+   concurrency testlangan edi, bu modul uchun emas)** — `set_provider_
+   enabled_for_customer`/`set_fallback_enabled_for_customer`/`record_
+   provider_verification`ning ikkalasi ham "mavjud qatorni yangilash"
+   yo'li va "ikki bir vaqtda INSERT" (`begin_nested`/`IntegrityError`)
+   yo'li hech qachon sinalmagan edi. Yangi `test_ai_provider_settings_
+   service.py` — uchtasi uchun ham concurrency testi (`record_provider_
+   verification`ning o'zi `AIProviderVerification`ning customer_id'siz
+   ekanligi sababli `test_identity_service.py`ning "haqiqiy DB darajasida
+   bloklaydigan INSERT" naqshini, boshqa ikkisi esa `tenant_scoped_
+   session` + `asyncio.gather` naqshini ishlatadi), ikkita yangilash-yo'li
+   testi, va `test_provider_connection`ning haqiqiy (soxta gateway bilan)
+   muvaffaqiyat/xato yo'llari — bu paytgacha faqat "hech qanday provider
+   sozlanmagan" qisqa yo'l sinalgan edi.
+
+Shu jarayonda `conversation_service.py`da yana uch joy topildi: DEEP
+rejimning narx-chegarasi tekshiruvi (hech qachon haqiqatda tetiklanmagan),
+`StructuredOutputReady` hodisasini qayta ishlash (hech qanday chaqiruvchi
+structured output so'ramasa ham, gateway kontraktining o'zi sinalishi
+kerak edi), va o'qish-vositasi dispatch xatosini "Tool error: ..." xabariga
+aylantirish yo'li (noto'g'ri argument bilan vosita chaqirilganda butun
+turnni yiqitmasligi) — uchtasi ham yangi testlar bilan yopildi. Shu bilan
+birga, hech qachon alohida unit-test fayli bo'lmagan `_messages_to_history`
+(xarakter-byudjeti bo'yicha kontekstni qisqartirish) uchun `tests/unit/
+test_conversation_service.py` qo'shildi — eng yangi xabarlar saqlanib
+qolishi, eskirganlari kesib tashlanishini sof, DB'siz testda tasdiqlaydi.
+
+`conversation_service.py`: 95%→100%. `ai_provider_settings_service.py`:
+66%→100%. `api/errors.py`: 89%→99% (qolgan bitta qator —
+`InvalidActionTransition` — allaqachon "HTTP chaqiruvchisi bu holatni
+yarata olmaydi" deb hujjatlashtirilgan). Umumiy backend qamrov 96%→98%.
+380 test, barchasi real Postgres(+Redis)'da; `ruff`/`mypy` toza.
+
+Qolgan past-qamrovli joylar (ataylab tegilmadi, chunki ularning sababi
+allaqachon aniq va boshqa joyda hujjatlashtirilgan): uchta provider
+gateway adapteri (`openai_gateway.py`/`gemini_gateway.py`/`claude_
+gateway.py`, 82-86%) — haqiqiy provider API'siga ulanishning o'zi bu
+muhitda bloklangani uchun (ADR-008/ADR-009), qolgan qatorlar asosan
+SDK-specific xato-konvertatsiya filiallari, hech qachon real chaqiruvsiz
+to'liq yopilmaydi; `ai_budget_service.py` (90%) va `ai_preference_service.py`
+(80%) — bu safar qamrov doirasiga kiritilmadi (keyingi qadam uchun ochiq
+qoldirildi, minimal-diff doirasida shu sessiyada yopilmadi).

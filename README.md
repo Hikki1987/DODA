@@ -446,6 +446,21 @@ rad etgan xuddi shu naqshning, endi haqiqiy bo'lib qolgan versiyasi.
 faqat asl proposer'ga nonce qaytaradi. 358 test, `ruff`/`mypy` toza.
 To'liq tafsilot: `CLAUDE.md`.
 
+**Test coverage birinchi marta o'lchandi — multi-provider AI chat tizimi
+(Telegram'dan keyingi eng katta qo'shimcha) hech qachon shu nuqtai
+nazardan ko'rib chiqilmagan edi.** Umumiy qamrov 99%→96%ga tushgani
+aniqlandi; sabab — `api/errors.py`ning olti AI-xato konverti (DEEP narx
+chegarasi, byudjet, sozlanmagan/rad etilgan/band/qo'llab-quvvatlanmaydigan
+provider) va `ai_provider_settings_service.py`ning race-safe upsert
+qatlami hech qachon real HTTP/DB orqali tekshirilmagan edi — har biri
+uchun yangi test qo'shildi (skriptlashtirilgan soxta gateway orqali,
+xususan auth-error holatida xom provider xabarining klient javobida
+HECH QACHON ko'rinmasligini tasdiqlaydi). `conversation_service.py`dagi
+DEEP narx-chegarasi, structured-output hodisasi va vosita-xatosi
+yo'llari, shuningdek hech qachon alohida unit-testi bo'lmagan kontekst-
+qisqartirish funksiyasi ham shu bilan yopildi. 380 test, barchasi real
+Postgres(+Redis)'da; `ruff`/`mypy` toza. To'liq tafsilot: `CLAUDE.md`.
+
 ## Ishga tushirish (local dev)
 
 ```bash

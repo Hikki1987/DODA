@@ -14,7 +14,14 @@ import uuid
 import pytest
 from httpx import ASGITransport, AsyncClient, Response
 
-from doda.ai.errors import ModelProviderError, ModelTimeoutError
+from doda.ai.capabilities import UnsupportedModelCapabilityError
+from doda.ai.errors import (
+    ModelAuthenticationError,
+    ModelNotConfiguredError,
+    ModelProviderError,
+    ModelRateLimitedError,
+    ModelTimeoutError,
+)
 from doda.ai.types import (
     ChatMode,
     ChatRole,
@@ -23,12 +30,14 @@ from doda.ai.types import (
     GatewayEvent,
     GatewayUsage,
     Provider,
+    StructuredOutputReady,
     TextDelta,
     ToolCallReady,
     ToolCallRequest,
     ToolSpec,
 )
 from doda.application import ai_budget_service, ai_provider_settings_service
+from doda.config import Settings
 from doda.db import tenant_scoped_session
 from doda.domain.ai_usage.models import AIBudgetLedger
 from doda.main import app
@@ -378,6 +387,99 @@ async def test_a_read_tool_call_feeds_its_result_back_for_a_real_second_round(
     assert listed.json()[3]["finish_reason"] == "stop"
 
 
+async def test_a_read_tool_call_with_invalid_arguments_feeds_back_a_tool_error_instead_of_crashing(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """dispatch_read_tool raises ToolArgumentsInvalidError for this
+    out-of-range limit (unit-tested directly in test_ai_tools.py) —
+    proves the SEPARATE guarantee that stream_message's own try/except
+    around that call turns it into a TOOL-role error message fed back
+    to the model, never an unhandled exception that aborts the turn."""
+    gateway = _ScriptedGateway(
+        [
+            [
+                ToolCallReady(
+                    call=ToolCallRequest(
+                        call_id="c1", name="list_my_open_tasks", arguments_json='{"limit": 9999}'
+                    )
+                ),
+                Completed(usage=GatewayUsage(input_tokens=1, output_tokens=1), finish_reason="tool_calls"),
+            ],
+            [
+                TextDelta(text="kechirasiz, xatolik yuz berdi"),
+                Completed(usage=GatewayUsage(input_tokens=1, output_tokens=1), finish_reason="stop"),
+            ],
+        ]
+    )
+    monkeypatch.setattr(
+        "doda.application.conversation_service.get_gateway", lambda provider, settings: gateway
+    )
+
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    post = await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="ishlarim bormi?",
+    )
+    assert post.status_code == 200
+    assert gateway.calls == 2  # the turn still completed — the bad tool call never aborted it
+
+    listed = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+    )
+    roles = [m["role"] for m in listed.json()]
+    assert roles == ["USER", "ASSISTANT", "TOOL", "ASSISTANT"]
+    assert listed.json()[2]["content"].startswith("Tool error:")
+
+
+async def test_a_structured_output_event_becomes_the_final_messages_content(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """StructuredOutputReady is emitted INSTEAD OF TextDelta when
+    structured output was requested (doda.ai.types' own docstring) — no
+    caller asks for it today, but the gateway-event handling itself had
+    never been exercised by any test."""
+    gateway = _ScriptedGateway(
+        [
+            [
+                StructuredOutputReady(data={"javob": "42", "ishonch": 0.9}),
+                Completed(usage=GatewayUsage(input_tokens=1, output_tokens=1), finish_reason="stop"),
+            ]
+        ]
+    )
+    monkeypatch.setattr(
+        "doda.application.conversation_service.get_gateway", lambda provider, settings: gateway
+    )
+
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    post = await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="tahlil qil",
+    )
+    assert post.status_code == 200
+    events = _parse_sse(post.text)
+    assert events[-1][0] == "done"
+    assert json.loads(events[-1][1]["message"]["content"]) == {"javob": "42", "ishonch": 0.9}
+
+
 async def test_a_write_tool_call_ends_the_turn_and_creates_a_real_pending_action(
     client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -646,6 +748,321 @@ async def test_fallback_enabled_a_transient_round_0_failure_silently_completes_o
         f"/v1/workspaces/{member.workspace_id}/conversations", headers=_auth_headers(member.session_id)
     )
     assert unaffected.json()[0]["pinned_provider"] is None
+
+
+async def test_fallback_enabled_but_no_other_provider_is_configured_surfaces_the_original_error(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`pick_fallback_provider` (ai_provider_settings_service.py) must
+    skip every FALLBACK_ORDER candidate that isn't actually configured
+    (a real API key) and return None once every candidate is exhausted —
+    never fabricate an eligible substitute. This test's monkeypatch
+    reports ONLY the primary (OPENAI) as configured, unlike the two
+    fallback-success/disabled tests above which report every provider as
+    configured — so CLAUDE/GEMINI are correctly skipped one at a time,
+    the loop runs out, and stream_message must re-raise the primary's own
+    transient failure exactly as if fallback had never been turned on."""
+    primary = _AlwaysFailsTransiently()
+    monkeypatch.setattr(
+        "doda.application.conversation_service.get_gateway", lambda provider, settings: primary
+    )
+    monkeypatch.setattr(
+        "doda.application.ai_provider_settings_service.is_provider_configured",
+        lambda provider, settings: provider is Provider.OPENAI,
+    )
+
+    member = await seed_workspace_member()
+    async with tenant_scoped_session(member.customer_id) as db:
+        await ai_provider_settings_service.set_fallback_enabled_for_customer(
+            db, customer_id=member.customer_id, enabled=True
+        )
+        await db.commit()
+
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    post = await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="salom",
+    )
+    assert post.status_code == 504
+    assert post.json()["code"] == "AI_PROVIDER_TIMEOUT"
+    assert primary.calls == 1  # exactly one attempt — no substitute was ever called
+
+
+async def test_a_deep_mode_request_estimated_over_the_cost_ceiling_is_refused_before_any_provider_call(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DeepRequestCostCeilingExceededError — never previously exercised:
+    the estimate is computed purely from settings/pricing (independent of
+    whether any provider is actually configured), so a ceiling of $0
+    guarantees any nonzero estimate exceeds it."""
+    real_settings = Settings()
+    monkeypatch.setattr(
+        "doda.api.conversations.get_settings",
+        lambda: real_settings.model_copy(update={"ai_deep_request_cost_ceiling_usd": 0.0}),
+    )
+    called = False
+
+    async def _never_called(*args: object, **kwargs: object) -> typing.AsyncIterator[GatewayEvent]:
+        nonlocal called
+        called = True
+        if False:
+            yield  # pragma: no cover
+        raise AssertionError("must never call the provider once the DEEP ceiling is already exceeded")
+
+    fake_gateway = type("_Unreachable", (), {"stream_chat": staticmethod(_never_called)})()
+    monkeypatch.setattr(
+        "doda.application.conversation_service.get_gateway", lambda provider, settings: fake_gateway
+    )
+
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    post = await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="chuqur tahlil kerak",
+        mode="DEEP",
+    )
+    assert post.status_code == 402
+    assert post.json()["code"] == "DEEP_COST_CEILING_EXCEEDED"
+    assert called is False
+
+
+async def test_a_customers_hard_budget_cap_refuses_a_turn_with_a_clean_402_before_any_provider_call(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_settings = Settings()
+    monkeypatch.setattr(
+        "doda.application.ai_budget_service.get_settings",
+        lambda: real_settings.model_copy(update={"ai_budget_hard_usd_per_customer_month": 0.0}),
+    )
+    called = False
+
+    async def _never_called(*args: object, **kwargs: object) -> typing.AsyncIterator[GatewayEvent]:
+        nonlocal called
+        called = True
+        if False:
+            yield  # pragma: no cover
+        raise AssertionError("must never call the provider once the hard cap is already exceeded")
+
+    fake_gateway = type("_Unreachable", (), {"stream_chat": staticmethod(_never_called)})()
+    monkeypatch.setattr(
+        "doda.application.conversation_service.get_gateway", lambda provider, settings: fake_gateway
+    )
+
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    post = await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="salom",
+        # DEEP mode's larger max_output_tokens ceiling is needed here so
+        # the estimated cost rounds to a nonzero number of cents at all
+        # (STANDARD's ~0.2 cents/round rounds DOWN to 0, which a $0.00
+        # hard cap would never actually exceed) — the DEEP per-request
+        # ceiling itself is untouched (still the real default) and stays
+        # well above this tiny estimate, so only the hard cap fires.
+        mode="DEEP",
+    )
+    assert post.status_code == 402
+    assert post.json()["code"] == "BUDGET_EXCEEDED"
+    assert called is False
+
+
+class _AlwaysFailsWith:
+    """A round-0 gateway call that always raises the given exception —
+    same shape as `_AlwaysFailsTransiently`, generalized to any
+    ModelGatewayError so every error-envelope handler in api/errors.py
+    can be exercised over real HTTP, not just asserted to exist."""
+
+    def __init__(self, make_exc: typing.Callable[[], Exception]) -> None:
+        self._make_exc = make_exc
+        self.calls = 0
+
+    async def stream_chat(
+        self,
+        *,
+        model: str,
+        mode: ChatMode,
+        instructions: str,
+        history: list[ChatTurn],
+        tools: list[ToolSpec],
+        max_output_tokens: int,
+        response_schema: dict[str, typing.Any] | None = None,
+    ) -> typing.AsyncIterator[GatewayEvent]:
+        del model, mode, instructions, history, tools, max_output_tokens, response_schema
+        self.calls += 1
+        if False:
+            yield  # pragma: no cover — makes this a real async generator function
+        raise self._make_exc()
+
+
+async def test_an_unconfigured_selected_provider_returns_a_clean_503(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gateway = _AlwaysFailsWith(lambda: ModelNotConfiguredError("no key for this provider"))
+    monkeypatch.setattr(
+        "doda.application.conversation_service.get_gateway", lambda provider, settings: gateway
+    )
+
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    post = await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="salom",
+    )
+    assert post.status_code == 503
+    assert post.json()["code"] == "AI_PROVIDER_NOT_CONFIGURED"
+
+
+async def test_a_rejected_api_key_returns_a_clean_502_without_leaking_the_providers_own_message(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """10.1: the real reason a key was rejected stays server-side —
+    api/errors.py's own handler comment says so, but nothing had ever
+    proven it over a real HTTP response body until this test."""
+    secret_looking_message = "rejected key sk-super-secret-abc123"
+    gateway = _AlwaysFailsWith(lambda: ModelAuthenticationError(secret_looking_message))
+    monkeypatch.setattr(
+        "doda.application.conversation_service.get_gateway", lambda provider, settings: gateway
+    )
+
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    post = await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="salom",
+    )
+    assert post.status_code == 502
+    assert post.json()["code"] == "AI_PROVIDER_AUTH_ERROR"
+    assert secret_looking_message not in post.text
+
+
+async def test_a_provider_rate_limit_returns_429_with_a_retry_after_header(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gateway = _AlwaysFailsWith(lambda: ModelRateLimitedError("slow down", retry_after_seconds=30))
+    monkeypatch.setattr(
+        "doda.application.conversation_service.get_gateway", lambda provider, settings: gateway
+    )
+
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    post = await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="salom",
+    )
+    assert post.status_code == 429
+    assert post.json()["code"] == "AI_PROVIDER_RATE_LIMITED"
+    assert post.headers["retry-after"] == "30"
+
+
+async def test_a_persistent_provider_error_with_fallback_disabled_returns_a_clean_502(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ModelProviderError is one of the three transient types eligible
+    for fallback (conversation_service.py's own except clause) — but
+    fallback is opt-in and OFF by default here, so this must propagate
+    straight to the AI_PROVIDER_ERROR handler, never silently retried."""
+    gateway = _AlwaysFailsWith(lambda: ModelProviderError("upstream 500", status_code=500))
+    monkeypatch.setattr(
+        "doda.application.conversation_service.get_gateway", lambda provider, settings: gateway
+    )
+
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    post = await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="salom",
+    )
+    assert post.status_code == 502
+    assert post.json()["code"] == "AI_PROVIDER_ERROR"
+    assert "upstream 500" not in post.text
+
+
+async def test_an_unsupported_model_capability_returns_a_clean_422(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """assert_supports_tools never actually raises for any provider this
+    codebase configures today (its own docstring) — this proves the
+    handler on the OTHER end of that contract is correct for whenever a
+    future provider/model genuinely lacks the capability, rather than
+    leaving it as an unexercised assumption."""
+
+    def _always_unsupported(provider: Provider, *, requested_tools: list[str]) -> None:
+        raise UnsupportedModelCapabilityError(f"{provider.value} does not support tool calling")
+
+    monkeypatch.setattr("doda.application.conversation_service.assert_supports_tools", _always_unsupported)
+
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    post = await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="salom",
+    )
+    assert post.status_code == 422
+    assert post.json()["code"] == "AI_CAPABILITY_UNSUPPORTED"
 
 
 class _RecordingGateway:
