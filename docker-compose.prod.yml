@@ -1,0 +1,137 @@
+# Production stack — real deployment, unlike docker-compose.yml (dev
+# infra only: the app itself always ran as bare `uvicorn`/`next dev`
+# before this). Real secrets come from .env.prod (gitignored — see
+# .env.prod.example for the template) via `env_file:`, never from a
+# committed value here.
+#
+# IMPORTANT: always invoke this with `--env-file .env.prod`
+# (`docker compose --env-file .env.prod -f docker-compose.prod.yml ...`,
+# see deploy/README.md). `env_file:` below only injects variables into
+# each container; the ${DODA_DOMAIN}/${POSTGRES_PASSWORD} substitutions
+# in this file itself are resolved by compose's *own* env file, which
+# defaults to a plain ".env" — a different file — and silently blanks
+# both otherwise (verified with `docker compose config`).
+#
+# One-time / per-deploy steps this file does not automate on its own
+# (documented in deploy/README.md): running `migrate` before first
+# traffic, and DNS pointing $DODA_DOMAIN at this host.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    env_file: .env.prod
+    environment:
+      POSTGRES_USER: doda
+      POSTGRES_DB: doda
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - doda_postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U doda"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Persistence matters here specifically because outbox messages live
+    # briefly in this Redis Stream (ADR-003) between being committed to
+    # Postgres and being relayed — appendonly survives a container
+    # restart without losing an in-flight message the relay hasn't
+    # XACK'd yet (redelivery on restart is still idempotent either way,
+    # see infrastructure/outbox_relay.py, but losing the entry outright
+    # would not be).
+    command: redis-server --appendonly yes
+    volumes:
+      - doda_redis_data:/data
+
+  # backend/migrate/outbox-relay/telegram-relay all share one `image:`
+  # tag with the same `build:` context — `docker compose build` builds
+  # it exactly once, and each service below just runs a container from
+  # that image with its own command. Without a shared tag, compose would
+  # build the same image four times over (correct, just wasteful).
+  migrate:
+    image: doda-backend:latest
+    build:
+      context: ./backend
+    env_file: .env.prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: alembic upgrade head
+    restart: "no"
+
+  backend:
+    image: doda-backend:latest
+    build:
+      context: ./backend
+    restart: unless-stopped
+    env_file: .env.prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  outbox-relay:
+    image: doda-backend:latest
+    build:
+      context: ./backend
+    restart: unless-stopped
+    env_file: .env.prod
+    command: python -m doda.infrastructure.outbox_relay
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+
+  telegram-relay:
+    image: doda-backend:latest
+    build:
+      context: ./backend
+    restart: unless-stopped
+    env_file: .env.prod
+    command: python -m doda.infrastructure.telegram_relay
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked into the client bundle at build time — must be the
+        # public, browser-facing origin (Caddy's own domain), not the
+        # backend service's internal Docker DNS name.
+        NEXT_PUBLIC_API_BASE_URL: https://${DODA_DOMAIN}
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    env_file: .env.prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - doda_caddy_data:/data
+      - doda_caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  doda_postgres_data:
+  doda_redis_data:
+  doda_caddy_data:
+  doda_caddy_config:
