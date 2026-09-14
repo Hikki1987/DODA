@@ -195,8 +195,15 @@ async def propose_write_tool_action(
     # validate_action here would attempt an illegal state transition
     # (e.g. AWAITING_APPROVAL -> VALIDATING). Hand back its current state
     # instead of re-processing it.
+    #
+    # Security-review finding, same reasoning as api/actions.py's mirrored
+    # branch: this key is deterministic (f"chat:{conversation_id}:{call_id}")
+    # and both components are visible to every workspace member via GET
+    # /conversations + GET .../messages — so unlike a caller-chosen uuid4()
+    # key, it's realistically reconstructable by someone other than the
+    # original proposer. Only that original actor may see the nonce again.
     approval: Approval | None = None
-    if action.status is ActionStatus.AWAITING_APPROVAL:
+    if action.status is ActionStatus.AWAITING_APPROVAL and action.actor_id == actor_id:
         approval = await session.scalar(
             select(Approval)
             .where(Approval.action_id == action.id)

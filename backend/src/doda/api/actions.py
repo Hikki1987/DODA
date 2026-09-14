@@ -85,10 +85,21 @@ async def propose_and_submit_action(
         # Idempotent replay (FR-ACT-004): the action already went through
         # its lifecycle on the first call — re-running validate_action would
         # attempt an illegal transition from its current (non-DRAFT) status.
-        # Just hand back its current state, including any still-pending
-        # approval, instead of re-processing it.
+        # Just hand back its current state, instead of re-processing it.
+        #
+        # Security-review finding: the replay lookup above matches purely on
+        # (customer_id, workspace_id, idempotency_key) — it has no way to
+        # know who is asking. A pending Approval's nonce is a one-time
+        # credential meant for the original proposer alone (ApprovalOut.nonce's
+        # own docstring); handing it back to WHOEVER supplies a matching key
+        # would let any other workspace member who can reconstruct that key
+        # (e.g. a chat-derived key built from a conversation_id/call_id pair
+        # visible via GET /conversations) fetch a colleague's nonce and
+        # approve their action outright. Only the original actor may see it
+        # again here — everyone else gets the Action (already fully visible
+        # via GET .../actions/{id} to any workspace member) with no approval.
         approval = None
-        if action.status is ActionStatus.AWAITING_APPROVAL:
+        if action.status is ActionStatus.AWAITING_APPROVAL and action.actor_id == actor_id:
             approval = await ctx.db.scalar(
                 select(Approval)
                 .where(Approval.action_id == action.id)

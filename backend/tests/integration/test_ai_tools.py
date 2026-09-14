@@ -176,6 +176,59 @@ async def test_a_retried_write_tool_call_collapses_onto_the_same_action_not_a_du
     assert first_action.id == second_action.id
 
 
+async def test_a_different_actors_replay_of_a_chat_derived_key_never_returns_the_nonce(
+    db_available: bool,
+) -> None:
+    """Security-review finding: the chat idempotency key
+    (f"chat:{conversation_id}:{call_id}") is deterministic and both
+    components are visible to every workspace member via GET
+    /conversations + GET .../messages — unlike a caller-chosen uuid4()
+    key, a different member can realistically reconstruct it. Replaying
+    it as someone other than the original proposer must never hand back
+    that proposer's one-time approval nonce."""
+    member = await seed_workspace_member()
+    proposer_ctx = WorkspaceContext(
+        customer_id=member.customer_id,
+        workspace_id=member.workspace_id,
+        user_id=member.user_id,
+        role=WorkspaceRole.MEMBER,
+    )
+    other_ctx = WorkspaceContext(
+        customer_id=member.customer_id,
+        workspace_id=member.workspace_id,
+        user_id=uuid.uuid4(),  # a different workspace member, not the proposer
+        role=WorkspaceRole.MEMBER,
+    )
+    args = json.dumps({"chat_id": "123", "text": "salom"})
+    shared_key = "chat:some-conversation-id:some-call-id"
+
+    async with tenant_scoped_session(member.customer_id) as db:
+        proposer_action, proposer_approval = await propose_write_tool_action(
+            db,
+            tool_name="telegram_send_message",
+            arguments_json=args,
+            workspace_context=proposer_ctx,
+            trace_id=uuid.uuid4(),
+            idempotency_key=shared_key,
+        )
+        await db.commit()
+    assert proposer_approval is not None  # the real proposer legitimately gets the nonce
+
+    async with tenant_scoped_session(member.customer_id) as db:
+        replayed_action, replayed_approval = await propose_write_tool_action(
+            db,
+            tool_name="telegram_send_message",
+            arguments_json=args,
+            workspace_context=other_ctx,
+            trace_id=uuid.uuid4(),
+            idempotency_key=shared_key,
+        )
+        await db.commit()
+
+    assert replayed_action.id == proposer_action.id  # still the correct, idempotent Action
+    assert replayed_approval is None  # but the nonce is never disclosed to a different actor
+
+
 async def test_invalid_write_tool_arguments_are_rejected_before_any_action_is_created(
     db_available: bool,
 ) -> None:

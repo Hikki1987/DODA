@@ -556,3 +556,72 @@ async def test_the_approval_nonce_is_never_returned_again_after_the_proposal(
     assert audit.status_code == 200
     # 12.3: it must not have been written into the audit trail either.
     assert nonce not in audit.text
+
+
+async def test_a_different_members_idempotency_key_replay_never_discloses_the_original_actors_nonce(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """Security-review finding: propose_action's idempotent-replay path
+    (FR-ACT-004) looks up an existing Action by (customer_id, workspace_id,
+    idempotency_key) only — no actor_id predicate — and api/actions.py
+    handed back whatever pending Approval it found, nonce included,
+    regardless of who replayed the request. The 3rd security review on
+    this branch dismissed the sibling gap on the manual API as
+    impractical because a caller's freely-chosen Idempotency-Key
+    (conventionally a fresh uuid4()) isn't guessable — but a workspace's
+    OWN chat surface (conversation_service.py) derives its key
+    deterministically as f"chat:{conversation_id}:{call_id}", and both
+    components are visible to every workspace member via ordinary GET
+    /conversations + GET .../messages responses. So a second member who
+    can compute (or, as tested here, simply reuse) another member's exact
+    key must never receive that member's nonce back."""
+    proposer = await seed_workspace_member(auth_strength=AuthStrength.AAL2)
+    from doda.application.session_service import create_session
+    from doda.application.workspace_service import add_workspace_member
+    from doda.db import tenant_scoped_session
+    from doda.domain.customer.models import CustomerMembership
+    from doda.domain.identity.models import User
+    from doda.domain.workspace.models import Workspace
+
+    async with tenant_scoped_session(proposer.customer_id) as db:
+        second_user = User(oidc_subject_hash=str(uuid.uuid4()), display_name="Second Member")
+        db.add(second_user)
+        await db.flush()
+        second_customer_membership = CustomerMembership(
+            customer_id=proposer.customer_id, user_id=second_user.id, role="member"
+        )
+        db.add(second_customer_membership)
+        await db.flush()
+        workspace = await db.get(Workspace, proposer.workspace_id)
+        assert workspace is not None
+        await add_workspace_member(
+            db,
+            workspace=workspace,
+            customer_membership=second_customer_membership,
+            role="member",
+            actor_id="user:setup",
+        )
+        second_session = await create_session(db, user_id=second_user.id, auth_strength=AuthStrength.AAL2)
+
+    shared_key = "guessed-or-derived-shared-key"
+    submit = await client.post(
+        f"/v1/workspaces/{proposer.workspace_id}/actions",
+        json={"tool_name": "email.send", "risk_level": "R3", "payload": {"to": "boss@example.com"}},
+        headers=_auth_headers(proposer.session_id, shared_key),
+    )
+    body = submit.json()
+    assert body["approval"] is not None  # the real proposer legitimately gets the nonce
+    original_nonce = body["approval"]["nonce"]
+
+    replay = await client.post(
+        f"/v1/workspaces/{proposer.workspace_id}/actions",
+        json={"tool_name": "email.send", "risk_level": "R3", "payload": {"to": "boss@example.com"}},
+        headers=_auth_headers(second_session.id, shared_key),
+    )
+    assert replay.status_code == 200
+    replay_body = replay.json()
+    # It's the same Action (idempotent replay is still correct) ...
+    assert replay_body["action"]["id"] == body["action"]["id"]
+    # ... but a different, non-proposing actor must never receive its nonce.
+    assert replay_body["approval"] is None
+    assert original_nonce not in replay.text

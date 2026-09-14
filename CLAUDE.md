@@ -4318,3 +4318,67 @@ ushlandi (5 ta node, `/workspaces/[id]`). `text-gray-500`ga o'tkazib
 tuzatildi, keyin butun 12 E2E spec (accessibility skaneri bilan birga)
 toza seed'ga qarshi qayta ishga tushirilib, hammasi yashil ekani
 tasdiqlandi.
+
+**Beshinchi `security-review` o'tkazildi — bu safar oldingi 4tasidan
+farqli, faqat butun PR emas, 4-review'dan (0a9f4b2, "190→200 test")
+KEYINGI hamma narsaga qarshi: Telegram connector, real Google OIDC,
+production deployment infratuzilmasi (Dockerfile'lar, render.yaml,
+docker-compose.prod.yml), FR-CONV scaffolding, va to'liq multi-provider
+AI chat tizimi (~15000 qator, 133 fayl) — bu diff hech qachon security-
+review'dan o'tmagan edi.** Jarayon bir xil uch bosqich: (1) topish
+subagent'i, (2) topilgan yagona nomzod uchun alohida false-positive
+filtrlash subagent'i (ishonch darajasi 9/10 bilan CONFIRMED qildi), (3)
+faqat ishonch darajasi >=8 amalga oshiriladi.
+
+**Haqiqiy, tasdiqlangan topilma — chat orqali taklif qilingan action'ning
+bir martalik approval nonce'i boshqa workspace a'zosiga sizib chiqishi
+mumkin edi.** Sabab: `conversation_service.py`ning chat-yo'li action'lar
+uchun Idempotency-Key'ni deterministik qilib quradi —
+`f"chat:{conversation.id}:{call.call_id}"`. Uchinchi security-review
+(190-200 test oralig'ida) shunga o'xshash, lekin `POST /actions`ning
+qo'lda chaqiriladigan yo'lidagi nomzodni "amaliy emas" deb rad etgan edi
+— sababi: chaqiruvchi tanlagan Idempotency-Key konventsional ravishda
+har doim `uuid.uuid4()` bo'lgani uchun, boshqa a'zoning aniq kalitini
+"taxmin qilish" real emas edi. Lekin chat yo'lidagi kalit boshqacha:
+uning ikkala qismi ham — `conversation.id` va `call.call_id` — HAR BIR
+workspace a'zosiga oddiy `GET /v1/workspaces/{id}/conversations` va
+`GET .../conversations/{id}/messages` orqali OCHIQ (`_get_owned_
+conversation` faqat `workspace_id`ni tekshiradi, egalikni emas —
+"404s before revealing anything" degan izohi faqat workspace scope'ga
+tegishli edi, egalikka emas). Demak bu holatda kalit "taxmin qilinmaydi"
+— to'g'ridan-to'g'ri hisoblab chiqariladi.
+
+`propose_action`ning idempotent-replay filiali (`IntegrityError`dan
+keyin) faqat `(customer_id, workspace_id, idempotency_key)` bo'yicha
+qidiradi — `actor_id`ni HECH QACHON solishtirmaydi. `api/actions.py`ning
+`propose_and_submit_action`i va `ai_tools.py`ning `propose_write_tool_
+action`i (ikkalasi ham bir xil naqshni takrorlaydi) topilgan Action
+`AWAITING_APPROVAL` holatida bo'lsa, uning joriy `Approval`sini —
+nonce bilan birga — kim so'ragan bo'lsa ham qaytarardi. Amaliy oqibat:
+workspace a'zosi B, boshqa a'zo A'ning chat orqali taklif qilgan R3
+`telegram.send_message` action'ining `conversation_id`/`call_id`'ini
+GET orqali o'qib, aynan shu Idempotency-Key bilan `POST .../actions`ni
+qayta yuborsa — A'ning nonce'ini oladi. Agar B `WORKSPACE_ADMIN` bo'lsa,
+bu unga A'ning ruxsatisiz, A bilan hech qanday nonce almashmasdan
+A'ning action'ini tasdiqlash imkonini berardi — aynan shu sabab bilan
+frontend'da "boshqa a'zoning action'ini tasdiqlash" formasi ataylab
+qurilmagan edi (nonce normal holatda olinmaydigan deb hisoblanardi).
+
+Tuzatish ikkala nusxada ham bir xil, minimal: replay filiali endi
+`action.actor_id == actor_id`ni ham tekshiradi — mos kelmasa, Action
+qaytariladi (allaqachon `GET .../actions/{id}` orqali har bir a'zoga
+ochiq, yangi oshkoralik emas), lekin `approval` har doim `None`.
+Asl proposer o'zi qayta so'rasa (haqiqiy idempotent retry — masalan
+tarmoq uzilishi tufayli) hamon o'z nonce'ini normal oladi.
+
+Audit-zanjiri uslubida ikkalasi ham alohida isbotlandi: avval yangi
+regressiya testi (`test_a_different_members_idempotency_key_replay_
+never_discloses_the_original_actors_nonce`, `test_actions_api.py` —
+ikkita real User/Session, bitta workspace) tuzatishdan OLDIN yozilib,
+aynan kutilgan tarzda muvaffaqiyatsiz bo'lishi (`assert ... is None`
+— aslida haqiqiy nonce qaytgan) ko'rsatildi; xuddi shu narsa
+`ai_tools.py`ning o'z yo'li uchun ham (`test_a_different_actors_
+replay_of_a_chat_derived_key_never_returns_the_nonce`,
+`test_ai_tools.py`) — tekshiruvni vaqtincha olib tashlab, test aynan
+kutilgan tarzda qizarishi, keyin qaytarib yashil ekani tasdiqlandi.
+358 test, barchasi real Postgres'da; `ruff`/`mypy` toza.

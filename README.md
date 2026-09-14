@@ -428,6 +428,24 @@ ochildi. 3 yangi test, 356 test barchasi real Postgres'da; barcha 12 E2E
 spec (yangi banner bilan) qayta ishga tushirilib yashil. To'liq tafsilot:
 `CLAUDE.md`.
 
+Audit ko'rish endpointlarining `?trace_id=` filtri ham frontend'ga
+ulandi (workspace va customer sahifalari, click-to-filter tugmasi bilan)
+— NFR-OBS-001'ning o'qish yarmi endi qo'lda `curl` emas, brauzer orqali
+ishlaydi.
+
+**Beshinchi `security-review` o'tkazildi (4-review'dan keyingi butun
+yangi surface'ga qarshi — Telegram, Google OIDC, deployment infra,
+to'liq multi-provider AI chat) va bitta haqiqiy, o'rta darajali topilma
+tuzatildi**: chat orqali taklif qilingan action'ning Idempotency-Key'i
+deterministik (`chat:{conversation_id}:{call_id}`) bo'lgani va ikkala
+qismi ham har bir workspace a'zosiga oddiy GET orqali ochiq bo'lgani
+uchun, boshqa a'zo shu kalitni takrorlab, asl proposer'ning bir martalik
+approval nonce'ini olishi mumkin edi — avvalgi review "amaliy emas" deb
+rad etgan xuddi shu naqshning, endi haqiqiy bo'lib qolgan versiyasi.
+`api/actions.py` va `ai_tools.py`ning ikkalasida ham replay javobi endi
+faqat asl proposer'ga nonce qaytaradi. 358 test, `ruff`/`mypy` toza.
+To'liq tafsilot: `CLAUDE.md`.
+
 ## Ishga tushirish (local dev)
 
 ```bash
