@@ -64,6 +64,7 @@ from doda.application.ai_tools import (
 )
 from doda.application.authz_service import WorkspaceContext
 from doda.config import Settings
+from doda.domain.ai_usage.models import UsageEventStatus
 from doda.domain.conversation.models import Conversation, Message, MessageRole
 from doda.infrastructure.ai_pricing import estimate_cost_cents, estimate_input_tokens_from_chars
 
@@ -480,6 +481,27 @@ async def stream_message(
             customer_id=workspace_context.customer_id,
             estimated_cost_cents=total_estimate_cents,
             actual_cost_cents=actual_cost_cents,
+        )
+        # FinOps observability (NFR-COST-001) must cover failed turns too,
+        # not just successful ones — otherwise a turn that billed some
+        # real cost before failing (the mid-stream case) would move the
+        # ledger's actual_cents with no corresponding AIUsageEvent row to
+        # explain why, leaving a customer's itemized usage list silently
+        # out of sync with their own monthly total.
+        await ai_budget_service.record_usage_event(
+            session,
+            customer_id=workspace_context.customer_id,
+            workspace_id=workspace_context.workspace_id,
+            conversation_id=conversation.id,
+            trace_id=trace_id,
+            actor_id=f"user:{workspace_context.user_id}",
+            provider=choice.provider,
+            model=model,
+            mode=mode,
+            usage=total_usage,
+            estimated_cost_cents=total_estimate_cents,
+            actual_cost_cents=actual_cost_cents,
+            status=UsageEventStatus.REFUNDED,
         )
         raise
 

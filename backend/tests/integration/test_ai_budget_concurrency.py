@@ -16,6 +16,8 @@ but not twice — no settings override needed.
 import asyncio
 import uuid
 
+from sqlalchemy import select
+
 from doda.ai.errors import BudgetExceededError
 from doda.application.ai_budget_service import current_year_month, reserve_budget
 from doda.db import tenant_scoped_session
@@ -61,3 +63,35 @@ async def test_two_concurrent_reservations_cannot_jointly_exceed_the_hard_cap(db
         # Only the winner's reservation landed — not both (which would be
         # 10000, double-booking the budget).
         assert ledger.reserved_cents == ESTIMATE_CENTS
+
+
+async def test_two_concurrent_first_reservations_for_a_brand_new_customer_month_both_land(
+    db_available: bool,
+) -> None:
+    """The OTHER race `_get_or_create_locked_ledger` guards against: no
+    ledger row exists yet for this (customer, month) at all, so both
+    callers race the INSERT itself (begin_nested/IntegrityError), not a
+    read-then-write on an existing row (that's the test above). Same
+    reasoning as test_identity_service.py's concurrent-first-login test:
+    a concurrent INSERT against the same primary key blocks at the
+    database level, so plain asyncio.gather (no forced interleaving)
+    reliably exercises it — and unlike the hard-cap race above, both
+    reservations here fit comfortably under the cap, so both must
+    succeed and their estimates must both land (summed), not just one."""
+    customer_id = uuid.uuid4()
+
+    async def reserve(estimate: int) -> None:
+        async with tenant_scoped_session(customer_id) as db:
+            await reserve_budget(db, customer_id=customer_id, estimated_cost_cents=estimate)
+            await db.commit()
+
+    await asyncio.gather(reserve(100), reserve(200))
+
+    async with tenant_scoped_session(customer_id) as session:
+        rows = list(
+            (
+                await session.execute(select(AIBudgetLedger).where(AIBudgetLedger.customer_id == customer_id))
+            ).scalars()
+        )
+    assert len(rows) == 1  # exactly one ledger row for this (customer, month) — not two
+    assert rows[0].reserved_cents == 300  # both estimates landed, neither lost to the race

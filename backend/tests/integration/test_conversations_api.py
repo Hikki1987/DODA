@@ -13,6 +13,7 @@ import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient, Response
+from sqlalchemy import select
 
 from doda.ai.capabilities import UnsupportedModelCapabilityError
 from doda.ai.errors import (
@@ -39,7 +40,7 @@ from doda.ai.types import (
 from doda.application import ai_budget_service, ai_provider_settings_service
 from doda.config import Settings
 from doda.db import tenant_scoped_session
-from doda.domain.ai_usage.models import AIBudgetLedger
+from doda.domain.ai_usage.models import AIBudgetLedger, AIUsageEvent, UsageEventStatus
 from doda.main import app
 from tests.integration.conftest import seed_workspace_member
 
@@ -306,6 +307,18 @@ async def test_a_mid_stream_provider_failure_ends_with_one_sse_error_frame_and_c
         assert ledger is not None
         assert ledger.reserved_cents == 0
         assert ledger.actual_cents >= 0
+
+        # The FinOps trail (NFR-COST-001) must explain that spend, not
+        # just silently move the ledger total: a REFUNDED-status
+        # AIUsageEvent row records exactly what this failed turn billed
+        # (possibly zero, but here round 1's real text delta means it
+        # isn't), matching the ledger's actual_cents above.
+        usage_event = await db.scalar(
+            select(AIUsageEvent).where(AIUsageEvent.trace_id == uuid.UUID(post.headers["X-Trace-Id"]))
+        )
+        assert usage_event is not None
+        assert usage_event.status is UsageEventStatus.REFUNDED
+        assert usage_event.actual_cost_cents == ledger.actual_cents
 
 
 class _ScriptedGateway:

@@ -137,11 +137,21 @@ async def test_my_ai_preference_round_trips_and_a_plain_member_may_set_their_own
 
     set_result = await client.put(
         f"/v1/customers/{member.customer_id}/me/ai-preference",
-        json={"provider": "GEMINI", "model": "gemini-3.1-flash-lite"},
+        json={"provider": "OPENAI", "model": "gpt-5-mini"},
         headers=_auth_headers(member.session_id),
     )
     assert set_result.status_code == 200
-    assert set_result.json() == {"provider": "GEMINI", "model": "gemini-3.1-flash-lite"}
+    assert set_result.json() == {"provider": "OPENAI", "model": "gpt-5-mini"}
+
+    # A second PUT updates the row already created above rather than
+    # conflicting with it or being silently ignored.
+    updated = await client.put(
+        f"/v1/customers/{member.customer_id}/me/ai-preference",
+        json={"provider": "GEMINI", "model": "gemini-3.1-flash-lite"},
+        headers=_auth_headers(member.session_id),
+    )
+    assert updated.status_code == 200
+    assert updated.json() == {"provider": "GEMINI", "model": "gemini-3.1-flash-lite"}
 
     read_back = await client.get(
         f"/v1/customers/{member.customer_id}/me/ai-preference", headers=_auth_headers(member.session_id)
@@ -185,6 +195,31 @@ async def test_workspace_ai_preference_requires_workspace_admin_to_set_but_not_t
     )
     assert allowed.status_code == 200
     assert allowed.json()["provider"] == "CLAUDE"
+
+    # A second PUT updates the row already created above rather than
+    # conflicting with it or being silently ignored.
+    updated = await client.put(
+        f"/v1/workspaces/{admin.workspace_id}/ai-preference",
+        json={"provider": "GEMINI", "model": "gemini-3.1-flash-lite"},
+        headers=_auth_headers(admin.session_id),
+    )
+    assert updated.status_code == 200
+    assert updated.json() == {"provider": "GEMINI", "model": "gemini-3.1-flash-lite"}
+
+    read_back = await client.get(
+        f"/v1/workspaces/{admin.workspace_id}/ai-preference", headers=_auth_headers(admin.session_id)
+    )
+    assert read_back.json() == {"provider": "GEMINI", "model": "gemini-3.1-flash-lite"}
+
+    cleared = await client.delete(
+        f"/v1/workspaces/{admin.workspace_id}/ai-preference", headers=_auth_headers(admin.session_id)
+    )
+    assert cleared.status_code == 204
+
+    after_clear = await client.get(
+        f"/v1/workspaces/{admin.workspace_id}/ai-preference", headers=_auth_headers(admin.session_id)
+    )
+    assert after_clear.json() == {"provider": None, "model": None}
 
 
 async def test_fallback_setting_defaults_to_off_and_only_a_customer_owner_can_turn_it_on(

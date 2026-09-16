@@ -4455,3 +4455,87 @@ SDK-specific xato-konvertatsiya filiallari, hech qachon real chaqiruvsiz
 to'liq yopilmaydi; `ai_budget_service.py` (90%) va `ai_preference_service.py`
 (80%) — bu safar qamrov doirasiga kiritilmadi (keyingi qadam uchun ochiq
 qoldirildi, minimal-diff doirasida shu sessiyada yopilmadi).
+
+**Ochiq qoldirilgan ikkita fayl (`ai_budget_service.py`, `ai_preference_
+service.py`) yopildi — va `ai_budget_service.py`'ni ko'rib chiqishda
+haqiqiy o'lik kod (va u bilan bog'liq, hech qachon yozilmagan enum
+qiymati) topildi.** `release_reservation` — modulning o'z docstring'ida
+"uch bosqichli reserve/reconcile" mexanizmining UCHINCHI a'zosi sifatida
+e'lon qilingan, "provider chaqiruvi hech qanday real xarajat qilmasdan
+muvaffaqiyatsiz bo'lsa reservatsiyani qaytaradi" deb tasvirlangan — lekin
+`grep` bilan tasdiqlandi: butun kod bazasida bironta chaqiruvchisi yo'q.
+Sabab: `conversation_service.stream_message`'ning o'z `except Exception:`
+bloki bu vazifani ANCHA OLDIN, umumiyroq qilib hal qilgan — u har doim
+`reconcile_budget`ni chaqiradi (hatto muvaffaqiyatsizlikda ham), haqiqiy
+qisman xarajat (masalan, mid-stream xatoda birinchi round matn allaqachon
+generatsiya qilingan bo'lsa) bilan. Bu `release_reservation`dan HAQIQATDA
+YAXSHIROQ: `release_reservation` har doim 0 xarajat deb hisoblab, qisman
+billing'ni jimgina yo'qotgan bo'lardi — demak bu funksiya nafaqat o'lik,
+balki agar kimdir uni chaqirsa haqiqiy xato keltirib chiqargan bo'lardi.
+`db.get_session()`ni o'chirish presedentiga ko'ra o'chirildi.
+
+Buni ochib chiqishda `UsageEventStatus.REFUNDED` (uchta holatdan biri:
+RESERVED/RECONCILED/REFUNDED) ham hech qachon YOZILMAGANINI aniqladim —
+`record_usage_event` har doim `RECONCILED`ni qattiq yozardi, `REFUNDED`
+degan tur mavjud bo'lsa-da. Amaliy oqibat: muvaffaqiyatsiz bo'lgan burilish
+(masalan mid-stream xato) ledger'ning `actual_cents`ini to'g'ri oshirardi
+(`reconcile_budget` orqali), LEKIN hech qanday `AIUsageEvent` qatori
+yaratmasdi — ya'ni mijozning o'z FinOps ro'yxati (NFR-COST-001) shu
+xarajatni HECH QACHON tushuntirmasdi: ledger jami oshadi, lekin
+itemized ro'yxatda mos yozuv yo'q. Bu `release_reservation` bilan bir xil
+"hujjatlashtirilgan, lekin hech qachon ishlamaydigan" naqsh, faqat
+observability tomonida.
+
+Tuzatish: `record_usage_event`ga `status: UsageEventStatus = RECONCILED`
+parametri qo'shildi; `conversation_service.py`ning `except Exception:`
+bloki endi `reconcile_budget`dan keyin `record_usage_event(...,
+status=REFUNDED)`ni ham chaqiradi — xuddi shu `actual_cost_cents`/
+`total_usage` qiymatlari bilan, hech qanday yangi hisoblash shart emas
+(ular allaqachon shu blokda mavjud edi). Audit-zanjiri uslubida
+isbotlandi: yangi chaqiruvni vaqtincha `if False:` ostiga yashirib,
+kengaytirilgan `test_a_mid_stream_provider_failure_ends_with_one_
+sse_error_frame_and_commits_the_partial_turn` (endi REFUNDED qatorning
+mavjudligini va uning `actual_cost_cents`i ledger'ning `actual_cents`iga
+mos kelishini ham tekshiradi) aynan kutilgan tarzda muvaffaqiyatsiz
+bo'lishini ko'rsatdim, keyin qaytarib yashil ekanini tasdiqladim.
+
+`_get_or_create_locked_ledger`ning o'z `begin_nested`/`IntegrityError`
+filiali (bir customer'ning bir oy uchun BIRINCHI reservatsiyasi ikkita
+bir vaqtdagi chaqiruv bilan yaratilganda) ham hech qachon test qilinmagan
+edi — mavjud concurrency testi ataylab MAVJUD qatorga qarshi race
+qiladi (o'zining izohida aniq yozilgan: "insert race would be serialized
+by Postgres's own unique index... and would prove nothing"). Yangi
+`test_two_concurrent_first_reservations_for_a_brand_new_customer_month_
+both_land` — `test_identity_service.py`ning "haqiqiy DB darajasida
+bloklaydigan INSERT" naqshini (forced interleaving shart emas) qo'llab,
+ikkala reservatsiya ham (jami cheklovdan past) muvaffaqiyatli
+qo'shilishini, bitta qator yaratilishini tasdiqlaydi.
+
+`ai_preference_service.py`da esa ikki xil bo'shliq bor edi:
+1. **`resolve_provider_choice`ning o'z 4 pog'onali ustuvorlik zanjiri
+   (suhbat pin > foydalanuvchi > workspace > tizim) faqat 1- va
+   4-pog'onasida sinalgan edi** — foydalanuvchi/workspace afzalligini
+   o'rnatish/o'qish/o'chirish HTTP endpointlari testlangan bo'lsa-da,
+   hech qanday test ularni O'RNATIB, keyin haqiqiy suhbat oqimida
+   (yoki to'g'ridan-to'g'ri `resolve_provider_choice` chaqiruvida) shu
+   provayder haqiqatda TANLANISHINI tasdiqlamagan edi — funksiya
+   ikkala jadvalni ham jimgina e'tiborsiz qoldirsa ham hech bir test
+   buzilmasdi. Yangi `test_ai_preference_resolution.py` (3 test):
+   foydalanuvchi afzalligi ishlatilishi, workspace standarti (foydalanuvchi
+   yo'q bo'lganda) ishlatilishi, va foydalanuvchi workspace'dan ustun
+   turishi — uchtasi ham real Postgres'ga qarshi, to'g'ridan-to'g'ri
+   `resolve_provider_choice`ni chaqirib.
+2. **"Mavjud qatorni yangilash" va "workspace afzalligini o'chirish"
+   yo'llari hech qachon sinalmagan edi** — mavjud testlar har birini
+   faqat BIR marta o'rnatardi (workspace-darajasidagi o'chirish esa
+   umuman chaqirilmagan edi). `test_ai_settings_api.py`ning ikkala
+   testiga ham ikkinchi PUT (mavjud qatorni yangilash), oraliq GET
+   (yangilangan qiymatni o'qish) va — workspace uchun — DELETE+GET-bo'sh
+   qo'shildi, foydalanuvchi versiyasi bilan bir xil to'liq shaklga
+   keltirib.
+
+`ai_budget_service.py`: 90%→100%. `ai_preference_service.py`: 80%→100%.
+`api/ai_settings.py`: 96%→100% (workspace preference'ning o'zining
+mavjud qatorni O'QISH javobi ham hech qachon test qilinmagan ekan —
+qo'shimcha GET qo'shilib yopildi). 384 test, barchasi real
+Postgres(+Redis)'da; `ruff`/`mypy` toza.

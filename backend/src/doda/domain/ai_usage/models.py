@@ -44,10 +44,16 @@ class UsageProvider(enum.StrEnum):
 
 class UsageEventStatus(enum.StrEnum):
     """RESERVED: cost estimated and reserved against the monthly budget,
-    before the provider call. RECONCILED: the provider call finished and
-    actual usage/cost replaced the estimate. REFUNDED: the provider call
-    failed before billing any real usage, and the reservation was given
-    back — see `doda.application.ai_budget_service.release_reservation`.
+    before the provider call (no code path currently leaves a row in
+    this state — every row transitions straight to RECONCILED or
+    REFUNDED once the turn ends, so this is the column default only,
+    never an application-written value). RECONCILED: the turn completed
+    normally; actual usage/cost replaced the estimate. REFUNDED: the turn
+    failed mid-way — whatever usage WAS actually billed (possibly zero)
+    is still recorded, and the unspent portion of the reservation was
+    given back to the customer's monthly ledger — see
+    `doda.application.conversation_service.stream_message`'s exception
+    handler, the only writer of this status.
     """
 
     RESERVED = "RESERVED"

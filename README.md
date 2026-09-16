@@ -461,6 +461,25 @@ yo'llari, shuningdek hech qachon alohida unit-testi bo'lmagan kontekst-
 qisqartirish funksiyasi ham shu bilan yopildi. 380 test, barchasi real
 Postgres(+Redis)'da; `ruff`/`mypy` toza. To'liq tafsilot: `CLAUDE.md`.
 
+**Coverage yopilishi davom ettirildi — ochiq qoldirilgan ikkita fayl
+(`ai_budget_service.py` 90%, `ai_preference_service.py` 80%) endi ikkalasi
+ham 100%.** Bu jarayonda `release_reservation` — modul o'z docstring'ida
+"reserve/reconcile"ning uchinchi a'zosi deb e'lon qilgan, lekin bironta
+chaqiruvchisi bo'lmagan funksiya — o'lik kod sifatida o'chirildi (uni
+o'rniga `conversation_service`ning umumiyroq `except Exception:` bloki
+ancha oldin, kengroq qamrovda ishlagan). Shu bilan birga `UsageEventStatus.
+REFUNDED` hech qachon yozilmagani aniqlandi — muvaffaqiyatsiz burilishlar
+ledger'ni to'g'ri reconcile qilardi, lekin hech qanday `AIUsageEvent`
+qatori qoldirmasdi, ya'ni mijozning FinOps ro'yxati ledger jamiga mos
+kelmasdi. Endi har bir muvaffaqiyatsiz burilish ham o'z REFUNDED
+yozuvini oladi. `resolve_provider_choice`ning 4 pog'onali ustuvorlik
+zanjiri (suhbat pin > foydalanuvchi > workspace > tizim) ham faqat 1- va
+4-pog'onada sinalgan ekan — foydalanuvchi/workspace afzalligini
+o'rnatish HTTP orqali testlangan bo'lsa-da, hech narsa bu qiymatning
+haqiqiy suhbat resolyutsiyasida ishlatilishini tasdiqlamagan edi. 384
+test, barchasi real Postgres'da; `ruff`/`mypy` toza. To'liq tafsilot:
+`CLAUDE.md`.
+
 ## Ishga tushirish (local dev)
 
 ```bash

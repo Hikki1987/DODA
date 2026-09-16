@@ -16,12 +16,16 @@ gateway call returns real token usage:
    the projected total would exceed the hard cap, raises
    `BudgetExceededError` and the caller must not proceed to call the
    provider at all.
-2. `reconcile_budget` — called AFTER the call, with the real
-   `GatewayUsage`-derived cost. Replaces the reservation with the actual
-   figure on the same locked row.
-3. `release_reservation` — called if the provider call failed before any
-   real usage was billed (timeout, rate limit, network error): gives the
-   estimate back rather than leaving it stuck as phantom spend.
+2. `reconcile_budget` — called AFTER the call (success OR failure, with
+   whatever real `GatewayUsage`-derived cost was actually incurred —
+   zero if the provider never billed anything). Replaces the reservation
+   with the actual figure on the same locked row, so a failure never
+   leaves a phantom reservation permanently eating into the customer's
+   budget for no real spend — `doda.application.conversation_service.
+   stream_message`'s own exception handler is the one caller that relies
+   on this for the failure case, pairing it with a REFUNDED-status
+   `AIUsageEvent` (via `record_usage_event`) so the per-turn FinOps trail
+   accounts for failed turns too, not just successful ones.
 
 This module makes no authorization decision about WHO may chat — that is
 `authorize_use_chat` (authz_service.py), already enforced before any of
@@ -154,17 +158,6 @@ async def reconcile_budget(
     await session.flush()
 
 
-async def release_reservation(
-    session: AsyncSession, *, customer_id: uuid.UUID, estimated_cost_cents: int
-) -> None:
-    """Refund a reservation whose call never billed real usage (it failed
-    or timed out before the provider returned anything)."""
-    year_month = current_year_month()
-    ledger = await _get_or_create_locked_ledger(session, customer_id=customer_id, year_month=year_month)
-    ledger.reserved_cents = max(0, ledger.reserved_cents - estimated_cost_cents)
-    await session.flush()
-
-
 async def record_usage_event(
     session: AsyncSession,
     *,
@@ -179,11 +172,16 @@ async def record_usage_event(
     usage: GatewayUsage,
     estimated_cost_cents: int,
     actual_cost_cents: int,
+    status: UsageEventStatus = UsageEventStatus.RECONCILED,
 ) -> AIUsageEvent:
     """NFR-COST-001's FinOps breakdown row — one per chat TURN (which may
     itself span several internal gateway calls across tool-call rounds;
     `usage`/`*_cost_cents` are already the SUM across all of them, so this
-    never double-counts a turn's spend across multiple rows)."""
+    never double-counts a turn's spend across multiple rows). `status`
+    defaults to RECONCILED (a turn that completed normally); the caller
+    passes REFUNDED for a turn that failed mid-way — see
+    `doda.application.conversation_service.stream_message`'s exception
+    handler, the only caller of the REFUNDED case."""
     event = AIUsageEvent(
         customer_id=customer_id,
         workspace_id=workspace_id,
@@ -198,7 +196,7 @@ async def record_usage_event(
         cached_input_tokens=usage.cached_input_tokens,
         estimated_cost_cents=estimated_cost_cents,
         actual_cost_cents=actual_cost_cents,
-        status=UsageEventStatus.RECONCILED,
+        status=status,
     )
     session.add(event)
     await session.flush()
