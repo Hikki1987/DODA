@@ -883,7 +883,7 @@ async def test_a_message_containing_a_live_looking_api_key_is_blocked_before_any
     )
     conversation_id = create.json()["id"]
 
-    secret = "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD"
+    secret = "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD"  # gitleaks:allow — fake, test fixture only
     post = await _post_message(
         client,
         f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",

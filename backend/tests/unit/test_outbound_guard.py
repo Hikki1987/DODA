@@ -28,7 +28,7 @@ def test_an_anthropic_shaped_key_is_flagged() -> None:
 
 
 def test_an_aws_access_key_id_is_flagged() -> None:
-    assert detect_likely_secret("AKIAABCDEFGHIJKLMNOP shu kalit") == "aws_access_key_id"
+    assert detect_likely_secret("AKIAABCDEFGHIJKLMNOP shu kalit") == "aws_access_key_id"  # gitleaks:allow
 
 
 def test_a_google_api_key_is_flagged() -> None:
@@ -36,7 +36,8 @@ def test_a_google_api_key_is_flagged() -> None:
 
 
 def test_a_github_token_is_flagged() -> None:
-    assert detect_likely_secret("ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ") == "github_token"
+    token = "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ"  # gitleaks:allow
+    assert detect_likely_secret(token) == "github_token"
 
 
 def test_a_slack_token_is_flagged() -> None:
@@ -54,7 +55,7 @@ def test_a_private_key_block_is_flagged() -> None:
 
 
 def test_a_jwt_is_flagged() -> None:
-    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"  # gitleaks:allow
     assert detect_likely_secret(f"session tokenim: {jwt}") == "jwt"
 
 
