@@ -87,11 +87,14 @@ test("login, workspace, task, notification, action, audit flow", async ({ page }
     await page.fill('input[placeholder="Yangi task nomi"]', "E2E plan task");
     await page.fill('input[aria-label="Muddat (ixtiyoriy)"]', localValue);
     await page.click("button:has-text(\"Qo'shish\")");
-    await expect(page.locator('li:has-text("E2E plan task")')).toBeVisible();
 
-    // Scoped to the plan panel specifically — its own <li> items would
-    // otherwise be ambiguous with the main task list's identical text,
-    // the same strict-mode lesson this codebase has hit before.
+    // Both the main task list and the "Reja" panel render this same task
+    // title (confirmed failing in CI: an unscoped locator matched both
+    // <li> elements, a strict-mode violation) — each assertion is scoped
+    // to its own testid so they can't collide.
+    const taskList = page.getByTestId("task-list");
+    await expect(taskList.locator('li:has-text("E2E plan task")')).toBeVisible();
+
     const planPanel = page.getByTestId("task-plan");
     await expect(planPanel.getByText("E2E plan task")).toBeVisible();
   });

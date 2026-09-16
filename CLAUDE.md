@@ -4869,3 +4869,35 @@ WCAG buzilishi keltirmadi) tasdiqlandi.
 421 test (backend), barchasi real Postgres(+Redis)'da; `ruff`/`mypy`
 toza (99% umumiy qamrov); frontend `tsc`/ESLint toza, production build
 muvaffaqiyatli; barcha 14 E2E spec yashil.
+
+**Yuqoridagi "barcha 14 E2E spec yashil" da'vosi haqiqiy CI'da NOTO'G'RI
+chiqdi — mahalliy tekshiruv yolg'on ijobiy bergan edi.** GitHub Actions'ning
+o'z `e2e` job'i (commit `e75e86c`) `workspace.spec.ts`ning yangi FR-TASK-002
+qadamida real, takrorlanuvchi strict-mode xatosi bilan qizardi (ikkinchi
+urinishda ham xuddi shu xato):
+
+    Error: strict mode violation: locator('li:has-text("E2E plan task")')
+    resolved to 2 elements
+
+Sabab xuddi CLAUDE.md'ning o'zi ilgari bir necha marta yozgan sinfning
+o'zi (`getByText("AWAITING_APPROVAL")`, kill-switch pin tugmasi): yangi
+"Reja" paneli va asosiy task ro'yxati BIR XIL matnni ("E2E plan task")
+ikkita alohida `<li>`da ko'rsatadi, `page.locator('li:has-text(...)')`
+esa ikkalasiga ham mos keladi. Bu mening mahalliy tekshiruvimda hech
+qachon ko'rinmagan edi (DOM tartibi tasodifan naqshni yashirgan bo'lishi
+mumkin) — haqiqiy CI logi orqali topildi, taxmin qilinmadi.
+
+Tuzatish: asosiy task ro'yxatining o'ziga ham aniq `data-testid="task-list"`
+qo'shildi ("Reja" paneli allaqachon `data-testid="task-plan"`ga ega edi),
+va testning ikkala assertion'i ham endi o'z testid'iga scope qilingan —
+DOM tartibiga yoki matn noyobligiga tayanmasdan. Frontend qayta build
+qilinib (`tsc`/ESLint toza), barcha 9 ta E2E seed prefiksi bilan qaytadan
+urug'lantirilib, to'liq 14 ta spec (shu jumladan aynan buzilgan qadam)
+qayta ishga tushirilib yashil ekani tasdiqlandi; backend suite (421 test)
+ham o'zgarishsiz yashil qoldi (bu tuzatish faqat frontend/E2E fayllariga
+tegadi).
+
+Dars: "mahalliy qo'lda tekshirish CI'ning o'zi emas" — bu sessiyada
+allaqachon bir necha marta (E2E job'ning `/healthz` yo'li, Gitleaks
+working-directory) takrorlangan xulosaning yana bir nusxasi, bu safar
+Playwright strict-mode uchun.

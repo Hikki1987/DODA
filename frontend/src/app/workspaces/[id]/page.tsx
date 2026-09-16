@@ -312,7 +312,7 @@ export default function WorkspacePage() {
             <p className="text-xs text-gray-500">Bu davr uchun muddatli task yo&apos;q.</p>
           )}
         </div>
-        <ul className="space-y-2">
+        <ul data-testid="task-list" className="space-y-2">
           {tasks?.map((task) => (
             <li key={task.id} className="rounded-md border border-gray-200 px-3 py-2">
               <div className="flex items-center justify-between">
