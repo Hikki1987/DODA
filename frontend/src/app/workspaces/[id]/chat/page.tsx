@@ -47,6 +47,7 @@ export default function ChatPage() {
   const [savingWorkspacePreference, setSavingWorkspacePreference] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const selected = conversations?.find((c) => c.id === selectedId) ?? null;
 
@@ -159,8 +160,17 @@ export default function ChatPage() {
     setStreamingText("");
     setSending(true);
     setError(null);
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     try {
-      for await (const chunk of streamConversationMessage(sessionId, workspaceId, selectedId, content, mode)) {
+      for await (const chunk of streamConversationMessage(
+        sessionId,
+        workspaceId,
+        selectedId,
+        content,
+        mode,
+        controller.signal,
+      )) {
         if (chunk.kind === "text" || chunk.kind === "tool_status") {
           setStreamingText((prev) => (prev ?? "") + chunk.text);
         } else if (chunk.kind === "error") {
@@ -172,13 +182,23 @@ export default function ChatPage() {
         // refresh() after a mutation, rather than hand-reconciling state.
       }
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Suhbat davomida xato yuz berdi.");
+      // FR-CONV-002: an aborted fetch (our own Cancel button below) is
+      // not a failure — the backend already reconciled the budget and
+      // stopped generating; showing it as an error would be misleading.
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        setError(err instanceof ApiError ? err.message : "Suhbat davomida xato yuz berdi.");
+      }
     } finally {
+      abortControllerRef.current = null;
       setSending(false);
       setPendingUserText(null);
       setStreamingText(null);
       refreshMessages();
     }
+  }
+
+  function handleCancel() {
+    abortControllerRef.current?.abort();
   }
 
   if (sessionId === null) return null;
@@ -381,6 +401,15 @@ export default function ChatPage() {
                 >
                   {sending ? "..." : "Yuborish"}
                 </button>
+                {sending && (
+                  <button
+                    type="button"
+                    onClick={handleCancel}
+                    className="rounded-md border border-red-300 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                  >
+                    Bekor qilish
+                  </button>
+                )}
               </form>
             </>
           )}

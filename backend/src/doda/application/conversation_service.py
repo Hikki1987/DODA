@@ -213,9 +213,13 @@ async def stream_message(
     mode: ChatMode,
     trace_id: uuid.UUID,
     settings: Settings,
-) -> typing.AsyncIterator[TurnChunk]:
+) -> typing.AsyncGenerator[TurnChunk, None]:
     """An async generator of `TurnChunk`s — the API layer
-    (`api/conversations.py`) turns each into an SSE event. Raises
+    (`api/conversations.py`) turns each into an SSE event, and also
+    calls `.aclose()` on it directly for FR-CONV-002 cancellation (hence
+    `AsyncGenerator`, not the narrower `AsyncIterator`, as the return
+    type — the caller needs that method in the interface, not just at
+    runtime). Raises
     `BudgetExceededError`/`DeepRequestCostCeilingExceededError` BEFORE
     yielding anything and before any provider call, so a caller can
     translate those into a clean 4xx without any partial stream having
@@ -477,14 +481,24 @@ async def stream_message(
                 )
                 model = choice.model or ""
                 gateway = get_gateway(fallback_provider, settings)
-    except Exception:
-        # ANY failure mid-turn (a provider error, or an unexpected bug)
-        # must still reconcile the reservation down to whatever usage was
-        # really incurred before re-raising — otherwise a crash leaves a
-        # phantom reservation that permanently eats into the customer's
-        # budget for no real spend (reserve_budget's own "give the
-        # estimate back on failure" contract, generalized past just
-        # ModelGatewayError so an unrelated bug can't bypass it too).
+    except BaseException:
+        # ANY failure mid-turn (a provider error, an unexpected bug, OR
+        # FR-CONV-002's cancellation) must still reconcile the reservation
+        # down to whatever usage was really incurred before re-raising —
+        # otherwise a crash (or a cancel) leaves a phantom reservation
+        # that permanently eats into the customer's budget for no real
+        # spend (reserve_budget's own "give the estimate back on failure"
+        # contract, generalized past just ModelGatewayError so an
+        # unrelated bug can't bypass it too). BaseException, not
+        # Exception: `api/conversations.py` cancels an in-flight turn by
+        # calling `.aclose()` on this generator when the client
+        # disconnects, which raises `GeneratorExit` here — a
+        # BaseException, not an Exception — at whatever `yield` this
+        # generator is currently suspended on. The `raise` at the end of
+        # this block re-raises it unchanged, which is required (a
+        # generator must not swallow GeneratorExit), and `aclose()`
+        # itself treats that as normal, clean termination — it does not
+        # propagate to `api/conversations.py`'s caller.
         actual_cost_cents = estimate_cost_cents(
             choice.provider,
             model,

@@ -65,6 +65,52 @@ test("chat: send a message, get the real NullModelGateway reply, pin a provider"
   expect(consoleErrors, `unexpected browser console errors: ${consoleErrors.join("\n")}`).toEqual([]);
 });
 
+test("chat: cancelling an in-flight turn resets the UI without an error", async ({ page }) => {
+  // NullModelGateway (no real provider credential in this environment)
+  // replies essentially instantly, far too fast to reliably click Cancel
+  // before the turn finishes — so this test delays the browser's own
+  // dispatch of the POST via page.route(), giving a deterministic window
+  // to click "Bekor qilish" before the request even reaches the backend.
+  // This proves the frontend's AbortController wiring and UI reset; the
+  // backend's own claim (generation actually stops and the budget is
+  // refunded) is proven server-side, with real interleaving, in
+  // test_a_client_disconnect_mid_stream_stops_generation_and_refunds_the_reservation.
+  const consoleErrors: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") consoleErrors.push(msg.text());
+  });
+  page.on("pageerror", (err) => consoleErrors.push(String(err)));
+
+  await page.goto("/login");
+  await page.fill("#session-id", SESSION_ID);
+  await page.click('button[type="submit"]');
+  await page.waitForURL("**/workspaces");
+  await page.goto(`/workspaces/${WORKSPACE_ID}/chat`);
+  await page.click('button:has-text("Yangi suhbat")');
+  await expect(page.getByPlaceholder("Xabar yozing...")).toBeVisible();
+
+  await page.route("**/conversations/*/messages", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await route.continue();
+  });
+
+  await page.fill('input[placeholder="Xabar yozing..."]', "bu xabar bekor qilinadi");
+  await page.click('button:has-text("Yuborish")');
+
+  const cancelButton = page.getByRole("button", { name: "Bekor qilish" });
+  await expect(cancelButton).toBeVisible();
+  await cancelButton.click();
+
+  // The UI returns to its idle state — composer re-enabled, no lingering
+  // "sending" indicator, and (per handleSend's AbortError check) no error
+  // message shown for what was the user's own deliberate cancellation.
+  await expect(page.getByPlaceholder("Xabar yozing...")).toBeEnabled();
+  await expect(cancelButton).not.toBeVisible();
+  await expect(page.getByText("bekor qilinadi")).not.toBeVisible();
+
+  expect(consoleErrors, `unexpected browser console errors: ${consoleErrors.join("\n")}`).toEqual([]);
+});
+
 test("AI provider settings: enable/disable, test connection, fallback toggle, my preference", async ({
   page,
 }) => {

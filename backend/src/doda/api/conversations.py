@@ -196,6 +196,19 @@ async def post_conversation_message(
         chunk = first_chunk
         try:
             while chunk is not None:
+                # FR-CONV-002: the client cancels a turn by aborting the
+                # HTTP request (e.g. AbortController.abort() on the
+                # frontend's fetch), which Starlette surfaces here as a
+                # disconnect — checked on every chunk (streaming tokens
+                # arrive multiple times a second), so this is well within
+                # the acceptance criterion's 1s bound. `aclose()` drives
+                # stream_message's own cleanup (reconcile the budget down
+                # to whatever was actually generated, record a REFUNDED
+                # usage event) before this generator simply stops —
+                # nothing left to send a client that is already gone.
+                if await request.is_disconnected():
+                    await turns.aclose()
+                    return
                 if chunk.kind == "done":
                     payload = (
                         {"message": _to_message_out(chunk.message).model_dump(mode="json")}

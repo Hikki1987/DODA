@@ -494,6 +494,18 @@ klassifikatori emas — bu chegara modulning o'z docstring'ida aniq
 yozilgan. 397 test, barchasi real Postgres(+Redis)'da; `ruff`/`mypy`
 toza. To'liq tafsilot: `CLAUDE.md`.
 
+**FR-CONV-002 (streaming javobni bekor qilish) qurildi** — bekor qilish
+brauzerning o'z `AbortController.abort()`i orqali ishlaydi, Starlette
+buni `Request.is_disconnected()` bilan tutadi va har bir chunk oldidan
+tekshiradi (≤1s SLA'ni osonlik bilan qamraydi), so'ng generatorni
+`.aclose()` qiladi. Shu jarayonda haqiqiy xato topildi: mavjud budjet-
+reconcile mexanizmi `except Exception:` edi, lekin bekor qilish
+`GeneratorExit` (`BaseException`, `Exception` emas) ko'taradi — demak
+naiv versiya budjetni hech qachon qaytarmagan bo'lardi. `except
+BaseException:`ga kengaytirib tuzatildi. Frontend'ga "Bekor qilish"
+tugmasi qo'shildi. 398 test (backend); barcha 13 E2E spec (Playwright,
+real backend+frontend) yashil. To'liq tafsilot: `CLAUDE.md`.
+
 ## Ishga tushirish (local dev)
 
 ```bash

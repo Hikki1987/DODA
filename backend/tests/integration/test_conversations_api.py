@@ -12,6 +12,7 @@ import typing
 import uuid
 
 import pytest
+from fastapi import Request
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import select
 
@@ -347,6 +348,86 @@ class _ScriptedGateway:
         self.calls += 1
         for event in script:
             yield event
+
+
+async def test_a_client_disconnect_mid_stream_stops_generation_and_refunds_the_reservation(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FR-CONV-002: cancelling (the frontend aborting its fetch, which
+    Starlette surfaces as a disconnect) must stop pulling MORE tokens
+    from the provider — not just stop forwarding SSE bytes to a client
+    that is already gone. `_ScriptedGateway`'s single round below yields
+    three text deltas before its own Completed event; the fake
+    disconnect fires between the first and second, so a real regression
+    (only checking disconnect between whole ROUNDS, e.g.) would still
+    let round 1 run to completion — this only passes if the check is
+    fine-grained enough to interrupt one round's own token stream."""
+    fake_gateway = _ScriptedGateway(
+        [
+            [
+                TextDelta(text="salom"),
+                TextDelta(text=" dunyo"),
+                TextDelta(text="!"),
+                Completed(usage=GatewayUsage(input_tokens=5, output_tokens=5), finish_reason="stop"),
+            ]
+        ]
+    )
+    monkeypatch.setattr(
+        "doda.application.conversation_service.get_gateway", lambda provider, settings: fake_gateway
+    )
+
+    disconnect_calls = {"n": 0}
+
+    async def _fake_is_disconnected(self: Request) -> bool:
+        disconnect_calls["n"] += 1
+        # False on the check before the first ("salom") chunk is
+        # forwarded, True on every check after — so exactly one chunk
+        # reaches the client before the (simulated) cancel.
+        return disconnect_calls["n"] > 1
+
+    monkeypatch.setattr(Request, "is_disconnected", _fake_is_disconnected)
+
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    post = await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="ishlarimni ko'rsat",
+    )
+    assert post.status_code == 200
+    events = _parse_sse(post.text)
+    assert events == [("text", {"text": "salom"})]  # " dunyo"/"!"/done never sent
+    assert fake_gateway.calls == 1  # never even asked for a second round
+
+    # No final assistant Message either — the turn never reached one.
+    listed = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+    )
+    roles = [m["role"] for m in listed.json()]
+    assert roles == ["USER"]
+
+    # Same reconcile-and-record contract as a genuine mid-stream failure
+    # (test_a_mid_stream_provider_failure_...) — nothing left reserved,
+    # and the FinOps trail explains the (possibly zero) real spend.
+    async with tenant_scoped_session(member.customer_id) as db:
+        ledger = await db.get(AIBudgetLedger, (member.customer_id, ai_budget_service.current_year_month()))
+        assert ledger is not None
+        assert ledger.reserved_cents == 0
+
+        usage_event = await db.scalar(
+            select(AIUsageEvent).where(AIUsageEvent.trace_id == uuid.UUID(post.headers["X-Trace-Id"]))
+        )
+        assert usage_event is not None
+        assert usage_event.status is UsageEventStatus.REFUNDED
+        assert usage_event.actual_cost_cents == ledger.actual_cents
 
 
 async def test_a_read_tool_call_feeds_its_result_back_for_a_real_second_round(

@@ -4599,3 +4599,92 @@ ma'lumotni qamraydi. `docs/risk-register.md`ning RISK-004 qatori ham
 mos yangilandi.
 
 397 test, barchasi real Postgres(+Redis)'da; `ruff`/`mypy` toza.
+
+**FR-CONV-002 (Streaming javob va generation'ni to'xtatish, Must) qurildi —
+CLAUDE.md'ning o'zida bir necha marta "haqiqiy model javobi kerak, hozircha
+yo'q" deb umumlashtirilgan FR-CONV-001/002/004/005/006/007 ro'yxatidan bu
+bittasi aslida haqiqiy model javobiga bog'liq emas ekan — sof
+orkestratsiya/engineering ishi, `NullModelGateway`/soxta gateway bilan
+to'liq tekshiriladigan.** TRD qabul mezoni: "Cancel bosilganda token oqimi
+≤1s ichida to'xtaydi va xarajat hisoblanadi" — ikkala yarmi ham qurildi.
+
+Mexanizm ataylab yangi endpoint yoki Redis-asosidagi signal talab qilmaydi
+(bu `test_only_the_outbox_workers_may_talk_to_the_broker`ning o'z
+chegarasini buzgan bo'lardi): brauzer `fetch()`ni `AbortController.abort()`
+bilan to'xtatadi, Starlette buni `Request.is_disconnected()` orqali aniq
+tuta oladi — bu HTTP/SSE bekor qilishning standart, idiomatik usuli.
+`api/conversations.py`ning `_body()`i endi har bir chunk oldidan shu
+tekshiruvni qiladi (streaming token'lar soniyada bir necha marta kelgani
+uchun bu ≤1s SLA'ni osonlik bilan qamraydi) va disconnect aniqlansa
+`turns.aclose()`ni chaqiradi — bu `stream_message`ning ICHIDA, aynan
+qaysi `yield` nuqtasida to'xtatilgan bo'lsa, o'sha yerda `GeneratorExit`
+ko'taradi.
+
+**Muhim, haqiqiy topilma**: `stream_message`ning mavjud `except Exception:`
+bloki (mid-stream xato uchun budjetni reconcile qilib REFUNDED yozib
+qo'yadigan, oldinroq qurilgan mexanizm) `GeneratorExit`ni UMUMAN
+TUTMAYDI — u `Exception`dan emas, `BaseException`dan meros oladi. Demak
+naiv implementatsiya (shunchaki disconnect tekshiruvini qo'shish) budjetni
+hech qachon reconcile qilmagan, "xarajat hisoblanadi" talabini butunlay
+buzgan bo'lardi — foydalanuvchi cancel bossa, reservatsiya abadiy
+"phantom" bo'lib qolardi. Tuzatish: `except Exception:` ni `except
+BaseException:`ga kengaytirish, aynan shu ikkinchi holatni ("haqiqiy xato
+YOKI cancel") qamrab olish uchun. `stream_message`ning qaytish tipi ham
+`typing.AsyncIterator[TurnChunk]`dan `typing.AsyncGenerator[TurnChunk,
+None]`ga aniqlashtirildi — `AsyncIterator`ning o'z interfeysida
+`.aclose()` yo'q, `mypy` buni chindan ham ushladi (`attr-defined` xatosi).
+
+Yangi integratsiya testi
+(`test_a_client_disconnect_mid_stream_stops_generation_and_refunds_the_
+reservation`) audit-zanjiri uslubida isbotlandi: avval disconnect
+tekshiruvini `if False and ...`ga aylantirib, test aniq kutilgan tarzda
+(to'liq javob — " dunyo"/"!"/done — hali ham yuborilib) muvaffaqiyatsiz
+bo'lishini ko'rsatdim, keyin qaytarib yashil ekanini tasdiqladim. Test
+ataylab bitta ROUND'ning O'Z token oqimi ICHIDA (uchta TextDelta'dan
+birinchisidan keyin, ikkinchisidan OLDIN) bekor qilishni sinaydi — faqat
+round CHEGARALARI orasida tekshirilsa ham "o'tib ketadigan" zaifroq
+regressiyani ham ushlash uchun; natijada soxta gateway `calls == 1`
+(hech qachon ikkinchi chaqiruv bo'lmagan) — bu shunchaki "SSE bayt
+yubormaymiz" emas, "provayderdan KO'PROQ token so'ramaymiz" ekanini
+isbotlaydi.
+
+Frontend: `streamConversationMessage`ga ixtiyoriy `AbortSignal` parametri
+qo'shildi (`fetch()`ning o'z `signal` opsiyasiga uzatiladi), chat
+sahifasiga (`workspaces/[id]/chat`) yuborish paytida ko'rinadigan "Bekor
+qilish" tugmasi qo'shildi. `handleSend`ning catch bloki `AbortError`ni
+alohida ushlaydi — foydalanuvchining o'z, ataylab qilgan bekor qilishi
+xato sifatida ko'rsatilmasligi kerak.
+
+**Halol chegara**: `NullModelGateway` (bu muhitda haqiqiy provayder
+kaliti yo'q) javobni deyarli zudlik bilan qaytaradi — brauzerda "cancel
+mid-stream"ni ishonchli takrorlash uchun Playwright'ning o'z
+`page.route()`i bilan so'rovning tarmoqqa yuborilishini ataylab 3
+soniyaga kechiktirdim, bu esa frontend'ning `AbortController`
+ulanishini va UI holati tozalanishini (composer qayta yoqiladi, xato
+ko'rsatilmaydi) real brauzerda isbotlaydi — lekin serverning o'zi
+generatsiyani HAQIQATDA to'xtatishini (backend integratsiya testidagi
+kabi, majburiy interleaving bilan) brauzer darajasida qayta isbotlamaydi,
+bu allaqachon backend testida qilingan. Yangi Playwright testi
+(`chat.spec.ts`) va mavjud ikkita test (o'zining "Yangi suhbat" bilan
+ajratilgan, umumiy holatni bo'lishmaydi) production build'ga qarshi
+qayta ishga tushirildi.
+
+Bu ishni tekshirishda ikkita, kod bilan bog'liq bo'lmagan sandbox
+artefakti chiqdi: (1) bu muhitda oldindan o'rnatilgan Chromium
+revizioning (`chromium-1194`) Playwright'ning kutgan versiyasidan
+(`chromium_headless_shell-1243`) farq qilishi — `playwright.config.ts`da
+allaqachon mavjud `PLAYWRIGHT_EXECUTABLE_PATH` env-o'zgaruvchisi bilan
+hal qilindi (repo o'zgarishi emas, sof mahalliy ishga tushirish
+konfiguratsiyasi); (2) E2E suite'ni ikki marta, orasida qayta seed
+qilmasdan ishga tushirganimda 3-4 ta BOSHQA (mening o'zgarishlarimga
+aloqasi yo'q) spec xato berdi — sabab aniq edi: oldingi ishga tushirish
+qoldirgan holat (masalan, "Avtomatik fallback" allaqachon yoqilgan,
+ikkinchi "E2E test task" qatori) — bu E2E testlarning "har ishga
+tushirish yangi seed talab qiladi" konventsiyasining o'zi, yangi xato
+emas. Fresh seed bilan uchinchi marta ishga tushirilganda barcha 13 spec
+(shu jumladan accessibility skaneri — yangi "Bekor qilish" tugmasi hech
+qanday serious/critical WCAG buzilishi keltirmadi) yashil.
+
+398 test (backend), barchasi real Postgres(+Redis)'da; `ruff`/`mypy`
+toza; frontend `tsc`/ESLint toza, production build muvaffaqiyatli;
+barcha 13 E2E spec real backend+frontend'ga qarshi yashil.

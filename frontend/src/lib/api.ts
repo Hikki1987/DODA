@@ -570,13 +570,20 @@ export async function* streamConversationMessage(
   conversationId: string,
   content: string,
   mode: ChatMode = "STANDARD",
+  signal?: AbortSignal,
 ): AsyncGenerator<ConversationStreamEvent> {
+  // FR-CONV-002: aborting this fetch (the caller's Cancel button) is
+  // what the backend's `Request.is_disconnected()` check
+  // (`api/conversations.py`) actually detects — there is no separate
+  // cancel endpoint; the HTTP connection itself is the cancellation
+  // signal, same as any other streaming-fetch cancellation.
   const response = await fetch(
     `${API_BASE_URL}/v1/workspaces/${workspaceId}/conversations/${conversationId}/messages`,
     {
       method: "POST",
       headers: { Authorization: `Bearer ${sessionId}`, "Content-Type": "application/json" },
       body: JSON.stringify({ content, mode }),
+      signal,
     },
   );
 
