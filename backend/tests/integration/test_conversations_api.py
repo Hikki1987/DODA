@@ -358,6 +358,154 @@ async def test_switching_a_conversations_provider_pins_it_without_touching_other
     assert by_id[other_conversation_id]["pinned_provider"] is None
 
 
+async def test_switching_a_conversations_language_pins_it_without_touching_other_conversations(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """FR-CONV-001, same pin/isolation shape as the provider test above."""
+    member = await seed_workspace_member()
+
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    other_create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    other_conversation_id = other_create.json()["id"]
+
+    switch = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/language",
+        json={"language": "RU"},
+        headers=_auth_headers(member.session_id),
+    )
+    assert switch.status_code == 200
+    assert switch.json()["pinned_language"] == "RU"
+
+    unaffected = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/conversations", headers=_auth_headers(member.session_id)
+    )
+    by_id = {c["id"]: c for c in unaffected.json()}
+    assert by_id[other_conversation_id]["pinned_language"] is None
+
+    cleared = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/language",
+        json={"language": None},
+        headers=_auth_headers(member.session_id),
+    )
+    assert cleared.json()["pinned_language"] is None
+
+
+class _InstructionRecordingGateway:
+    """Records the `instructions` string each call received, and always
+    replies with a single text delta + Completed — for asserting what
+    FR-CONV-001's language resolution actually sent to the gateway,
+    independent of whether a real model would obey it."""
+
+    def __init__(self) -> None:
+        self.received_instructions: list[str] = []
+
+    async def stream_chat(
+        self,
+        *,
+        model: str,
+        mode: ChatMode,
+        instructions: str,
+        history: list[ChatTurn],
+        tools: list[ToolSpec],
+        max_output_tokens: int,
+        response_schema: dict[str, typing.Any] | None = None,
+    ) -> typing.AsyncIterator[GatewayEvent]:
+        del model, mode, history, tools, max_output_tokens, response_schema
+        self.received_instructions.append(instructions)
+        yield TextDelta(text="javob")
+        yield Completed(usage=GatewayUsage(input_tokens=1, output_tokens=1), finish_reason="stop")
+
+
+async def test_an_uzbek_message_is_detected_and_steers_the_gateway_instructions(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_gateway = _InstructionRecordingGateway()
+    monkeypatch.setattr(
+        "doda.application.conversation_service.get_gateway", lambda provider, settings: fake_gateway
+    )
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="Salom, bugungi ish rejasini tuzib bering, iltimos",
+    )
+    assert len(fake_gateway.received_instructions) == 1
+    assert "o'zbek" in fake_gateway.received_instructions[0]
+
+
+async def test_a_pinned_language_overrides_the_detected_language_of_the_new_message(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_gateway = _InstructionRecordingGateway()
+    monkeypatch.setattr(
+        "doda.application.conversation_service.get_gateway", lambda provider, settings: fake_gateway
+    )
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/language",
+        json={"language": "EN"},
+        headers=_auth_headers(member.session_id),
+    )
+
+    # An unmistakably Uzbek message — the pin must still win.
+    await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="Salom, bugungi ish rejasini tuzib bering, iltimos",
+    )
+    assert "ingliz" in fake_gateway.received_instructions[0]
+
+
+async def test_an_ambiguous_message_sends_no_language_directive_at_all(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_gateway = _InstructionRecordingGateway()
+    monkeypatch.setattr(
+        "doda.application.conversation_service.get_gateway", lambda provider, settings: fake_gateway
+    )
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="42",
+    )
+    assert fake_gateway.received_instructions == [""]
+
+
 class _TwoRoundFailingGateway:
     """Round 1: a real text delta plus a read-tool call (so the caller
     already received >=1 SSE chunk before anything goes wrong) — round 2:

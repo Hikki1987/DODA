@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -21,6 +22,14 @@ class SwitchProviderRequest(BaseModel):
     model: str | None = None
 
 
+# Mirrors doda.ai.language.SUPPORTED_LANGUAGES — kept as a literal here
+# (rather than importing the tuple) so pydantic/OpenAPI can generate a
+# real enum-shaped schema for it, same reasoning as Provider being a
+# proper enum rather than a bare string field.
+class SwitchLanguageRequest(BaseModel):
+    language: Literal["UZ", "RU", "EN"] | None = None
+
+
 class ConversationOut(BaseModel):
     id: uuid.UUID
     workspace_id: uuid.UUID
@@ -28,6 +37,7 @@ class ConversationOut(BaseModel):
     title: str | None
     pinned_provider: str | None
     pinned_model: str | None
+    pinned_language: str | None
     created_at: datetime
 
 

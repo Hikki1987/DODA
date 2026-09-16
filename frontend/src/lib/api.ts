@@ -489,6 +489,9 @@ export type AiProvider = "OPENAI" | "GEMINI" | "CLAUDE";
 export const AI_PROVIDERS: AiProvider[] = ["OPENAI", "GEMINI", "CLAUDE"];
 export type ChatMode = "FAST" | "STANDARD" | "DEEP";
 export type MessageRole = "USER" | "ASSISTANT" | "TOOL";
+// FR-CONV-001. Mirrors doda.ai.language.SUPPORTED_LANGUAGES.
+export type AiLanguage = "UZ" | "RU" | "EN";
+export const AI_LANGUAGES: AiLanguage[] = ["UZ", "RU", "EN"];
 
 export interface ConversationOut {
   id: string;
@@ -497,6 +500,7 @@ export interface ConversationOut {
   title: string | null;
   pinned_provider: AiProvider | null;
   pinned_model: string | null;
+  pinned_language: AiLanguage | null;
   created_at: string;
 }
 
@@ -560,6 +564,20 @@ export function switchConversationProvider(
   return apiFetch(`/v1/workspaces/${workspaceId}/conversations/${conversationId}/provider`, sessionId, {
     method: "POST",
     body: JSON.stringify({ provider, model: model ?? null }),
+  });
+}
+
+// FR-CONV-001. `language: null` clears the pin, reverting to per-message
+// auto-detection (doda.ai.language.detect_language) on the backend.
+export function switchConversationLanguage(
+  sessionId: string,
+  workspaceId: string,
+  conversationId: string,
+  language: AiLanguage | null,
+): Promise<ConversationOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/conversations/${conversationId}/language`, sessionId, {
+    method: "POST",
+    body: JSON.stringify({ language }),
   });
 }
 

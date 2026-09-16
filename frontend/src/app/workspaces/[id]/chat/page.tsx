@@ -13,8 +13,11 @@ import {
   searchConversations,
   setWorkspaceAiPreference,
   streamConversationMessage,
+  switchConversationLanguage,
   switchConversationProvider,
+  AI_LANGUAGES,
   AI_PROVIDERS,
+  type AiLanguage,
   type AiPreferenceOut,
   type AiProvider,
   type ChatMode,
@@ -42,6 +45,8 @@ export default function ChatPage() {
   const [pinProvider, setPinProvider] = useState<AiProvider>("OPENAI");
   const [pinModel, setPinModel] = useState("");
   const [pinning, setPinning] = useState(false);
+  const [pinLanguage, setPinLanguage] = useState<AiLanguage>("UZ");
+  const [pinningLanguage, setPinningLanguage] = useState(false);
   const [workspacePreference, setWorkspacePreferenceState] = useState<AiPreferenceOut | null>(null);
   const [workspaceProviderChoice, setWorkspaceProviderChoice] = useState<AiProvider>("OPENAI");
   const [workspaceModelChoice, setWorkspaceModelChoice] = useState("");
@@ -120,6 +125,33 @@ export default function ChatPage() {
       setError(err instanceof ApiError ? err.message : "Provayderni o'rnatib bo'lmadi.");
     } finally {
       setPinning(false);
+    }
+  }
+
+  async function handlePinLanguage(event: FormEvent) {
+    event.preventDefault();
+    if (sessionId === null || selectedId === null || pinningLanguage) return;
+    setPinningLanguage(true);
+    try {
+      const updated = await switchConversationLanguage(sessionId, workspaceId, selectedId, pinLanguage);
+      setConversations((prev) => prev?.map((c) => (c.id === updated.id ? updated : c)) ?? null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Tilni o'rnatib bo'lmadi.");
+    } finally {
+      setPinningLanguage(false);
+    }
+  }
+
+  async function handleClearPinnedLanguage() {
+    if (sessionId === null || selectedId === null || pinningLanguage) return;
+    setPinningLanguage(true);
+    try {
+      const updated = await switchConversationLanguage(sessionId, workspaceId, selectedId, null);
+      setConversations((prev) => prev?.map((c) => (c.id === updated.id ? updated : c)) ?? null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Tilni tozalab bo'lmadi.");
+    } finally {
+      setPinningLanguage(false);
     }
   }
 
@@ -401,6 +433,42 @@ export default function ChatPage() {
                     ? `hozirgi: ${selected.pinned_provider}${selected.pinned_model ? " / " + selected.pinned_model : ""}`
                     : "hozirgi: tizim standart"}
                 </span>
+              </form>
+
+              <form onSubmit={handlePinLanguage} className="flex items-center gap-2 text-xs">
+                <span className="text-gray-500">Til:</span>
+                <select
+                  aria-label="Suhbat tili"
+                  value={pinLanguage}
+                  onChange={(event) => setPinLanguage(event.target.value as AiLanguage)}
+                  className="rounded border border-gray-200 bg-gray-50 px-1 py-1"
+                >
+                  {AI_LANGUAGES.map((language) => (
+                    <option key={language} value={language}>
+                      {language}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="submit"
+                  disabled={pinningLanguage}
+                  className="rounded border border-gray-300 px-2 py-1 font-medium text-gray-700 disabled:opacity-50"
+                >
+                  Pin qilish
+                </button>
+                <span className="text-gray-400">
+                  {selected.pinned_language ? `hozirgi: ${selected.pinned_language}` : "hozirgi: avtomatik aniqlash"}
+                </span>
+                {selected.pinned_language !== null && (
+                  <button
+                    type="button"
+                    onClick={handleClearPinnedLanguage}
+                    disabled={pinningLanguage}
+                    className="text-red-600 hover:underline disabled:opacity-50"
+                  >
+                    Avtomatikka qaytarish
+                  </button>
+                )}
               </form>
 
               <div className="flex-1 space-y-3 overflow-y-auto rounded-md border border-gray-200 p-4">

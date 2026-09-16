@@ -46,9 +46,15 @@ test("chat: send a message, get the real NullModelGateway reply, pin a provider"
   });
 
   await test.step("pinning a conversation provider persists server-side", async () => {
+    // Scoped to the provider form specifically — the language form below
+    // (FR-CONV-001) has its own, identically-labeled "Pin qilish" button,
+    // and an unscoped click/text match would be exactly the strict-mode
+    // ambiguity this codebase has already hit once before (see CLAUDE.md
+    // on the AWAITING_APPROVAL/getByText lesson).
+    const providerForm = page.locator('form:has(select[aria-label="Suhbat provayderi"])');
     await page.selectOption('select[aria-label="Suhbat provayderi"]', "GEMINI");
-    await page.click('button:has-text("Pin qilish")');
-    await expect(page.getByText("hozirgi: GEMINI")).toBeVisible();
+    await providerForm.getByRole("button", { name: "Pin qilish" }).click();
+    await expect(providerForm.getByText("hozirgi: GEMINI")).toBeVisible();
 
     // Direct backend check (not the page's own fetch) — proves the pin
     // really persisted, not just that the label optimistically re-rendered.
@@ -60,6 +66,25 @@ test("chat: send a message, get the real NullModelGateway reply, pin a provider"
     expect(conversations.some((c: { pinned_provider: string | null }) => c.pinned_provider === "GEMINI")).toBe(
       true,
     );
+  });
+
+  await test.step("pinning a conversation language persists server-side (FR-CONV-001)", async () => {
+    const languageForm = page.locator('form:has(select[aria-label="Suhbat tili"])');
+    await page.selectOption('select[aria-label="Suhbat tili"]', "RU");
+    await languageForm.getByRole("button", { name: "Pin qilish" }).click();
+    await expect(languageForm.getByText("hozirgi: RU")).toBeVisible();
+
+    const response = await page.request.get(
+      `http://localhost:8000/v1/workspaces/${WORKSPACE_ID}/conversations`,
+      { headers: { Authorization: `Bearer ${SESSION_ID}` } },
+    );
+    const conversations = await response.json();
+    expect(
+      conversations.some((c: { pinned_language: string | null }) => c.pinned_language === "RU"),
+    ).toBe(true);
+
+    await languageForm.getByRole("button", { name: "Avtomatikka qaytarish" }).click();
+    await expect(languageForm.getByText("hozirgi: avtomatik aniqlash")).toBeVisible();
   });
 
   expect(consoleErrors, `unexpected browser console errors: ${consoleErrors.join("\n")}`).toEqual([]);

@@ -4738,3 +4738,73 @@ fresh seed'ga qarshi yashil.
 401 test (backend), barchasi real Postgres(+Redis)'da; `ruff`/`mypy`
 toza; frontend `tsc`/ESLint toza, production build muvaffaqiyatli;
 barcha 14 E2E spec yashil.
+
+**FR-CONV-001 (O'zbek/rus/ingliz tilida matnli chat: til avtomatik
+aniqlanadi, foydalanuvchi tanlovi ustun, Must) qurildi — uchinchi va
+oxirgi FR-CONV-002/006 bilan bir xil kuzatuv: "til aniqlash" degani
+haqiqiy model chaqiruvi emas, DETERMINISTIK matn tahlili.** Boshqa ikkitasidan
+farqli, bu yerda haqiqiy lingvistik xato xavfi bor edi — shuning uchun
+"taxmin qilmasdan hal qil" tamoyili alohida ehtiyotkorlik bilan qo'llandi.
+
+`doda/ai/language.py` — uchinchi tomon kutubxonasisiz (NFR-SEC-002/003'ning
+dependency-audit qamrovini kengaytirmasdan), so'z ro'yxati + skript-asosli
+evristika, aynan uchta tilning o'ziga xos lingvistik faktlariga
+asoslangan: (1) O'zbek IKKITA yozuvga ega — lotin (1993'dan rasmiy) VA
+kirill (hamon haqiqiy foydalanishda) — shuning uchun "kirill bor" =
+"rus" degani NOTO'G'RI; (2) O'zbek kirill alifbosi rus tilida
+UMUMAN bo'lmagan to'rtta harfga ega (ў, қ, ғ, ҳ) — bu orfografik, statistik
+emas, signal, kirill matnni rus/o'zbek deb ishonchli ajratadi; (3) O'zbek
+lotin yozuvi o'zining apostrof-digraflariga ega (o', g') — ingliz tilidan
+ajratadi, garchi ikkalasi ham bir xil lotin alifbosidan foydalansa ham.
+Noaniq/qisqa xabar (masalan "ok", "12345") ATAYLAB `None` qaytaradi —
+taxmin qilish, hech narsa demasdan noto'g'ri yo'nalishga ko'rsatishdan
+yomonroq (FR-CONV-004'ning "taxmin qilma" ruhi bilan bir xil falsafa,
+boshqa talab bo'lsa ham).
+
+`Conversation.pinned_language` (0019-migratsiya) — `pinned_provider`ning
+aynan o'zi bilan bir xil, propagatsiyalanmaydigan naqsh: aniq
+`POST .../conversations/{id}/language` orqali o'rnatiladi (`language:
+null` — avtomatik aniqlashga qaytaradi), boshqa suhbatlarga yoki
+workspace standartiga ta'sir qilmaydi. `stream_message` endi har bir
+burilishda `conversation.pinned_language or detect_language(content)`ni
+hisoblab, natijani gateway'ga yuboriladigan `instructions`ga aylantiradi
+(`response_language_instruction`) — avval bu maydon doim bo'sh `""` edi.
+
+Testlar audit-zanjiri uslubida isbotlandi: `effective_language`
+hisoblashni vaqtincha `None`ga qattiq bog'lab, ikkita yangi integratsiya
+testi ("o'zbekcha xabar aniqlanadi", "pin aniqlashdan ustun turadi")
+aynan kutilgan tarzda muvaffaqiyatsiz bo'lishini ko'rsatdim, keyin
+qaytarib yashil ekanini tasdiqladim. Yana bitta test noaniq xabarda
+(`"42"`) `instructions` HAR DOIM bo'sh qolishini tekshiradi — bu
+"taxmin qilmaslik" va'dasining o'zi. `doda/ai/language.py`: 11 unit
+test, real til namunalari bilan (sintetik kalit so'z emas — haqiqiy
+o'zbek/rus/ingliz gaplar), 100% qamrov. `conversation_service.py`: 100%.
+
+Frontend: chat sahifasiga "Til:" pin formasi qo'shildi — provayder pin
+formasi bilan bir xil naqsh. Buni qo'shishda haqiqiy, mavjud E2E testni
+buzadigan muammo topildi: ikkinchi "Pin qilish" tugmasi paydo bo'lgani
+uchun `page.click('button:has-text("Pin qilish")')` endi ikkita elementga
+mos keladi — aynan shu kod bazasida allaqachon bir marta (AWAITING_APPROVAL/
+audit event_type) uchragan strict-mode noaniqlik sinfi. Amalda hozircha
+"ishlaydi" edi (DOM tartibi tasodifan to'g'ri tanlov qilardi), lekin bu
+ishonchsiz edi — ikkala test ham (provayder VA yangi til) endi o'z
+formasiga (`form:has(select[aria-label=...])`) aniq bog'langan holda
+qayta yozildi, shunchaki tasodifiy tartibga tayanmasdan.
+
+Real backend+production frontend'ga qarshi (barcha 14 E2E spec, jumladan
+accessibility skaneri — yangi forma hech qanday WCAG buzilishi
+keltirmadi) tasdiqlandi. Migratsiya round-trip (0018→0019→0018→0019)
+qo'lda tekshirildi.
+
+416 test (backend), barchasi real Postgres(+Redis)'da; `ruff`/`mypy`
+toza (99% umumiy qamrov); frontend `tsc`/ESLint toza, production build
+muvaffaqiyatli; barcha 14 E2E spec yashil.
+
+Shu bilan FR-CONV-001/002/006 uchtasi ham yopildi — boshida
+"barchasi haqiqiy model javobini talab qiladi" deb noto'g'ri
+guruhlangan olti requirement'dan. Qolgan uchtasi (FR-CONV-004 xavfli
+noaniqlikda savol berish, FR-CONV-005 strukturalangan javob bloklari,
+FR-CONV-007 tahrirlash/qayta generatsiya) haqiqatan ham model
+ishtirokini yoki (005'ning "plan"/"evidence" farqlash qismi uchun)
+hali qurilmagan Knowledge/RAG domenini talab qiladi — bu uchtasi
+to'g'ri guruhlangan edi, ataylab tegilmadi.

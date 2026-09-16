@@ -41,6 +41,7 @@ from doda.api.conversation_schemas import (
     CreateConversationRequest,
     MessageOut,
     PostMessageRequest,
+    SwitchLanguageRequest,
     SwitchProviderRequest,
 )
 from doda.api.dependencies import RequestContext, get_request_context
@@ -51,6 +52,7 @@ from doda.application.conversation_service import (
     search_messages_in_workspace,
     start_conversation,
     stream_message,
+    switch_conversation_language,
     switch_conversation_provider,
 )
 from doda.config import get_settings
@@ -68,6 +70,7 @@ def _to_conversation_out(conversation: Conversation) -> ConversationOut:
         title=conversation.title,
         pinned_provider=conversation.pinned_provider,
         pinned_model=conversation.pinned_model,
+        pinned_language=conversation.pinned_language,
         created_at=conversation.created_at,
     )
 
@@ -165,6 +168,22 @@ async def switch_provider(
     conversation = await switch_conversation_provider(
         ctx.db, conversation, provider=body.provider, model=body.model
     )
+    return _to_conversation_out(conversation)
+
+
+@router.post(
+    "/v1/workspaces/{workspace_id}/conversations/{conversation_id}/language", response_model=ConversationOut
+)
+async def switch_language(
+    conversation_id: uuid.UUID,
+    body: SwitchLanguageRequest,
+    ctx: RequestContext = Depends(get_request_context),
+) -> ConversationOut:
+    """FR-CONV-001. `body.language=None` clears the pin, reverting to
+    per-message auto-detection."""
+    authorize_use_chat(ctx.workspace)
+    conversation = await _get_owned_conversation(ctx, conversation_id)
+    conversation = await switch_conversation_language(ctx.db, conversation, language=body.language)
     return _to_conversation_out(conversation)
 
 

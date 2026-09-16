@@ -515,6 +515,18 @@ tarixni emas, bo'sh natija qaytaradi. Frontend'ga qidiruv formasi
 qo'shildi. 401 test (backend); barcha 14 E2E spec yashil. To'liq
 tafsilot: `CLAUDE.md`.
 
+**FR-CONV-001 (til avtomatik aniqlash) qurildi — bu ham model chaqiruvi
+emas, deterministik matn tahlili ekan.** `doda/ai/language.py` — uchinchi
+tomon kutubxonasisiz, uchta tilning (o'zbek/rus/ingliz) haqiqiy
+lingvistik faktlariga (o'zbek kirillining ruscha bo'lmagan harflari —
+ў/қ/ғ/ҳ, o'zbek lotinining apostrof-digraflari — o'/g') asoslangan
+evristika. Noaniq xabar taxmin qilmasdan `None` qaytaradi.
+`Conversation.pinned_language` — foydalanuvchining aniq tanlovi
+avtomatik aniqlashdan ustun turadi. Shu bilan FR-CONV-001/002/006
+uchtasi ham yopildi (qolgan uch FR-CONV — 004/005/007 — haqiqatan ham
+model ishtirokini talab qiladi, to'g'ri guruhlangan edi). 416 test
+(backend); barcha 14 E2E spec yashil. To'liq tafsilot: `CLAUDE.md`.
+
 ## Ishga tushirish (local dev)
 
 ```bash

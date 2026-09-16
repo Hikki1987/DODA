@@ -46,6 +46,7 @@ from doda.ai.errors import (
     OutboundContentBlockedError,
 )
 from doda.ai.factory import get_gateway
+from doda.ai.language import detect_language, response_language_instruction
 from doda.ai.outbound_guard import detect_likely_secret
 from doda.ai.types import (
     ChatMode,
@@ -194,6 +195,19 @@ async def switch_conversation_provider(
     return conversation
 
 
+async def switch_conversation_language(
+    session: AsyncSession, conversation: Conversation, *, language: str | None
+) -> Conversation:
+    """FR-CONV-001: "foydalanuvchi tanlovi avtomatik aniqlashdan ustun" —
+    an explicit override for this ONE conversation, same non-propagating
+    semantics as `switch_conversation_provider` above. `language=None`
+    clears the override, reverting to per-message auto-detection
+    (`doda.ai.language.detect_language`)."""
+    conversation.pinned_language = language
+    await session.flush()
+    return conversation
+
+
 def _messages_to_history(messages: list[Message], *, max_chars: int) -> list[ChatTurn]:
     """ "tegishli va hajmi cheklangan kontekstni tanla" — most-recent
     messages first, up to a character budget, no summarization/retrieval
@@ -279,6 +293,16 @@ async def stream_message(
     session.add(user_message)
     await session.flush()
 
+    # FR-CONV-001: the conversation's own pin always wins over
+    # per-message detection — same "explicit override beats an inferred
+    # default" precedent as provider/model resolution, just one tier
+    # instead of four (there is no user-/workspace-level language
+    # default to fall through to here). An ambiguous/undetected message
+    # with no pin means no directive at all (empty instructions) rather
+    # than a guessed one.
+    effective_language = conversation.pinned_language or detect_language(content)
+    instructions = response_language_instruction(effective_language)
+
     choice = await ai_preference_service.resolve_provider_choice(
         session,
         settings=settings,
@@ -347,7 +371,7 @@ async def stream_message(
                     async for event in gateway.stream_chat(
                         model=model,
                         mode=mode,
-                        instructions="",
+                        instructions=instructions,
                         history=history,
                         tools=tools,
                         max_output_tokens=max_output_tokens,

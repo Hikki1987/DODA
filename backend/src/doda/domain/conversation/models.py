@@ -52,6 +52,14 @@ class Conversation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     pinned_provider: Mapped[str | None] = mapped_column(String(16), default=None)
     pinned_model: Mapped[str | None] = mapped_column(String(64), default=None)
 
+    # FR-CONV-001 (0019-migratsiya): "foydalanuvchi tanlovi avtomatik
+    # aniqlashdan ustun" — an explicit language override for this ONE
+    # conversation, same non-propagating semantics as pinned_provider
+    # above. None means "no override — detect the language of each new
+    # message instead" (doda.ai.language.detect_language). One of
+    # doda.ai.language.SUPPORTED_LANGUAGES ("UZ"/"RU"/"EN") when set.
+    pinned_language: Mapped[str | None] = mapped_column(String(2), default=None)
+
 
 class Message(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __tablename__ = "conversation_messages"
