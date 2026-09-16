@@ -12,6 +12,7 @@ import {
   disengageWorkspaceKillSwitch,
   engageWorkspaceKillSwitch,
   getTaskHistory,
+  getTaskPlan,
   getWorkspaceKillSwitch,
   listActions,
   listNotifications,
@@ -26,6 +27,7 @@ import {
   type NotificationOut,
   type TaskHistoryEntryOut,
   type TaskOut,
+  type TaskPlanPeriod,
   type TaskStatus,
   type WorkspaceMemberOut,
   type WorkspaceRole,
@@ -59,7 +61,10 @@ export default function WorkspacePage() {
   const [auditEvents, setAuditEvents] = useState<AuditEventOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskDueDate, setNewTaskDueDate] = useState("");
   const [creatingTask, setCreatingTask] = useState(false);
+  const [planPeriod, setPlanPeriod] = useState<TaskPlanPeriod>("daily");
+  const [plan, setPlan] = useState<TaskOut[] | null>(null);
   const [archivingWorkspace, setArchivingWorkspace] = useState(false);
   const [openTaskHistory, setOpenTaskHistory] = useState<Record<string, TaskHistoryEntryOut[]>>({});
   const [traceIdInput, setTraceIdInput] = useState("");
@@ -83,14 +88,31 @@ export default function WorkspacePage() {
     refresh();
   }, [refresh]);
 
+  const refreshPlan = useCallback(() => {
+    if (sessionId === null) return;
+    getTaskPlan(sessionId, workspaceId, planPeriod)
+      .then(setPlan)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Rejani yuklab bo'lmadi."));
+  }, [sessionId, workspaceId, planPeriod]);
+
+  useEffect(() => {
+    refreshPlan();
+  }, [refreshPlan]);
+
   async function handleCreateTask(event: FormEvent) {
     event.preventDefault();
     if (sessionId === null || newTaskTitle.trim().length === 0 || creatingTask) return;
     setCreatingTask(true);
     try {
-      await createTask(sessionId, workspaceId, newTaskTitle.trim());
+      // <input type="datetime-local"> has no timezone of its own — treated
+      // as local time, which Date's own constructor already assumes, so
+      // toISOString() below correctly converts it to UTC for the backend.
+      const dueDate = newTaskDueDate.trim().length > 0 ? new Date(newTaskDueDate).toISOString() : null;
+      await createTask(sessionId, workspaceId, newTaskTitle.trim(), dueDate);
       setNewTaskTitle("");
+      setNewTaskDueDate("");
       refresh();
+      refreshPlan();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Task yaratib bo'lmadi.");
     } finally {
@@ -247,6 +269,13 @@ export default function WorkspacePage() {
             placeholder="Yangi task nomi"
             className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-black focus:outline-none"
           />
+          <input
+            type="datetime-local"
+            aria-label="Muddat (ixtiyoriy)"
+            value={newTaskDueDate}
+            onChange={(event) => setNewTaskDueDate(event.target.value)}
+            className="rounded-md border border-gray-300 px-2 py-2 text-sm focus:border-black focus:outline-none"
+          />
           <button
             type="submit"
             disabled={newTaskTitle.trim().length === 0 || creatingTask}
@@ -255,6 +284,34 @@ export default function WorkspacePage() {
             Qo&apos;shish
           </button>
         </form>
+
+        <div data-testid="task-plan" className="mb-4 rounded-md border border-gray-200 p-3">
+          <div className="mb-2 flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-gray-700">Reja</h3>
+            <select
+              aria-label="Reja davri"
+              value={planPeriod}
+              onChange={(event) => setPlanPeriod(event.target.value as TaskPlanPeriod)}
+              className="rounded border border-gray-200 bg-gray-50 px-1 py-1 text-xs"
+            >
+              <option value="daily">Kunlik</option>
+              <option value="weekly">Haftalik</option>
+            </select>
+          </div>
+          <ul className="space-y-1">
+            {plan?.map((task) => (
+              <li key={task.id} className="flex items-center justify-between text-xs">
+                <span>{task.title}</span>
+                <span className="text-gray-400">
+                  {task.due_date ? new Date(task.due_date).toLocaleString() : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {plan !== null && plan.length === 0 && (
+            <p className="text-xs text-gray-500">Bu davr uchun muddatli task yo&apos;q.</p>
+          )}
+        </div>
         <ul className="space-y-2">
           {tasks?.map((task) => (
             <li key={task.id} className="rounded-md border border-gray-200 px-3 py-2">

@@ -79,6 +79,23 @@ test("login, workspace, task, notification, action, audit flow", async ({ page }
     await expect(page.getByText("DONE qilish")).toBeVisible();
   });
 
+  await test.step("a task with a due date appears in the daily plan (FR-TASK-002)", async () => {
+    const dueSoon = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
+    const localValue = new Date(dueSoon.getTime() - dueSoon.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+    await page.fill('input[placeholder="Yangi task nomi"]', "E2E plan task");
+    await page.fill('input[aria-label="Muddat (ixtiyoriy)"]', localValue);
+    await page.click("button:has-text(\"Qo'shish\")");
+    await expect(page.locator('li:has-text("E2E plan task")')).toBeVisible();
+
+    // Scoped to the plan panel specifically — its own <li> items would
+    // otherwise be ambiguous with the main task list's identical text,
+    // the same strict-mode lesson this codebase has hit before.
+    const planPanel = page.getByTestId("task-plan");
+    await expect(planPanel.getByText("E2E plan task")).toBeVisible();
+  });
+
   await test.step("task history shows the TODO -> IN_PROGRESS transition", async () => {
     const taskRow = page.locator('li:has-text("E2E test task")');
     await taskRow.getByRole("button", { name: "Tarix" }).click();

@@ -527,6 +527,18 @@ uchtasi ham yopildi (qolgan uch FR-CONV — 004/005/007 — haqiqatan ham
 model ishtirokini talab qiladi, to'g'ri guruhlangan edi). 416 test
 (backend); barcha 14 E2E spec yashil. To'liq tafsilot: `CLAUDE.md`.
 
+**FR-TASK-002 (kunlik/haftalik reja) qurildi — "reja generatsiyasi"
+so'ziga qaramay, bu ham AI emas, muddat (due_date) bo'yicha
+deterministik filtr ekan.** `GET /v1/workspaces/{id}/tasks/plan?
+period=daily|weekly` — muddati oyna ichida (yoki allaqachon o'tib
+ketgan) bo'lgan, hali yopilmagan tasklarni qaytaradi, aniq workspace
+predikati bilan. Bu endpoint `GET .../tasks/{task_id}`dan OLDIN
+ro'yxatdan o'tishi SHART edi (Starlette route tartibga qarab mos
+keladi) — bu isbotlandi (vaqtincha teskari tartib bilan xatoni qayta
+hosil qilib), taxmin qilinmadi. Frontend'ga muddat input va "Reja"
+paneli qo'shildi. 421 test (backend); barcha 14 E2E spec yashil.
+To'liq tafsilot: `CLAUDE.md`.
+
 ## Ishga tushirish (local dev)
 
 ```bash

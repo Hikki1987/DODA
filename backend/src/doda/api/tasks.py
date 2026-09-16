@@ -3,6 +3,7 @@ api/actions.py: every handler gets its tenant/authz context only from
 RequestContext, never from client-supplied customer_id/actor_id."""
 
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -17,6 +18,7 @@ from doda.application.authz_service import authorize_create_task, authorize_task
 from doda.application.task_service import (
     change_task_status,
     create_task,
+    generate_task_plan,
     list_task_history,
     list_tasks_for_workspace,
 )
@@ -63,6 +65,22 @@ async def list_workspace_tasks(
     tasks = await list_tasks_for_workspace(
         ctx.db, workspace_id=ctx.workspace.workspace_id, status=status, limit=limit
     )
+    return [_to_task_out(task) for task in tasks]
+
+
+@router.get("/v1/workspaces/{workspace_id}/tasks/plan", response_model=list[TaskOut])
+async def get_workspace_task_plan(
+    period: Literal["daily", "weekly"] = Query(default="daily"),
+    ctx: RequestContext = Depends(get_request_context),
+) -> list[TaskOut]:
+    """FR-TASK-002. Registered ABOVE GET .../tasks/{task_id} below on
+    purpose — Starlette matches routes in registration order, and that
+    route's plain {task_id} path parameter would otherwise swallow
+    "plan" as a (nonexistent) task id, so this route would never be
+    reached if it came after (verified: temporarily moving this route
+    below get_task reproduces exactly that — a 422 from the wrong
+    handler, http.route={workspace_id}/tasks/{task_id} in the trace)."""
+    tasks = await generate_task_plan(ctx.db, workspace_id=ctx.workspace.workspace_id, period=period)
     return [_to_task_out(task) for task in tasks]
 
 

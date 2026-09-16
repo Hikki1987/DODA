@@ -127,11 +127,29 @@ export function listTasks(sessionId: string, workspaceId: string): Promise<TaskO
   return apiFetch(`/v1/workspaces/${workspaceId}/tasks`, sessionId);
 }
 
-export function createTask(sessionId: string, workspaceId: string, title: string): Promise<TaskOut> {
+export function createTask(
+  sessionId: string,
+  workspaceId: string,
+  title: string,
+  dueDate?: string | null,
+): Promise<TaskOut> {
   return apiFetch(`/v1/workspaces/${workspaceId}/tasks`, sessionId, {
     method: "POST",
-    body: JSON.stringify({ title }),
+    body: JSON.stringify({ title, due_date: dueDate ?? null }),
   });
+}
+
+// FR-TASK-002: a deterministic deadline filter, not an AI-generated
+// plan — see the backend's own docstring (doda.application.task_service.
+// generate_task_plan) for why "plan" here means exactly that.
+export type TaskPlanPeriod = "daily" | "weekly";
+
+export function getTaskPlan(
+  sessionId: string,
+  workspaceId: string,
+  period: TaskPlanPeriod,
+): Promise<TaskOut[]> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/tasks/plan?period=${period}`, sessionId);
 }
 
 export function changeTaskStatus(

@@ -4808,3 +4808,64 @@ FR-CONV-007 tahrirlash/qayta generatsiya) haqiqatan ham model
 ishtirokini yoki (005'ning "plan"/"evidence" farqlash qismi uchun)
 hali qurilmagan Knowledge/RAG domenini talab qiladi — bu uchtasi
 to'g'ri guruhlangan edi, ataylab tegilmadi.
+
+**FR-TASK-002 (Kunlik/haftalik reja generatsiyasi, Must) qurildi —
+traceability auditda "41 ta hech qayerda tilga olinmagan" deb belgilangan
+ID'lardan biri, va tekshirilganda AI/model bilan hech qanday aloqasi
+yo'qligi aniqlandi.** "Reja generatsiyasi" so'zi chalg'ituvchi —
+qabul mezonining o'zi ("Reja faqat joriy workspace tasklaridan
+tuziladi") sof scope/isolation talabi, xuddi FR-CONV-003/006 kabi.
+Haqiqiy amalga oshirish — muddat (due_date) bo'yicha deterministik
+filtr: "kunlik" = muddati 24 soat ichida (yoki allaqachon o'tib ketgan)
+bo'lgan, hali yopilmagan (DONE/CANCELLED bo'lmagan) tasklar; "haftalik" —
+xuddi shu, 7 kunlik oyna bilan. Muddatsiz tasklar rejaga kirmaydi (bu
+umumiy backlog uchun, `list_tasks_for_workspace` allaqachon bor).
+
+`GET /v1/workspaces/{id}/tasks/plan?period=daily|weekly` — bu
+endpoint'ni **AYNAN** `GET .../tasks/{task_id}`dan OLDIN ro'yxatdan
+o'tkazish SHART edi: Starlette route'larni ro'yxatga olingan tartibda
+mos keltiradi, "aniqroq literal ustunlik" tushunchasi yo'q — agar
+`{task_id}` route birinchi bo'lganida, "plan" so'zi shunchaki yaroqsiz
+UUID sifatida o'sha route'ga tushib qolardi. Bu **taxmin emas, isbotlandi**:
+route'ni vaqtincha `{task_id}` route'idan KEYINGA ko'chirib, aynan shu
+xatoni (4 ta test 422 bilan, noto'g'ri `http.route` trace atributi bilan
+muvaffaqiyatsiz bo'lib) qayta hosil qildim, keyin to'g'ri tartibga
+qaytarib yashil ekanini tasdiqladim.
+
+**Bu tekshiruv paytida o'z xatoim — `git checkout -- <fayl>` chaqirib,
+faylning BUTUN commit qilinmagan ishini (butun yangi endpoint'ni)
+yo'qotib qo'ydim**, faqat vaqtinchalik test-uchun-qayta-tartiblashni
+bekor qilmoqchi bo'lganimda. Bu "git safety protocol"ning aynan nima
+uchun `checkout -- <fayl>` kabi buyruqlarni ehtiyotsiz ishlatmaslik
+kerakligini ko'rsatadi — committed bo'lmagan ishni discard qiladi,
+faqat oxirgi o'zgarishni emas. Darhol aniqlandi (`grep` bilan endpoint
+yo'qligini tasdiqlab) va butun endpoint kontekstdan aniq qayta
+tiklandi — hech qanday ish yo'qolmadi, lekin bu ehtiyotsizlik ochiq
+tan olinadi.
+
+Testlar: kunlik oynaning haqiqatda tor ekanini (10 kundan keyin due
+bo'lgan task chiqmaydi), haftalik oynaning kengroq ekanini, DONE/
+CANCELLED tasklarning chiqarib tashlanishini, va workspace izolyatsiyasini
+(bir xil customer ostidagi boshqa workspace'ning muddati yaqin
+task'i hech qachon ko'rinmasligi) tekshiradi. `task_service.py`/
+`api/tasks.py`: 100% qamrov.
+
+Frontend: task yaratish formasiga muddat (datetime-local input)
+qo'shildi — aks holda backend qobiliyati mavjud bo'lsa-da, UI orqali
+HECH QACHON muddatli task yaratib bo'lmasdi va "Reja" bo'limi doim
+bo'sh ko'rinardi (yana bir "backend bor, kirish yo'q" naqshi). Workspace
+sahifasiga davr almashtiruvchi (kunlik/haftalik) "Reja" paneli
+qo'shildi. Yangi E2E qadam (`workspace.spec.ts`) muddatli task
+yaratib, uning HAM asosiy ro'yxatda, HAM "Reja" panelida ko'rinishini
+tekshiradi — ikkalasi ham bir xil matnni ko'rsatgani uchun aniq
+`data-testid="task-plan"` bilan scope qilingan (yana shu kod bazasida
+allaqachon bir necha marta uchragan strict-mode noaniqlik sinfidan
+qochish uchun).
+
+Real backend+production frontend'ga qarshi (barcha 14 E2E spec,
+jumladan accessibility skaneri — yangi muddat input/panel hech qanday
+WCAG buzilishi keltirmadi) tasdiqlandi.
+
+421 test (backend), barchasi real Postgres(+Redis)'da; `ruff`/`mypy`
+toza (99% umumiy qamrov); frontend `tsc`/ESLint toza, production build
+muvaffaqiyatli; barcha 14 E2E spec yashil.

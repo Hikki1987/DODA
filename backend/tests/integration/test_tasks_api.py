@@ -2,13 +2,15 @@
 pattern as test_actions_api.py (Session -> Workspace Membership -> RBAC)."""
 
 import uuid
+from datetime import timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from doda.domain.base import utcnow
 from doda.domain.identity.models import AuthStrength
 from doda.main import app
-from tests.integration.conftest import seed_workspace_member
+from tests.integration.conftest import SeededMember, seed_workspace_member
 
 
 @pytest.fixture
@@ -367,3 +369,115 @@ async def test_list_workspace_tasks_does_not_leak_another_workspaces_tasks(
     )
     assert response.status_code == 200
     assert response.json() == []
+
+
+async def _create_task_due_in(
+    client: AsyncClient, member: SeededMember, title: str, *, delta: timedelta | None
+) -> None:
+    body: dict[str, object] = {"title": title}
+    if delta is not None:
+        body["due_date"] = (utcnow() + delta).isoformat()
+    response = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks",
+        json=body,
+        headers=_auth_headers(member.session_id),
+    )
+    assert response.status_code == 200
+
+
+async def test_daily_plan_includes_overdue_and_due_soon_but_not_further_out(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """FR-TASK-002: no AI involved, a plain deadline filter — overdue and
+    due-within-24h tasks belong in today's plan; something due in 10 days
+    does not."""
+    member = await seed_workspace_member()
+    await _create_task_due_in(client, member, "Overdue", delta=timedelta(hours=-2))
+    await _create_task_due_in(client, member, "Due soon", delta=timedelta(hours=6))
+    await _create_task_due_in(client, member, "Due far out", delta=timedelta(days=10))
+    await _create_task_due_in(client, member, "No deadline at all", delta=None)
+
+    response = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/tasks/plan",
+        params={"period": "daily"},
+        headers=_auth_headers(member.session_id),
+    )
+    assert response.status_code == 200
+    titles = [task["title"] for task in response.json()]
+    assert titles == ["Overdue", "Due soon"]  # ordered earliest-due first
+
+
+async def test_weekly_plan_has_a_wider_window_than_daily(client: AsyncClient, db_available: bool) -> None:
+    member = await seed_workspace_member()
+    await _create_task_due_in(client, member, "Due in 3 days", delta=timedelta(days=3))
+    await _create_task_due_in(client, member, "Due in 10 days", delta=timedelta(days=10))
+
+    daily = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/tasks/plan",
+        params={"period": "daily"},
+        headers=_auth_headers(member.session_id),
+    )
+    assert daily.json() == []
+
+    weekly = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/tasks/plan",
+        params={"period": "weekly"},
+        headers=_auth_headers(member.session_id),
+    )
+    titles = [task["title"] for task in weekly.json()]
+    assert titles == ["Due in 3 days"]
+
+
+async def test_plan_excludes_done_and_cancelled_tasks_even_if_due_soon(
+    client: AsyncClient, db_available: bool
+) -> None:
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks",
+        json={"title": "Already handled", "due_date": (utcnow() + timedelta(hours=1)).isoformat()},
+        headers=_auth_headers(member.session_id),
+    )
+    task_id = create.json()["id"]
+    await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/status",
+        json={"target_status": "IN_PROGRESS"},
+        headers=_auth_headers(member.session_id),
+    )
+    await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/status",
+        json={"target_status": "DONE"},
+        headers=_auth_headers(member.session_id),
+    )
+
+    response = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/tasks/plan",
+        headers=_auth_headers(member.session_id),
+    )
+    assert response.json() == []
+
+
+async def test_plan_is_scoped_to_the_workspace_not_the_whole_customer(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """The acceptance criterion's own wording: "reja faqat joriy
+    workspace tasklaridan tuziladi." """
+    member = await seed_workspace_member()
+    other = await seed_workspace_member()
+    await _create_task_due_in(client, other, "Someone else's urgent task", delta=timedelta(hours=1))
+
+    response = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/tasks/plan",
+        headers=_auth_headers(member.session_id),
+    )
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+async def test_plan_rejects_an_unsupported_period(client: AsyncClient, db_available: bool) -> None:
+    member = await seed_workspace_member()
+    response = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/tasks/plan",
+        params={"period": "monthly"},
+        headers=_auth_headers(member.session_id),
+    )
+    assert response.status_code == 422

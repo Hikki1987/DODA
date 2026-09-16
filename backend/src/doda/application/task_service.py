@@ -8,12 +8,13 @@ request (QOIDA 2), not a bug fix.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.application.notification_service import create_notification
+from doda.domain.base import utcnow
 from doda.domain.notification.models import NotificationType
 from doda.domain.task.models import Task, TaskHistory, TaskStatus
 
@@ -156,5 +157,42 @@ async def list_tasks_for_workspace(
     if status is not None:
         query = query.where(Task.status == status)
     query = query.order_by(Task.created_at.desc()).limit(min(limit, MAX_PAGE_SIZE))
+    result = await session.execute(query)
+    return list(result.scalars())
+
+
+PLAN_WINDOWS = {"daily": timedelta(days=1), "weekly": timedelta(days=7)}
+
+
+async def generate_task_plan(
+    session: AsyncSession, *, workspace_id: uuid.UUID, period: str, limit: int = 100
+) -> list[Task]:
+    """FR-TASK-002: "Kunlik/haftalik reja generatsiyasi... reja faqat
+    joriy workspace tasklaridan tuziladi." No AI involved — a "plan" here
+    is deterministic: every open (not DONE/CANCELLED) task in THIS
+    workspace whose due_date falls within the period's window from now,
+    earliest first. An already-overdue task (due_date in the past) is
+    included in both windows — it still needs doing, arguably more
+    urgently, not less. A task with no due_date at all is excluded: a
+    time-boxed daily/weekly plan is specifically about what's due when,
+    not the full backlog (list_tasks_for_workspace already covers that).
+
+    `period` must be a key of PLAN_WINDOWS ("daily" or "weekly") — the
+    caller (api/tasks.py) validates this via a Literal type before it
+    ever reaches here, so an invalid value is a programming error, not a
+    user input to handle gracefully."""
+    window = PLAN_WINDOWS[period]
+    horizon = utcnow() + window
+    query = (
+        select(Task)
+        .where(
+            Task.workspace_id == workspace_id,
+            Task.due_date.is_not(None),
+            Task.due_date <= horizon,
+            Task.status.not_in((TaskStatus.DONE, TaskStatus.CANCELLED)),
+        )
+        .order_by(Task.due_date.asc())
+        .limit(min(limit, MAX_PAGE_SIZE))
+    )
     result = await session.execute(query)
     return list(result.scalars())
