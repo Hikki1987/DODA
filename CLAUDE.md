@@ -4957,3 +4957,67 @@ keltirmadi) tasdiqlandi.
 immutability testi), barchasi real Postgres(+Redis)'da; `ruff`/`mypy`
 toza; frontend `tsc`/ESLint toza, production build muvaffaqiyatli;
 barcha 14 E2E spec yashil.
+
+**FR-WKS-007ning "til" qismi qurildi — talab MUST darajasida, va uning
+"versiylanadi va audit qilinadi" mezoni FR-TASK-003ning xuddi shu
+append-only naqshini talab qiladi, faqat bu safar audit_service bilan
+birlashtirilgan holda.** To'liq talab — "Workspace darajasidagi
+sozlamalar: til, memory policy, konnektorlar" — uchta qismdan iborat;
+`memory policy` (Knowledge/memory domeni hali yo'q) va `konnektorlar`
+(Telegram'dan tashqari umumiy connector-boshqaruv domeni hali yo'q)
+ataylab QURILMADI — ularni "taxmin qilib" qurish undesigned funksiyani
+o'ylab topish bo'lar edi. `til` qismi esa mustaqil, aniq belgilangan va
+mavjud FR-CONV-001 naqshiga (aniq pin > aniqlash > standart) tabiiy
+ravishda uchinchi pog'ona sifatida qo'shiladigan — shuning uchun faqat
+shu qism qurildi, qolgan ikkitasi "Bilingan cheklovlar"ga honest tarzda
+yozildi.
+
+`workspace_language_settings` jadvali (0021-migratsiya) —
+`task_decisions`ning aynan bir xil naqshi: RLS + FORCE ROW LEVEL
+SECURITY + DB trigger UPDATE/DELETE'ni butunlay bloklaydi. Farqi:
+`set_workspace_language` (`application/workspace_service.py`) BITTA
+tranzaksiyada ikkalasini ham qiladi — yangi versiya qatorini qo'shadi
+VA `record_audit_event` chaqiradi (`workspace.language_setting_changed.v1`).
+Bu ataylab: faqat versiyalash yoki faqat audit — ikkalasidan biri
+yetishmasa, talabning ikkita alohida mezonidan biri buzilgan bo'lardi.
+
+`GET/PUT /v1/workspaces/{id}/language-setting` — yozish uchun yangi
+`authorize_manage_workspace_settings` (10.2'da bu aniq qatorga ega
+bo'lmagani uchun kill switch/archive'ning xuddi shu WorkspaceAdmin-only
+konventsiyasiga ergashadi), o'qish uchun oddiy workspace a'zoligi
+yetarli. `conversation_service.stream_message`ning til-aniqlash
+zanjiriga uchinchi pog'ona sifatida ulandi: `conversation.pinned_
+language or detect_language(content) or await get_workspace_language(...)`
+— aniq pin va per-message aniqlashning ikkalasi ham "hech narsa
+demasa" (masalan "42" kabi noaniq xabar), workspace standarti endi
+guessed emas, haqiqiy standart sifatida ishlaydi. 0019-migratsiyaning
+o'z docstring'i ("hech qanday workspace-darajasidagi standart yo'q...
+TRD hech narsa so'ramaydi") shu FR-WKS-007 qurilishidan OLDIN yozilgan
+edi — endi TRD haqiqatda so'ragani uchun bu qarama-qarshilik emas,
+shunchaki keyinroq paydo bo'lgan yangi talab.
+
+Append-only kafolati audit-zanjiri uslubida to'g'ridan-to'g'ri
+isbotlandi (`test_workspace_language_settings_reject_update_and_
+delete`) — trigger'ni migratsiya roli bilan haqiqatda tushirib, test
+aynan kutilgan tarzda (`DID NOT RAISE DBAPIError`) muvaffaqiyatsiz
+bo'lishini ko'rsatdim, keyin trigger'ni qaytarib test qaytadan yashil
+ekanini tasdiqladim. Migratsiya round-trip (0020→0021→0020→0021) ham
+qo'lda tekshirildi.
+
+Frontend: chat sahifasiga (workspace AI provayder standartining yonida
+— ikkalasi ham workspace-scoped sozlama, bir xil joyda mantiqiy)
+"Workspace standart tili" formasi qo'shildi — tanlash+saqlash va
+"O'rnatilmagan holatga qaytarish". Yangi E2E qadam
+(`chat.spec.ts`) tilni o'rnatib, to'g'ridan-to'g'ri backend so'rovi
+bilan HAM sozlamaning o'zini (`GET .../language-setting`), HAM audit
+yozuvining haqiqatda paydo bo'lganini (`workspace.language_setting_
+changed.v1`) tasdiqlaydi.
+
+Real backend+production frontend'ga qarshi (barcha 14 E2E spec,
+jumladan accessibility skaneri — yangi forma hech qanday WCAG
+buzilishi keltirmadi) tasdiqlandi.
+
+432 test (backend, 426 + 6 yangi: uchta HTTP testi + bitta
+immutability testi + ikkita resolution-precedence testi), barchasi
+real Postgres(+Redis)'da; `ruff`/`mypy` toza; frontend `tsc`/ESLint
+toza, production build muvaffaqiyatli; barcha 14 E2E spec yashil.

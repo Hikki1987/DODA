@@ -8,10 +8,12 @@ import {
   clearWorkspaceAiPreference,
   createConversation,
   getWorkspaceAiPreference,
+  getWorkspaceLanguageSetting,
   listConversationMessages,
   listConversations,
   searchConversations,
   setWorkspaceAiPreference,
+  setWorkspaceLanguageSetting,
   streamConversationMessage,
   switchConversationLanguage,
   switchConversationProvider,
@@ -23,6 +25,7 @@ import {
   type ChatMode,
   type ConversationOut,
   type MessageOut,
+  type WorkspaceLanguageSettingOut,
 } from "@/lib/api";
 import { useSession } from "@/lib/useSession";
 
@@ -51,6 +54,10 @@ export default function ChatPage() {
   const [workspaceProviderChoice, setWorkspaceProviderChoice] = useState<AiProvider>("OPENAI");
   const [workspaceModelChoice, setWorkspaceModelChoice] = useState("");
   const [savingWorkspacePreference, setSavingWorkspacePreference] = useState(false);
+  const [workspaceLanguageSetting, setWorkspaceLanguageSettingState] =
+    useState<WorkspaceLanguageSettingOut | null>(null);
+  const [workspaceLanguageChoice, setWorkspaceLanguageChoice] = useState<AiLanguage>("UZ");
+  const [savingWorkspaceLanguage, setSavingWorkspaceLanguage] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -77,6 +84,11 @@ export default function ChatPage() {
   useEffect(() => {
     if (sessionId === null) return;
     getWorkspaceAiPreference(sessionId, workspaceId).then(setWorkspacePreferenceState).catch(() => {});
+  }, [sessionId, workspaceId]);
+
+  useEffect(() => {
+    if (sessionId === null) return;
+    getWorkspaceLanguageSetting(sessionId, workspaceId).then(setWorkspaceLanguageSettingState).catch(() => {});
   }, [sessionId, workspaceId]);
 
   const refreshMessages = useCallback(() => {
@@ -184,6 +196,33 @@ export default function ChatPage() {
       setError(err instanceof ApiError ? err.message : "Workspace AI afzalligini tozalab bo'lmadi.");
     } finally {
       setSavingWorkspacePreference(false);
+    }
+  }
+
+  async function handleSetWorkspaceLanguage(event: FormEvent) {
+    event.preventDefault();
+    if (sessionId === null || savingWorkspaceLanguage) return;
+    setSavingWorkspaceLanguage(true);
+    try {
+      const updated = await setWorkspaceLanguageSetting(sessionId, workspaceId, workspaceLanguageChoice);
+      setWorkspaceLanguageSettingState(updated);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Workspace tilini saqlab bo'lmadi.");
+    } finally {
+      setSavingWorkspaceLanguage(false);
+    }
+  }
+
+  async function handleClearWorkspaceLanguage() {
+    if (sessionId === null || savingWorkspaceLanguage) return;
+    setSavingWorkspaceLanguage(true);
+    try {
+      const updated = await setWorkspaceLanguageSetting(sessionId, workspaceId, null);
+      setWorkspaceLanguageSettingState(updated);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Workspace tilini tozalab bo'lmadi.");
+    } finally {
+      setSavingWorkspaceLanguage(false);
     }
   }
 
@@ -362,6 +401,43 @@ export default function ChatPage() {
               className="text-red-600 hover:underline disabled:opacity-50"
             >
               Tizim standartga qaytarish
+            </button>
+          )}
+        </form>
+      )}
+
+      {workspaceLanguageSetting !== null && (
+        <form onSubmit={handleSetWorkspaceLanguage} className="flex items-center gap-2 text-xs">
+          <span className="text-gray-500">
+            Workspace standart tili ({workspaceLanguageSetting.language ?? "o'rnatilmagan"}):
+          </span>
+          <select
+            aria-label="Workspace standart tili"
+            value={workspaceLanguageChoice}
+            onChange={(event) => setWorkspaceLanguageChoice(event.target.value as AiLanguage)}
+            className="rounded border border-gray-200 bg-gray-50 px-1 py-1"
+          >
+            {AI_LANGUAGES.map((language) => (
+              <option key={language} value={language}>
+                {language}
+              </option>
+            ))}
+          </select>
+          <button
+            type="submit"
+            disabled={savingWorkspaceLanguage}
+            className="rounded border border-gray-300 px-2 py-1 font-medium text-gray-700 disabled:opacity-50"
+          >
+            Saqlash
+          </button>
+          {workspaceLanguageSetting.language !== null && (
+            <button
+              type="button"
+              onClick={handleClearWorkspaceLanguage}
+              disabled={savingWorkspaceLanguage}
+              className="text-red-600 hover:underline disabled:opacity-50"
+            >
+              O&apos;rnatilmagan holatga qaytarish
             </button>
           )}
         </form>

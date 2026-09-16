@@ -815,6 +815,33 @@ export function clearWorkspaceAiPreference(sessionId: string, workspaceId: strin
   return apiFetch(`/v1/workspaces/${workspaceId}/ai-preference`, sessionId, { method: "DELETE" });
 }
 
+// FR-WKS-007's "til" facet: a workspace-level default language, versioned
+// and audited server-side. Distinct from AiPreference above — this has no
+// "clear" (null just means "no override", the same shape PUT already
+// accepts), and no conversation-level tier reads it directly; it only
+// ever feeds conversation_service's language-resolution fallback.
+export interface WorkspaceLanguageSettingOut {
+  language: AiLanguage | null;
+}
+
+export function getWorkspaceLanguageSetting(
+  sessionId: string,
+  workspaceId: string,
+): Promise<WorkspaceLanguageSettingOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/language-setting`, sessionId);
+}
+
+export function setWorkspaceLanguageSetting(
+  sessionId: string,
+  workspaceId: string,
+  language: AiLanguage | null,
+): Promise<WorkspaceLanguageSettingOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/language-setting`, sessionId, {
+    method: "PUT",
+    body: JSON.stringify({ language }),
+  });
+}
+
 // ---- AI budget — NFR-COST-001's "byudjet va alert" ----
 
 export interface AiBudgetStatusOut {

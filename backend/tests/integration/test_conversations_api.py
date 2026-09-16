@@ -506,6 +506,73 @@ async def test_an_ambiguous_message_sends_no_language_directive_at_all(
     assert fake_gateway.received_instructions == [""]
 
 
+async def test_an_ambiguous_message_falls_back_to_the_workspaces_default_language(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FR-WKS-007's workspace default is the THIRD tier of FR-CONV-001's
+    resolution chain — it only fills in when neither the conversation's
+    own pin nor per-message detection has an opinion, same "explicit
+    beats inferred beats default" shape as provider/model resolution."""
+    fake_gateway = _InstructionRecordingGateway()
+    monkeypatch.setattr(
+        "doda.application.conversation_service.get_gateway", lambda provider, settings: fake_gateway
+    )
+    admin = await seed_workspace_member(workspace_role="workspace_admin")
+    await client.put(
+        f"/v1/workspaces/{admin.workspace_id}/language-setting",
+        json={"language": "RU"},
+        headers=_auth_headers(admin.session_id),
+    )
+    create = await client.post(
+        f"/v1/workspaces/{admin.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(admin.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    await _post_message(
+        client,
+        f"/v1/workspaces/{admin.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(admin.session_id),
+        content="42",
+    )
+    assert "rus" in fake_gateway.received_instructions[0]
+
+
+async def test_a_pinned_language_still_overrides_the_workspace_default(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_gateway = _InstructionRecordingGateway()
+    monkeypatch.setattr(
+        "doda.application.conversation_service.get_gateway", lambda provider, settings: fake_gateway
+    )
+    admin = await seed_workspace_member(workspace_role="workspace_admin")
+    await client.put(
+        f"/v1/workspaces/{admin.workspace_id}/language-setting",
+        json={"language": "RU"},
+        headers=_auth_headers(admin.session_id),
+    )
+    create = await client.post(
+        f"/v1/workspaces/{admin.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(admin.session_id),
+    )
+    conversation_id = create.json()["id"]
+    await client.post(
+        f"/v1/workspaces/{admin.workspace_id}/conversations/{conversation_id}/language",
+        json={"language": "EN"},
+        headers=_auth_headers(admin.session_id),
+    )
+
+    await _post_message(
+        client,
+        f"/v1/workspaces/{admin.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(admin.session_id),
+        content="42",
+    )
+    assert "ingliz" in fake_gateway.received_instructions[0]
+
+
 class _TwoRoundFailingGateway:
     """Round 1: a real text delta plus a read-tool call (so the caller
     already received >=1 SSE chunk before anything goes wrong) — round 2:

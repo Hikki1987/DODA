@@ -185,6 +185,18 @@ def authorize_archive_workspace(context: WorkspaceContext) -> None:
         raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not archive this workspace")
 
 
+def authorize_manage_workspace_settings(context: WorkspaceContext) -> None:
+    """FR-WKS-007: no dedicated 10.2 row exists for workspace-level
+    settings specifically, so this follows the same restrictive default
+    every other customer/workspace-wide setting without its own row
+    (kill switch, archive) already uses: WorkspaceAdmin only. A
+    CustomerOwner also passes (resolves as WORKSPACE_ADMIN)."""
+    if context.role is not WorkspaceRole.WORKSPACE_ADMIN:
+        raise AuthorizationError(
+            Decision.DENY, f"role {context.role.value} may not manage workspace settings"
+        )
+
+
 def authorize_task_mutation(context: WorkspaceContext, task: Task) -> None:
     """FR-TASK-004: 'Task state faqat authorized actor tomonidan
     o'zgaradi.' The TRD does not further specify who beyond the actor — a

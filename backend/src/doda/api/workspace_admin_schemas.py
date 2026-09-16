@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -34,3 +35,11 @@ class WorkspaceOut(BaseModel):
     customer_id: uuid.UUID
     name: str
     archived_at: datetime | None
+
+
+class SetWorkspaceLanguageRequest(BaseModel):
+    language: Literal["UZ", "RU", "EN"] | None = None
+
+
+class WorkspaceLanguageSettingOut(BaseModel):
+    language: str | None

@@ -54,6 +54,7 @@ ALLOWED_SAFE_METADATA_KEYS = {
     "notification_type",
     "reference_type",
     "reference_id",
+    "language",
 }
 
 

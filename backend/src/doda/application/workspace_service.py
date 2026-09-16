@@ -19,7 +19,12 @@ from doda.domain.base import utcnow
 from doda.domain.customer.models import Customer, CustomerMembership
 from doda.domain.identity.models import User
 from doda.domain.security.roles import CustomerRole
-from doda.domain.workspace.models import Workspace, WorkspaceMembership, WorkspaceTenantIndex
+from doda.domain.workspace.models import (
+    Workspace,
+    WorkspaceLanguageSetting,
+    WorkspaceMembership,
+    WorkspaceTenantIndex,
+)
 
 
 class WorkspaceMembershipError(Exception):
@@ -177,6 +182,51 @@ async def restore_workspace(session: AsyncSession, workspace: Workspace, *, acto
         safe_metadata={"workspace_id": str(workspace.id)},
     )
     return workspace
+
+
+async def get_workspace_language(session: AsyncSession, *, workspace_id: uuid.UUID) -> str | None:
+    """The workspace's current default language, or None if never set —
+    the latest row (by created_at) for this workspace_id, never anything
+    mutated in place."""
+    setting = await session.scalar(
+        select(WorkspaceLanguageSetting)
+        .where(WorkspaceLanguageSetting.workspace_id == workspace_id)
+        .order_by(WorkspaceLanguageSetting.created_at.desc())
+        .limit(1)
+    )
+    return setting.language if setting is not None else None
+
+
+async def set_workspace_language(
+    session: AsyncSession,
+    *,
+    customer_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    actor_id: str,
+    language: str | None,
+) -> WorkspaceLanguageSetting:
+    """FR-WKS-007: "Sozlama o'zgarishi versiylanadi va audit qilinadi" —
+    both halves happen here, in one transaction. Versioning is a plain
+    INSERT (0021's trigger blocks UPDATE/DELETE outright, the same
+    append-only guarantee task_decisions/audit_events already have);
+    the audit event is the second, independently required half — a
+    versioned-but-unaudited change would satisfy only one of the two
+    criteria the requirement actually states."""
+    setting = WorkspaceLanguageSetting(
+        customer_id=customer_id, workspace_id=workspace_id, actor_id=actor_id, language=language
+    )
+    session.add(setting)
+    await session.flush()
+    await record_audit_event(
+        session,
+        customer_id=customer_id,
+        workspace_id=workspace_id,
+        trace_id=uuid.uuid4(),
+        actor_id=actor_id,
+        event_type="workspace.language_setting_changed.v1",
+        safe_metadata={"workspace_id": str(workspace_id), "language": language},
+    )
+    return setting
 
 
 @dataclasses.dataclass(frozen=True)

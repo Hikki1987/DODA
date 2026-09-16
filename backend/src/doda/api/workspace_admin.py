@@ -15,18 +15,26 @@ from doda.api.dependencies import (
 from doda.api.workspace_admin_schemas import (
     AddWorkspaceMemberRequest,
     ChangeWorkspaceMemberRoleRequest,
+    SetWorkspaceLanguageRequest,
+    WorkspaceLanguageSettingOut,
     WorkspaceMemberOut,
     WorkspaceMembershipOut,
     WorkspaceOut,
 )
-from doda.application.authz_service import authorize_archive_workspace, authorize_manage_workspace_members
+from doda.application.authz_service import (
+    authorize_archive_workspace,
+    authorize_manage_workspace_members,
+    authorize_manage_workspace_settings,
+)
 from doda.application.workspace_service import (
     add_workspace_member,
     archive_workspace,
     change_workspace_member_role,
+    get_workspace_language,
     list_workspace_members,
     remove_workspace_member,
     restore_workspace,
+    set_workspace_language,
 )
 from doda.domain.customer.models import CustomerMembership
 from doda.domain.workspace.models import Workspace, WorkspaceMembership
@@ -142,3 +150,29 @@ async def restore_current_workspace(
     workspace = await _get_current_workspace(ctx)
     workspace = await restore_workspace(ctx.db, workspace, actor_id=f"user:{ctx.workspace.user_id}")
     return _to_workspace_out(workspace)
+
+
+@router.get("/v1/workspaces/{workspace_id}/language-setting", response_model=WorkspaceLanguageSettingOut)
+async def get_current_workspace_language(
+    ctx: RequestContext = Depends(get_request_context),
+) -> WorkspaceLanguageSettingOut:
+    language = await get_workspace_language(ctx.db, workspace_id=ctx.workspace.workspace_id)
+    return WorkspaceLanguageSettingOut(language=language)
+
+
+@router.put("/v1/workspaces/{workspace_id}/language-setting", response_model=WorkspaceLanguageSettingOut)
+async def set_current_workspace_language(
+    body: SetWorkspaceLanguageRequest, ctx: RequestContext = Depends(get_request_context)
+) -> WorkspaceLanguageSettingOut:
+    """FR-WKS-007. Always inserts a new version (0021's trigger blocks
+    UPDATE/DELETE) and records an audit event in the same transaction —
+    see workspace_service.set_workspace_language's own docstring."""
+    authorize_manage_workspace_settings(ctx.workspace)
+    setting = await set_workspace_language(
+        ctx.db,
+        customer_id=ctx.workspace.customer_id,
+        workspace_id=ctx.workspace.workspace_id,
+        actor_id=f"user:{ctx.workspace.user_id}",
+        language=body.language,
+    )
+    return WorkspaceLanguageSettingOut(language=setting.language)

@@ -250,3 +250,69 @@ async def test_adding_the_same_workspace_member_twice_returns_already_member(
     )
     assert second.status_code == 409
     assert second.json()["code"] == "ALREADY_MEMBER"
+
+
+async def test_workspace_language_setting_defaults_to_null_and_can_be_set(
+    client: AsyncClient, db_available: bool
+) -> None:
+    admin = await seed_workspace_member(workspace_role="workspace_admin")
+
+    before = await client.get(
+        f"/v1/workspaces/{admin.workspace_id}/language-setting", headers=_auth_headers(admin.session_id)
+    )
+    assert before.status_code == 200
+    assert before.json() == {"language": None}
+
+    set_response = await client.put(
+        f"/v1/workspaces/{admin.workspace_id}/language-setting",
+        json={"language": "UZ"},
+        headers=_auth_headers(admin.session_id),
+    )
+    assert set_response.status_code == 200
+    assert set_response.json() == {"language": "UZ"}
+
+    after = await client.get(
+        f"/v1/workspaces/{admin.workspace_id}/language-setting", headers=_auth_headers(admin.session_id)
+    )
+    assert after.json() == {"language": "UZ"}
+
+
+async def test_setting_the_workspace_language_twice_keeps_the_earlier_version(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """FR-WKS-007's own acceptance criterion: "Sozlama o'zgarishi
+    versiylanadi" — a revised setting must not erase the earlier one at
+    the storage level, even though the read side only ever surfaces the
+    latest. Checked here via the audit trail, since that's the only
+    externally visible trace of the earlier version once a newer one
+    exists."""
+    admin = await seed_workspace_member(workspace_role="workspace_admin")
+
+    await client.put(
+        f"/v1/workspaces/{admin.workspace_id}/language-setting",
+        json={"language": "UZ"},
+        headers=_auth_headers(admin.session_id),
+    )
+    await client.put(
+        f"/v1/workspaces/{admin.workspace_id}/language-setting",
+        json={"language": "RU"},
+        headers=_auth_headers(admin.session_id),
+    )
+
+    audit = await client.get(
+        f"/v1/workspaces/{admin.workspace_id}/audit", headers=_auth_headers(admin.session_id)
+    )
+    changes = [e for e in audit.json() if e["event_type"] == "workspace.language_setting_changed.v1"]
+    assert len(changes) == 2, "both changes must be audited, versioned — not just the latest"
+
+
+async def test_a_plain_member_cannot_set_the_workspace_language(
+    client: AsyncClient, db_available: bool
+) -> None:
+    member = await seed_workspace_member(workspace_role="member")
+    response = await client.put(
+        f"/v1/workspaces/{member.workspace_id}/language-setting",
+        json={"language": "EN"},
+        headers=_auth_headers(member.session_id),
+    )
+    assert response.status_code == 403

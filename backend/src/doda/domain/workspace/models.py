@@ -32,6 +32,31 @@ class WorkspaceMembership(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     """Workspace-level role: workspace_admin | member (10.2)."""
 
 
+class WorkspaceLanguageSetting(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """FR-WKS-007's "til" (language) facet of "Workspace darajasidagi
+    sozlamalar: til, memory policy, konnektorlar" — "Sozlama o'zgarishi
+    versiylanadi va audit qilinadi" (the change is versioned AND
+    audited). Append-only, same shape as `task.models.TaskDecision`:
+    setting a new default never edits an earlier row, it inserts
+    another one — "current" is simply the latest row for a
+    workspace_id. `workspace_service.set_workspace_language` also
+    writes the audit event this criterion requires, in the same
+    transaction as the insert.
+
+    `memory policy` and `connectors` are deliberately NOT covered here —
+    both need domains that don't exist yet (Knowledge/memory, connector
+    management beyond the one hardcoded Telegram tool), so building them
+    now would be guessing at an undesigned feature rather than
+    implementing a specified one. See CLAUDE.md."""
+
+    __tablename__ = "workspace_language_settings"
+
+    customer_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspace_workspaces.id"), index=True)
+    actor_id: Mapped[str] = mapped_column(String(256))
+    language: Mapped[str | None] = mapped_column(String(2), default=None)
+
+
 class WorkspaceTenantIndex(Base):
     """Deliberately NOT RLS-protected. Solves a chicken-and-egg problem: an
     API request arrives knowing only a workspace_id (from the URL) and a

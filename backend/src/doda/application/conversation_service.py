@@ -70,6 +70,7 @@ from doda.application.ai_tools import (
     propose_write_tool_action,
 )
 from doda.application.authz_service import WorkspaceContext
+from doda.application.workspace_service import get_workspace_language
 from doda.config import Settings
 from doda.domain.ai_usage.models import UsageEventStatus
 from doda.domain.conversation.models import Conversation, Message, MessageRole
@@ -294,13 +295,18 @@ async def stream_message(
     await session.flush()
 
     # FR-CONV-001: the conversation's own pin always wins over
-    # per-message detection — same "explicit override beats an inferred
-    # default" precedent as provider/model resolution, just one tier
-    # instead of four (there is no user-/workspace-level language
-    # default to fall through to here). An ambiguous/undetected message
-    # with no pin means no directive at all (empty instructions) rather
-    # than a guessed one.
-    effective_language = conversation.pinned_language or detect_language(content)
+    # per-message detection. FR-WKS-007 later added a workspace-level
+    # default language — that fills in only when NEITHER the pin nor
+    # per-message detection has an opinion (0019's docstring, written
+    # before FR-WKS-007 existed, said there was no such tier; there is
+    # now). An ambiguous/undetected message with no pin and no workspace
+    # default still means no directive at all (empty instructions)
+    # rather than a guessed one.
+    effective_language = (
+        conversation.pinned_language
+        or detect_language(content)
+        or await get_workspace_language(session, workspace_id=workspace_context.workspace_id)
+    )
     instructions = response_language_instruction(effective_language)
 
     choice = await ai_preference_service.resolve_provider_choice(

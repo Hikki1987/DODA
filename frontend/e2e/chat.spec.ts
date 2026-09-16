@@ -87,6 +87,32 @@ test("chat: send a message, get the real NullModelGateway reply, pin a provider"
     await expect(languageForm.getByText("hozirgi: avtomatik aniqlash")).toBeVisible();
   });
 
+  await test.step("setting the workspace's default language persists server-side (FR-WKS-007)", async () => {
+    // Scoped to its own form — "Saqlash" is also the workspace AI
+    // preference form's button text, the exact strict-mode collision
+    // already documented above for the pin forms.
+    const workspaceLanguageForm = page.locator('form:has(select[aria-label="Workspace standart tili"])');
+    await page.selectOption('select[aria-label="Workspace standart tili"]', "RU");
+    await workspaceLanguageForm.getByRole("button", { name: "Saqlash" }).click();
+    await expect(workspaceLanguageForm.getByText("Workspace standart tili (RU):")).toBeVisible();
+
+    // Direct backend check, not the page's own fetch — proves this is a
+    // real, versioned/audited setting, not just an optimistic UI label.
+    const response = await page.request.get(
+      `http://localhost:8000/v1/workspaces/${WORKSPACE_ID}/language-setting`,
+      { headers: { Authorization: `Bearer ${SESSION_ID}` } },
+    );
+    expect(await response.json()).toEqual({ language: "RU" });
+
+    const audit = await page.request.get(`http://localhost:8000/v1/workspaces/${WORKSPACE_ID}/audit`, {
+      headers: { Authorization: `Bearer ${SESSION_ID}` },
+    });
+    const events = await audit.json();
+    expect(
+      events.some((e: { event_type: string }) => e.event_type === "workspace.language_setting_changed.v1"),
+    ).toBe(true);
+  });
+
   expect(consoleErrors, `unexpected browser console errors: ${consoleErrors.join("\n")}`).toEqual([]);
 });
 
