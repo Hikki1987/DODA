@@ -180,6 +180,39 @@ export function getTaskHistory(
   return apiFetch(`/v1/workspaces/${workspaceId}/tasks/${taskId}/history`, sessionId);
 }
 
+// FR-TASK-003: a decision record (variant considered, tradeoff, decision,
+// reason). Recording a new one never edits an earlier row — the list is
+// every version ever recorded, oldest first, never just "the current one".
+export interface TaskDecisionOut {
+  id: string;
+  actor_id: string;
+  variant: string;
+  tradeoff: string;
+  decision: string;
+  reason: string;
+  created_at: string;
+}
+
+export function getTaskDecisions(
+  sessionId: string,
+  workspaceId: string,
+  taskId: string,
+): Promise<TaskDecisionOut[]> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/tasks/${taskId}/decisions`, sessionId);
+}
+
+export function recordTaskDecision(
+  sessionId: string,
+  workspaceId: string,
+  taskId: string,
+  fields: { variant: string; tradeoff: string; decision: string; reason: string },
+): Promise<TaskDecisionOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/tasks/${taskId}/decisions`, sessionId, {
+    method: "POST",
+    body: JSON.stringify(fields),
+  });
+}
+
 // ---- /v1/workspaces/{id}/actions ----
 
 export type ActionStatus =

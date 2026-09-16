@@ -32,3 +32,20 @@ class TaskHistoryEntryOut(BaseModel):
     from_status: TaskStatus | None
     to_status: TaskStatus
     created_at: datetime
+
+
+class RecordTaskDecisionRequest(BaseModel):
+    variant: str
+    tradeoff: str
+    decision: str
+    reason: str
+
+
+class TaskDecisionOut(BaseModel):
+    id: uuid.UUID
+    actor_id: str
+    variant: str
+    tradeoff: str
+    decision: str
+    reason: str
+    created_at: datetime

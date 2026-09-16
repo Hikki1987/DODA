@@ -99,6 +99,30 @@ test("login, workspace, task, notification, action, audit flow", async ({ page }
     await expect(planPanel.getByText("E2E plan task")).toBeVisible();
   });
 
+  await test.step("recording a task decision (FR-TASK-003) shows it, and a revised decision adds a new version rather than replacing it", async () => {
+    const taskRow = page.locator('[data-testid="task-list"] li:has-text("E2E test task")');
+    await taskRow.getByRole("button", { name: "Qarorlar" }).click();
+    await taskRow.getByLabel("Variant").fill("Postgres vs SQLite");
+    await taskRow.getByLabel("Kelishuv (tradeoff)").fill("server dependency vs no concurrent writers");
+    await taskRow.getByLabel("Qaror").fill("Postgres");
+    await taskRow.getByLabel("Sabab").fill("already required elsewhere");
+    await taskRow.getByRole("button", { name: "Qaror yozish" }).click();
+    await expect(taskRow.getByText("Postgres", { exact: true })).toBeVisible();
+
+    // A revised decision must appear ALONGSIDE the first, not replace it —
+    // this is FR-TASK-003's own acceptance criterion ("oldingi versiya
+    // o'chirilmaydi"), checked here at the UI level too.
+    await taskRow.getByLabel("Variant").fill("Postgres vs SQLite");
+    await taskRow.getByLabel("Kelishuv (tradeoff)").fill("need cross-process pub/sub too");
+    await taskRow.getByLabel("Qaror").fill("Redis");
+    await taskRow.getByLabel("Sabab").fill("pub/sub requirement emerged later");
+    await taskRow.getByRole("button", { name: "Qaror yozish" }).click();
+    await expect(taskRow.getByText("Postgres", { exact: true })).toBeVisible();
+    await expect(taskRow.getByText("Redis", { exact: true })).toBeVisible();
+
+    await taskRow.getByRole("button", { name: "Qarorlarni yashirish" }).click();
+  });
+
   await test.step("task history shows the TODO -> IN_PROGRESS transition", async () => {
     const taskRow = page.locator('li:has-text("E2E test task")');
     await taskRow.getByRole("button", { name: "Tarix" }).click();

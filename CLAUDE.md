@@ -4901,3 +4901,59 @@ Dars: "mahalliy qo'lda tekshirish CI'ning o'zi emas" — bu sessiyada
 allaqachon bir necha marta (E2E job'ning `/healthz` yo'li, Gitleaks
 working-directory) takrorlangan xulosaning yana bir nusxasi, bu safar
 Playwright strict-mode uchun.
+
+**FR-TASK-003 (Qaror yozuvi: variant, tradeoff, qaror, sabab — "Qaror
+versiyalanadi; oldingi versiya o'chirilmaydi", Should) qurildi —
+traceability auditda "41 ta hech qayerda tilga olinmagan" deb
+belgilangan ID'lardan yana biri, va FR-TASK-002 kabi AI'ga umuman
+bog'liq emasligi aniqlandi.** "Qaror" so'zi chalg'ituvchi — bu AI
+tavsiya qiladigan qaror emas, foydalanuvchining o'zi (yoki workspace
+admin) task bo'yicha qabul qilgan qarorini yozib qo'yishi: qanday
+variantlar ko'rib chiqildi, ularning kelishuvi (tradeoff), qabul
+qilingan qaror, va sababi. Qabul mezonining o'zi — "versiyalanadi,
+o'chirilmaydi" — audit_events'ning append-only naqshining aynan o'zi.
+
+`task_decisions` jadvali (0020-migratsiya) — `audit_events`ning 0001'da
+o'rnatilgan naqshi bilan bir xil: RLS + FORCE ROW LEVEL SECURITY, va
+DB darajasidagi trigger (`task_decisions_no_update_delete`) UPDATE/
+DELETE'ni butunlay bloklaydi, qaysi ilova roli ulanganidan qat'i nazar.
+`record_task_decision` (`application/task_service.py`) har doim YANGI
+qator qo'shadi — mavjud qatorni hech qachon yangilamaydi; "joriy qaror"
+degani shunchaki eng so'nggi (created_at bo'yicha) qator, tarixning
+o'zi to'liq saqlanadi.
+
+`POST/GET /v1/workspaces/{id}/tasks/{task_id}/decisions` — yozish
+uchun xuddi `change_task_status` bilan bir xil avtorizatsiya
+(`authorize_task_mutation`: task egasi yoki workspace_admin, FR-TASK-004
+ruhiga mos — qaror yozish ham task holatini o'zgartirish kabi
+"task-mutating" amal), o'qish uchun xuddi `get_task_history` bilan bir
+xil naqsh (`_get_owned_task` — workspace a'zoligi yetarli, 404 avval
+qaytadi, qaror mavjudligini oshkor qilmasdan).
+
+Append-only kafolati audit-zanjiri uslubida to'g'ridan-to'g'ri
+isbotlandi (`test_task_decisions_reject_update_and_delete`,
+`audit_events`ning o'z `test_audit_events_reject_update_and_delete`si
+bilan bir xil): avval migratsiya rolining o'zi (`doda`) bilan trigger'ni
+haqiqatda tushirib, test aynan kutilgan tarzda (`DID NOT RAISE
+DBAPIError`) muvaffaqiyatsiz bo'lishini ko'rsatdim, keyin trigger'ni
+0020'dagi aynan bir xil ta'rif bilan qaytarib, test qaytadan yashil
+ekanini tasdiqladim. Migratsiya round-trip (0019→0020→0019→0020) ham
+qo'lda tekshirildi.
+
+Frontend: har bir task qatoriga "Tarix" tugmasi bilan yonma-yon
+"Qarorlar"/"Qarorlarni yashirish" toggle qo'shildi — bosilganda mavjud
+qarorlar ro'yxatini (eng eskisidan boshlab) va yangi qaror yozish
+formasini (variant/tradeoff/qaror/sabab, to'rttasi ham majburiy)
+ochadi. Yangi E2E qadam (`workspace.spec.ts`) ikkita ketma-ket qarorni
+yozib, ikkalasi ham (birinchisi almashtirilmasdan) ko'rinishini
+tekshiradi — FR-TASK-003'ning o'z qabul mezonini UI darajasida ham
+tasdiqlaydi.
+
+Real backend+production frontend'ga qarshi (barcha 14 E2E spec,
+jumladan accessibility skaneri — yangi forma hech qanday WCAG buzilishi
+keltirmadi) tasdiqlandi.
+
+426 test (backend, 421 + 5 yangi: to'rtta HTTP testi + bitta
+immutability testi), barchasi real Postgres(+Redis)'da; `ruff`/`mypy`
+toza; frontend `tsc`/ESLint toza, production build muvaffaqiyatli;
+barcha 14 E2E spec yashil.

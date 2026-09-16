@@ -10,7 +10,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -51,3 +51,23 @@ class TaskHistory(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     to_status: Mapped[TaskStatus] = mapped_column(
         SAEnum(TaskStatus, name="task_status", native_enum=False, length=32)
     )
+
+
+class TaskDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """FR-TASK-003: a decision record (variant considered, tradeoff,
+    decision made, reason). "Qaror versiyalanadi; oldingi versiya
+    o'chirilmaydi" — recording a new decision never updates or deletes an
+    earlier one, it inserts another row; the DB trigger (0020-migration)
+    enforces this regardless of caller, the same append-only guarantee
+    audit_events already has. The current decision is simply the latest
+    row for a task_id; nothing here is ever mutated in place."""
+
+    __tablename__ = "task_decisions"
+
+    customer_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("task_tasks.id"), index=True)
+    actor_id: Mapped[str] = mapped_column(String(256))
+    variant: Mapped[str] = mapped_column(Text)
+    tradeoff: Mapped[str] = mapped_column(Text)
+    decision: Mapped[str] = mapped_column(Text)
+    reason: Mapped[str] = mapped_column(Text)

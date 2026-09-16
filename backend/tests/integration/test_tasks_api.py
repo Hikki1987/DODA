@@ -481,3 +481,122 @@ async def test_plan_rejects_an_unsupported_period(client: AsyncClient, db_availa
         headers=_auth_headers(member.session_id),
     )
     assert response.status_code == 422
+
+
+async def _create_task(client: AsyncClient, member: SeededMember, title: str) -> str:
+    response = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks",
+        json={"title": title},
+        headers=_auth_headers(member.session_id),
+    )
+    assert response.status_code == 200
+    return str(response.json()["id"])
+
+
+_DECISION_BODY = {
+    "variant": "Postgres vs SQLite for the cache",
+    "tradeoff": "Postgres needs a running server; SQLite has no concurrent writers",
+    "decision": "Postgres",
+    "reason": "already required for the main store, no new dependency",
+}
+
+
+async def test_recording_a_decision_returns_it_and_it_appears_in_the_list(
+    client: AsyncClient, db_available: bool
+) -> None:
+    member = await seed_workspace_member()
+    task_id = await _create_task(client, member, "Pick a cache backend")
+
+    response = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/decisions",
+        json=_DECISION_BODY,
+        headers=_auth_headers(member.session_id),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["decision"] == "Postgres"
+    assert body["actor_id"] == f"user:{member.user_id}"
+
+    listing = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/decisions",
+        headers=_auth_headers(member.session_id),
+    )
+    assert [d["id"] for d in listing.json()] == [body["id"]]
+
+
+async def test_recording_a_second_decision_does_not_replace_the_first_version(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """FR-TASK-003's own acceptance criterion: "Qaror versiyalanadi;
+    oldingi versiya o'chirilmaydi" — recording a revised decision must
+    add a new row, never overwrite the earlier one."""
+    member = await seed_workspace_member()
+    task_id = await _create_task(client, member, "Pick a cache backend")
+
+    first = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/decisions",
+        json=_DECISION_BODY,
+        headers=_auth_headers(member.session_id),
+    )
+    second_body = dict(_DECISION_BODY, decision="Redis", reason="need cross-process pub/sub too")
+    second = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/decisions",
+        json=second_body,
+        headers=_auth_headers(member.session_id),
+    )
+
+    listing = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/decisions",
+        headers=_auth_headers(member.session_id),
+    )
+    decisions = listing.json()
+    assert [d["id"] for d in decisions] == [first.json()["id"], second.json()["id"]]
+    assert [d["decision"] for d in decisions] == ["Postgres", "Redis"]
+
+
+async def test_plain_member_who_is_not_the_owner_cannot_record_a_decision(
+    client: AsyncClient, db_available: bool
+) -> None:
+    owner = await seed_workspace_member(workspace_role="workspace_admin", customer_role="customer_owner")
+    task_id = await _create_task(client, owner, "Owner's task")
+
+    other = await seed_workspace_member()
+    other_membership = await client.post(
+        f"/v1/customers/{owner.customer_id}/members",
+        json={"user_id": str(other.user_id), "role": "member"},
+        headers=_auth_headers(owner.session_id),
+    )
+    assert other_membership.status_code == 200
+    await client.post(
+        f"/v1/workspaces/{owner.workspace_id}/members",
+        json={"customer_membership_id": other_membership.json()["id"], "role": "member"},
+        headers=_auth_headers(owner.session_id),
+    )
+
+    response = await client.post(
+        f"/v1/workspaces/{owner.workspace_id}/tasks/{task_id}/decisions",
+        json=_DECISION_BODY,
+        headers=_auth_headers(other.session_id),
+    )
+    assert response.status_code == 403
+
+
+async def test_decisions_on_a_sibling_workspaces_task_are_a_404(
+    client: AsyncClient, db_available: bool
+) -> None:
+    member = await seed_workspace_member()
+    other = await seed_workspace_member()
+    task_id = await _create_task(client, other, "Someone else's task")
+
+    write = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/decisions",
+        json=_DECISION_BODY,
+        headers=_auth_headers(member.session_id),
+    )
+    assert write.status_code == 404
+
+    read = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/decisions",
+        headers=_auth_headers(member.session_id),
+    )
+    assert read.status_code == 404

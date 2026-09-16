@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from doda.application.notification_service import create_notification
 from doda.domain.base import utcnow
 from doda.domain.notification.models import NotificationType
-from doda.domain.task.models import Task, TaskHistory, TaskStatus
+from doda.domain.task.models import Task, TaskDecision, TaskHistory, TaskStatus
 
 MAX_PAGE_SIZE = 200
 
@@ -137,6 +137,42 @@ async def change_task_status(session: AsyncSession, task: Task, *, target: TaskS
 async def list_task_history(session: AsyncSession, task_id: uuid.UUID) -> list[TaskHistory]:
     result = await session.execute(
         select(TaskHistory).where(TaskHistory.task_id == task_id).order_by(TaskHistory.created_at)
+    )
+    return list(result.scalars())
+
+
+async def record_task_decision(
+    session: AsyncSession,
+    task: Task,
+    *,
+    actor_id: str,
+    variant: str,
+    tradeoff: str,
+    decision: str,
+    reason: str,
+) -> TaskDecision:
+    """FR-TASK-003. Always an INSERT, never an UPDATE — recording a new
+    decision about the same task does not touch any earlier row, it adds
+    another one; 0020's trigger blocks UPDATE/DELETE outright so this is
+    not merely a convention. `list_task_decisions`'s caller treats the
+    newest row (by created_at) as the current decision."""
+    record = TaskDecision(
+        customer_id=task.customer_id,
+        task_id=task.id,
+        actor_id=actor_id,
+        variant=variant,
+        tradeoff=tradeoff,
+        decision=decision,
+        reason=reason,
+    )
+    session.add(record)
+    await session.flush()
+    return record
+
+
+async def list_task_decisions(session: AsyncSession, task_id: uuid.UUID) -> list[TaskDecision]:
+    result = await session.execute(
+        select(TaskDecision).where(TaskDecision.task_id == task_id).order_by(TaskDecision.created_at)
     )
     return list(result.scalars())
 

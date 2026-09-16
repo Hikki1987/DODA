@@ -11,6 +11,8 @@ from doda.api.dependencies import RequestContext, get_request_context
 from doda.api.task_schemas import (
     ChangeTaskStatusRequest,
     CreateTaskRequest,
+    RecordTaskDecisionRequest,
+    TaskDecisionOut,
     TaskHistoryEntryOut,
     TaskOut,
 )
@@ -19,8 +21,10 @@ from doda.application.task_service import (
     change_task_status,
     create_task,
     generate_task_plan,
+    list_task_decisions,
     list_task_history,
     list_tasks_for_workspace,
+    record_task_decision,
 )
 from doda.domain.task.models import Task, TaskStatus
 
@@ -129,4 +133,61 @@ async def get_task_history(
             created_at=entry.created_at,
         )
         for entry in history
+    ]
+
+
+@router.post(
+    "/v1/workspaces/{workspace_id}/tasks/{task_id}/decisions",
+    response_model=TaskDecisionOut,
+)
+async def record_workspace_task_decision(
+    task_id: uuid.UUID,
+    body: RecordTaskDecisionRequest,
+    ctx: RequestContext = Depends(get_request_context),
+) -> TaskDecisionOut:
+    """FR-TASK-003. Same authorization as changing the task's status
+    (owner or workspace_admin) — recording a decision is task-mutating
+    the same way a status change is, not a passive read."""
+    task = await _get_owned_task(ctx, task_id)
+    authorize_task_mutation(ctx.workspace, task)
+    record = await record_task_decision(
+        ctx.db,
+        task,
+        actor_id=f"user:{ctx.workspace.user_id}",
+        variant=body.variant,
+        tradeoff=body.tradeoff,
+        decision=body.decision,
+        reason=body.reason,
+    )
+    return TaskDecisionOut(
+        id=record.id,
+        actor_id=record.actor_id,
+        variant=record.variant,
+        tradeoff=record.tradeoff,
+        decision=record.decision,
+        reason=record.reason,
+        created_at=record.created_at,
+    )
+
+
+@router.get(
+    "/v1/workspaces/{workspace_id}/tasks/{task_id}/decisions",
+    response_model=list[TaskDecisionOut],
+)
+async def get_task_decisions(
+    task_id: uuid.UUID, ctx: RequestContext = Depends(get_request_context)
+) -> list[TaskDecisionOut]:
+    await _get_owned_task(ctx, task_id)  # 404s before revealing any decision exists
+    decisions = await list_task_decisions(ctx.db, task_id)
+    return [
+        TaskDecisionOut(
+            id=record.id,
+            actor_id=record.actor_id,
+            variant=record.variant,
+            tradeoff=record.tradeoff,
+            decision=record.decision,
+            reason=record.reason,
+            created_at=record.created_at,
+        )
+        for record in decisions
     ]

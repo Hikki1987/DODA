@@ -11,6 +11,7 @@ import {
   createTask,
   disengageWorkspaceKillSwitch,
   engageWorkspaceKillSwitch,
+  getTaskDecisions,
   getTaskHistory,
   getTaskPlan,
   getWorkspaceKillSwitch,
@@ -20,11 +21,13 @@ import {
   listWorkspaceAudit,
   listWorkspaceMembers,
   markNotificationRead,
+  recordTaskDecision,
   removeWorkspaceMember,
   type ActionOut,
   type AuditEventOut,
   type KillSwitchStatusOut,
   type NotificationOut,
+  type TaskDecisionOut,
   type TaskHistoryEntryOut,
   type TaskOut,
   type TaskPlanPeriod,
@@ -44,6 +47,15 @@ const OTHER_ROLE: Record<WorkspaceRole, WorkspaceRole> = {
   member: "workspace_admin",
   workspace_admin: "member",
 };
+
+interface DecisionDraft {
+  variant: string;
+  tradeoff: string;
+  decision: string;
+  reason: string;
+}
+
+const EMPTY_DECISION_DRAFT: DecisionDraft = { variant: "", tradeoff: "", decision: "", reason: "" };
 
 export default function WorkspacePage() {
   const params = useParams<{ id: string }>();
@@ -67,6 +79,9 @@ export default function WorkspacePage() {
   const [plan, setPlan] = useState<TaskOut[] | null>(null);
   const [archivingWorkspace, setArchivingWorkspace] = useState(false);
   const [openTaskHistory, setOpenTaskHistory] = useState<Record<string, TaskHistoryEntryOut[]>>({});
+  const [openTaskDecisions, setOpenTaskDecisions] = useState<Record<string, TaskDecisionOut[]>>({});
+  const [decisionDrafts, setDecisionDrafts] = useState<Record<string, DecisionDraft>>({});
+  const [recordingDecisionFor, setRecordingDecisionFor] = useState<string | null>(null);
   const [traceIdInput, setTraceIdInput] = useState("");
   const [appliedTraceId, setAppliedTraceId] = useState("");
 
@@ -147,6 +162,53 @@ export default function WorkspacePage() {
       setOpenTaskHistory((prev) => ({ ...prev, [task.id]: history }));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Tarixni yuklab bo'lmadi.");
+    }
+  }
+
+  async function toggleTaskDecisions(task: TaskOut) {
+    if (sessionId === null) return;
+    if (openTaskDecisions[task.id] !== undefined) {
+      setOpenTaskDecisions((prev) => {
+        const next = { ...prev };
+        delete next[task.id];
+        return next;
+      });
+      return;
+    }
+    try {
+      const decisions = await getTaskDecisions(sessionId, workspaceId, task.id);
+      setOpenTaskDecisions((prev) => ({ ...prev, [task.id]: decisions }));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Qarorlarni yuklab bo'lmadi.");
+    }
+  }
+
+  function updateDecisionDraft(taskId: string, field: keyof DecisionDraft, value: string) {
+    setDecisionDrafts((prev) => ({
+      ...prev,
+      [taskId]: { ...(prev[taskId] ?? EMPTY_DECISION_DRAFT), [field]: value },
+    }));
+  }
+
+  async function handleRecordDecision(task: TaskOut) {
+    if (sessionId === null || recordingDecisionFor !== null) return;
+    const draft = decisionDrafts[task.id] ?? EMPTY_DECISION_DRAFT;
+    if (![draft.variant, draft.tradeoff, draft.decision, draft.reason].every((v) => v.trim().length > 0)) {
+      return;
+    }
+    setRecordingDecisionFor(task.id);
+    try {
+      // FR-TASK-003: this always inserts a new version, it never edits an
+      // earlier decision — re-fetching below shows the full history,
+      // oldest first, including the one just recorded.
+      await recordTaskDecision(sessionId, workspaceId, task.id, draft);
+      setDecisionDrafts((prev) => ({ ...prev, [task.id]: EMPTY_DECISION_DRAFT }));
+      const decisions = await getTaskDecisions(sessionId, workspaceId, task.id);
+      setOpenTaskDecisions((prev) => ({ ...prev, [task.id]: decisions }));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Qarorni saqlab bo'lmadi.");
+    } finally {
+      setRecordingDecisionFor(null);
     }
   }
 
@@ -337,6 +399,12 @@ export default function WorkspacePage() {
                   >
                     {openTaskHistory[task.id] !== undefined ? "Tarixni yashirish" : "Tarix"}
                   </button>
+                  <button
+                    onClick={() => toggleTaskDecisions(task)}
+                    className="text-xs text-gray-500 hover:underline"
+                  >
+                    {openTaskDecisions[task.id] !== undefined ? "Qarorlarni yashirish" : "Qarorlar"}
+                  </button>
                 </div>
               </div>
               {openTaskHistory[task.id] !== undefined && (
@@ -351,6 +419,67 @@ export default function WorkspacePage() {
                     <li className="text-xs text-gray-500">Tarix bo&apos;sh.</li>
                   )}
                 </ul>
+              )}
+              {openTaskDecisions[task.id] !== undefined && (
+                <div className="mt-2 space-y-2 border-t border-gray-100 pt-2">
+                  <ul className="space-y-1">
+                    {openTaskDecisions[task.id].map((entry) => (
+                      <li key={entry.id} className="text-xs text-gray-500">
+                        <span className="font-medium text-gray-700">{entry.decision}</span> —{" "}
+                        {entry.variant} ({entry.actor_id}, {new Date(entry.created_at).toLocaleString()})
+                        <div className="text-gray-400">
+                          {entry.tradeoff} · {entry.reason}
+                        </div>
+                      </li>
+                    ))}
+                    {openTaskDecisions[task.id].length === 0 && (
+                      <li className="text-xs text-gray-500">Hali qaror yozilmagan.</li>
+                    )}
+                  </ul>
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      handleRecordDecision(task);
+                    }}
+                    className="space-y-1"
+                  >
+                    <input
+                      aria-label="Variant"
+                      placeholder="Variant"
+                      value={decisionDrafts[task.id]?.variant ?? ""}
+                      onChange={(event) => updateDecisionDraft(task.id, "variant", event.target.value)}
+                      className="w-full rounded border border-gray-200 px-2 py-1 text-xs"
+                    />
+                    <input
+                      aria-label="Kelishuv (tradeoff)"
+                      placeholder="Tradeoff"
+                      value={decisionDrafts[task.id]?.tradeoff ?? ""}
+                      onChange={(event) => updateDecisionDraft(task.id, "tradeoff", event.target.value)}
+                      className="w-full rounded border border-gray-200 px-2 py-1 text-xs"
+                    />
+                    <input
+                      aria-label="Qaror"
+                      placeholder="Qaror"
+                      value={decisionDrafts[task.id]?.decision ?? ""}
+                      onChange={(event) => updateDecisionDraft(task.id, "decision", event.target.value)}
+                      className="w-full rounded border border-gray-200 px-2 py-1 text-xs"
+                    />
+                    <input
+                      aria-label="Sabab"
+                      placeholder="Sabab"
+                      value={decisionDrafts[task.id]?.reason ?? ""}
+                      onChange={(event) => updateDecisionDraft(task.id, "reason", event.target.value)}
+                      className="w-full rounded border border-gray-200 px-2 py-1 text-xs"
+                    />
+                    <button
+                      type="submit"
+                      disabled={recordingDecisionFor === task.id}
+                      className="text-xs text-blue-600 hover:underline disabled:opacity-50"
+                    >
+                      Qaror yozish
+                    </button>
+                  </form>
+                </div>
               )}
             </li>
           ))}
