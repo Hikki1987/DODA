@@ -536,6 +536,20 @@ export function listConversationMessages(
   return apiFetch(`/v1/workspaces/${workspaceId}/conversations/${conversationId}/messages`, sessionId);
 }
 
+// FR-CONV-006: searches message content across every conversation in this
+// workspace (not just one) — a blank query intentionally returns nothing
+// rather than the whole history, see the backend's own docstring.
+export function searchConversations(
+  sessionId: string,
+  workspaceId: string,
+  query: string,
+): Promise<MessageOut[]> {
+  return apiFetch(
+    `/v1/workspaces/${workspaceId}/conversations/search?q=${encodeURIComponent(query)}`,
+    sessionId,
+  );
+}
+
 export function switchConversationProvider(
   sessionId: string,
   workspaceId: string,

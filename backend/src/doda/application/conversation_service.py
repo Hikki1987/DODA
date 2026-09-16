@@ -143,6 +143,42 @@ async def list_messages(
     return list(result.scalars().all())
 
 
+async def search_messages_in_workspace(
+    session: AsyncSession, *, workspace_id: uuid.UUID, query: str, limit: int = 50
+) -> list[Message]:
+    """FR-CONV-006: "Qidiruv natijasi faqat joriy workspace bilan
+    cheklangan" — `Message` itself has no `workspace_id` column (only
+    `conversation_id`), so the workspace scope comes from an explicit
+    join+filter on `Conversation.workspace_id`, the same 6.2/NFR-ISO-002
+    discipline as every other repository query in this codebase (never
+    rely on RLS alone for the workspace boundary — RLS here only
+    enforces `customer_id`, not which workspace within it).
+
+    A blank/whitespace-only query returns no results rather than the
+    workspace's entire history — the caller almost certainly wants
+    "nothing matched" over "here's everything", and it avoids an
+    unbounded ILIKE '%%' scan for a query nobody actually typed."""
+    stripped = query.strip()
+    if not stripped:
+        return []
+    # Escape the caller's own literal `%`/`_`/`\` so a search for e.g.
+    # "50%" or "under_score" matches those exact characters rather than
+    # being (mis)interpreted as SQL LIKE wildcards.
+    escaped = stripped.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    limit = min(limit, MAX_PAGE_SIZE)
+    result = await session.execute(
+        select(Message)
+        .join(Conversation, Message.conversation_id == Conversation.id)
+        .where(
+            Conversation.workspace_id == workspace_id,
+            Message.content.ilike(f"%{escaped}%", escape="\\"),
+        )
+        .order_by(Message.created_at.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
 async def switch_conversation_provider(
     session: AsyncSession, conversation: Conversation, *, provider: Provider, model: str | None
 ) -> Conversation:

@@ -10,6 +10,7 @@ import {
   getWorkspaceAiPreference,
   listConversationMessages,
   listConversations,
+  searchConversations,
   setWorkspaceAiPreference,
   streamConversationMessage,
   switchConversationProvider,
@@ -48,6 +49,9 @@ export default function ChatPage() {
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<MessageOut[] | null>(null);
+  const [searching, setSearching] = useState(false);
 
   const selected = conversations?.find((c) => c.id === selectedId) ?? null;
 
@@ -201,6 +205,30 @@ export default function ChatPage() {
     abortControllerRef.current?.abort();
   }
 
+  async function handleSearch(event: FormEvent) {
+    event.preventDefault();
+    if (sessionId === null || searching) return;
+    setSearching(true);
+    try {
+      const results = await searchConversations(sessionId, workspaceId, searchQuery);
+      setSearchResults(results);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Qidiruvda xato yuz berdi.");
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function handleClearSearch() {
+    setSearchQuery("");
+    setSearchResults(null);
+  }
+
+  function handleJumpToSearchResult(conversationId: string) {
+    setSelectedId(conversationId);
+    handleClearSearch();
+  }
+
   if (sessionId === null) return null;
 
   return (
@@ -213,6 +241,54 @@ export default function ChatPage() {
       </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
+
+      <form onSubmit={handleSearch} className="flex items-center gap-2">
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          placeholder="Suhbat tarixini qidirish..."
+          className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-black focus:outline-none"
+        />
+        <button
+          type="submit"
+          disabled={searching}
+          className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 disabled:opacity-50"
+        >
+          Qidirish
+        </button>
+        {searchResults !== null && (
+          <button
+            type="button"
+            onClick={handleClearSearch}
+            className="text-sm text-gray-500 hover:underline"
+          >
+            Tozalash
+          </button>
+        )}
+      </form>
+
+      {searchResults !== null && (
+        <div className="rounded-md border border-gray-200 p-3">
+          {searchResults.length === 0 ? (
+            <p className="text-sm text-gray-500">Hech narsa topilmadi.</p>
+          ) : (
+            <ul className="space-y-2">
+              {searchResults.map((message) => (
+                <li key={message.id}>
+                  <button
+                    type="button"
+                    onClick={() => handleJumpToSearchResult(message.conversation_id)}
+                    className="w-full rounded-md p-2 text-left text-sm hover:bg-gray-50"
+                  >
+                    <span className="line-clamp-2 text-gray-800">{message.content}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {workspacePreference !== null && (
         <form onSubmit={handleSetWorkspacePreference} className="flex items-center gap-2 text-xs">

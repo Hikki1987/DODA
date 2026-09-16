@@ -506,6 +506,15 @@ BaseException:`ga kengaytirib tuzatildi. Frontend'ga "Bekor qilish"
 tugmasi qo'shildi. 398 test (backend); barcha 13 E2E spec (Playwright,
 real backend+frontend) yashil. To'liq tafsilot: `CLAUDE.md`.
 
+**FR-CONV-006 (suhbat tarixini qidirish) qurildi** — sof ma'lumot bazasi
+so'rovi, xuddi FR-CONV-002 kabi model javobiga bog'liq emas ekan.
+`Message`da `workspace_id` ustuni yo'qligi uchun `Conversation`ga JOIN +
+aniq predikat orqali workspace chegarasi ta'minlanadi (RLS'ning o'ziga
+tayanmasdan — bu faqat `customer_id`ni biladi). Bo'sh so'rov butun
+tarixni emas, bo'sh natija qaytaradi. Frontend'ga qidiruv formasi
+qo'shildi. 401 test (backend); barcha 14 E2E spec yashil. To'liq
+tafsilot: `CLAUDE.md`.
+
 ## Ishga tushirish (local dev)
 
 ```bash

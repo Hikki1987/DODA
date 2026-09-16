@@ -4688,3 +4688,53 @@ qanday serious/critical WCAG buzilishi keltirmadi) yashil.
 398 test (backend), barchasi real Postgres(+Redis)'da; `ruff`/`mypy`
 toza; frontend `tsc`/ESLint toza, production build muvaffaqiyatli;
 barcha 13 E2E spec real backend+frontend'ga qarshi yashil.
+
+**FR-CONV-006 (Suhbat tarixini qidirish va filtrlash, Should) qurildi —
+FR-CONV-002 bilan bir xil kuzatuv: bu ham "haqiqiy model javobi kerak"
+ro'yxatiga noto'g'ri qo'shilgan edi, aslida sof ma'lumot bazasi so'rovi.**
+TRD qabul mezoni: "Qidiruv natijasi faqat joriy workspace bilan
+cheklangan" — bu qism 6.2/NFR-ISO-002'ning aynan o'zi.
+
+`conversation_service.search_messages_in_workspace` — `Message`ning o'z
+ustunlarida `workspace_id` yo'q (faqat `conversation_id`), shuning uchun
+workspace chegarasi `Conversation`ga JOIN + aniq
+`Conversation.workspace_id == workspace_id` predikati orqali keladi —
+RLS'ning o'ziga tayanib qolinmaydi (RLS faqat `customer_id`ni bilar,
+bitta customer ichidagi qaysi workspace ekanini emas). Bo'sh/faqat
+probel qidiruv ATAYLAB butun tarixni emas, bo'sh natija qaytaradi —
+"hech narsa yozilmagan" holatda "hamma narsani ko'rsat" kutilmagan va
+xavfli standart bo'lardi. Foydalanuvchining o'z qidiruv matnidagi `%`/`_`
+belgilari SQL LIKE joker belgisi sifatida talqin qilinmasligi uchun
+escape qilinadi (`\\`, keyin `%`, `_`).
+
+`GET /v1/workspaces/{id}/conversations/search?q=...` — `authorize_use_chat`
+bilan himoyalangan, mavjud `MessageOut` sxemasini qayta ishlatadi (yangi
+sxema kerak emas, allaqachon `conversation_id`ni o'z ichiga oladi).
+
+Yangi test — `test_search_never_returns_a_sibling_workspaces_messages_
+under_the_same_customer` — aynan `test_cross_workspace_record_access.py`
+ochgan naqshning o'zi: bitta customer ostidagi IKKI workspace, RLS bunga
+yordam bermaydi. Audit-zanjiri uslubida isbotlandi: workspace filtri
+vaqtincha olib tashlanganda test aynan kutilgan tarzda (sibling
+workspace'ning xabari sizib chiqib) muvaffaqiyatsiz bo'lishi ko'rsatildi,
+qaytarilgandan keyin yashil. Ikkita qo'shimcha test: case-insensitive
+moslik va bo'sh so'rov xulqi. `conversation_service.py`: 100% qamrov.
+
+Frontend: chat sahifasiga qidiruv formasi qo'shildi — natijalar
+bosilganda mos suhbatga o'tkazadi va qidiruv panelini tozalaydi. **Bilingan,
+kichik cheklov**: agar workspace'da 50 tadan ortiq suhbat bo'lsa (frontend
+ro'yxatining standart limiti) va qidiruv natijasi shu ro'yxatda hali
+yuklanmagan bo'lsa, "o'tish" ishlamaydi (`conversations` state'ida
+topilmagan) — bu amalda kam uchraydigan holat, hozircha alohida
+pagination-chasing qo'shilmadi (minimal diff).
+
+Yangi Playwright testi (`chat.spec.ts`) real backend+frontend'ga qarshi
+(production build) tekshirildi: xabar yuborish → yangi suhbat ochish →
+qidirish → natijaga bosish → to'g'ri suhbatga qaytish → mos kelmaydigan
+so'rov uchun "Hech narsa topilmadi." Barcha 14 E2E spec (yangi ikkita —
+FR-CONV-002 va FR-CONV-006 — bilan birga, accessibility skaneri ham)
+fresh seed'ga qarshi yashil.
+
+401 test (backend), barchasi real Postgres(+Redis)'da; `ruff`/`mypy`
+toza; frontend `tsc`/ESLint toza, production build muvaffaqiyatli;
+barcha 14 E2E spec yashil.

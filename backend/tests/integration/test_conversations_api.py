@@ -39,9 +39,11 @@ from doda.ai.types import (
     ToolSpec,
 )
 from doda.application import ai_budget_service, ai_provider_settings_service
+from doda.application.workspace_service import create_workspace
 from doda.config import Settings
 from doda.db import tenant_scoped_session
 from doda.domain.ai_usage.models import AIBudgetLedger, AIUsageEvent, UsageEventStatus
+from doda.domain.conversation.models import Conversation, Message, MessageRole
 from doda.main import app
 from tests.integration.conftest import seed_workspace_member
 
@@ -183,6 +185,142 @@ async def test_conversation_list_and_messages_do_not_leak_across_workspaces(
         content="should never be accepted",
     )
     assert cross_post.status_code == 404
+
+
+async def test_search_finds_a_matching_message_case_insensitively(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """FR-CONV-006."""
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+    await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="Yashil Bog' loyihasi haqida gaplashaylik",
+    )
+
+    found = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/conversations/search",
+        params={"q": "yashil bog'"},  # different case than what was typed
+        headers=_auth_headers(member.session_id),
+    )
+    assert found.status_code == 200
+    contents = [m["content"] for m in found.json()]
+    assert any("Yashil Bog'" in c for c in contents)
+
+    no_match = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/conversations/search",
+        params={"q": "hech qachon mos kelmaydigan ibora"},
+        headers=_auth_headers(member.session_id),
+    )
+    assert no_match.json() == []
+
+
+async def test_search_with_a_blank_query_returns_nothing_rather_than_the_whole_history(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """A blank query is not treated as "match everything" — see
+    search_messages_in_workspace's own docstring for why."""
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+    await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="bu xabar mavjud",
+    )
+
+    blank = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/conversations/search",
+        params={"q": "   "},
+        headers=_auth_headers(member.session_id),
+    )
+    assert blank.status_code == 200
+    assert blank.json() == []
+
+    omitted = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/conversations/search",
+        headers=_auth_headers(member.session_id),
+    )
+    assert omitted.json() == []
+
+
+async def test_search_never_returns_a_sibling_workspaces_messages_under_the_same_customer(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """The one case RLS alone does not cover (same pattern as
+    test_cross_workspace_record_access.py): `Message` has no
+    `workspace_id` column of its own, so the join+filter in
+    search_messages_in_workspace is the ONLY thing standing between a
+    member of workspace A and a matching message that actually lives in
+    sibling workspace B, both under the same customer."""
+    member = await seed_workspace_member()
+    async with tenant_scoped_session(member.customer_id) as db:
+        sibling_workspace = await create_workspace(
+            db, customer_id=member.customer_id, name="Sibling Workspace"
+        )
+        await db.commit()
+
+    create = await client.post(
+        f"/v1/workspaces/{sibling_workspace.id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    assert create.status_code == 403  # not a member of the sibling workspace — can't even create one there
+
+    # Seed the sibling workspace's conversation/message directly (bypassing
+    # the API, since this member has no membership there) to prove the
+    # isolation holds even when a matching row genuinely exists elsewhere
+    # under the same customer.
+    async with tenant_scoped_session(member.customer_id) as db:
+        sibling_conversation = Conversation(
+            customer_id=member.customer_id, workspace_id=sibling_workspace.id, owner_id="user:someone-else"
+        )
+        db.add(sibling_conversation)
+        await db.flush()
+        db.add(
+            Message(
+                customer_id=member.customer_id,
+                conversation_id=sibling_conversation.id,
+                role=MessageRole.USER,
+                content="noyob qidiruv ibora sibling workspace ichida",
+            )
+        )
+        await db.commit()
+
+    own_create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    own_conversation_id = own_create.json()["id"]
+    await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{own_conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="bu esa mening workspace'imdagi noyob qidiruv ibora",
+    )
+
+    result = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/conversations/search",
+        params={"q": "noyob qidiruv ibora"},
+        headers=_auth_headers(member.session_id),
+    )
+    assert result.status_code == 200
+    contents = [m["content"] for m in result.json()]
+    assert any("mening workspace'imdagi" in c for c in contents)
+    assert not any("sibling workspace ichida" in c for c in contents)
 
 
 async def test_switching_a_conversations_provider_pins_it_without_touching_other_conversations(

@@ -48,6 +48,7 @@ from doda.application.authz_service import authorize_use_chat
 from doda.application.conversation_service import (
     list_conversations_for_workspace,
     list_messages,
+    search_messages_in_workspace,
     start_conversation,
     stream_message,
     switch_conversation_provider,
@@ -111,6 +112,24 @@ async def list_workspace_conversations(
         ctx.db, workspace_id=ctx.workspace.workspace_id, limit=limit
     )
     return [_to_conversation_out(c) for c in conversations]
+
+
+@router.get("/v1/workspaces/{workspace_id}/conversations/search", response_model=list[MessageOut])
+async def search_workspace_conversations(
+    q: str = Query(default=""),
+    limit: int = Query(default=50, le=200),
+    ctx: RequestContext = Depends(get_request_context),
+) -> list[MessageOut]:
+    """FR-CONV-006. Registered before `/{conversation_id}/messages` below
+    only because it reads better grouped with the other collection-level
+    route above — there is no actual routing ambiguity to worry about:
+    this router has no other GET route shaped `/conversations/{single
+    segment}` that "search" could ever be mistaken for."""
+    authorize_use_chat(ctx.workspace)
+    messages = await search_messages_in_workspace(
+        ctx.db, workspace_id=ctx.workspace.workspace_id, query=q, limit=limit
+    )
+    return [_to_message_out(m) for m in messages]
 
 
 async def _get_owned_conversation(ctx: RequestContext, conversation_id: uuid.UUID) -> Conversation:

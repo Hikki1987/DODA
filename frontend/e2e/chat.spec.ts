@@ -111,6 +111,56 @@ test("chat: cancelling an in-flight turn resets the UI without an error", async 
   expect(consoleErrors, `unexpected browser console errors: ${consoleErrors.join("\n")}`).toEqual([]);
 });
 
+test("chat: searching conversation history finds a message and jumps to its conversation", async ({
+  page,
+}) => {
+  // FR-CONV-006. Uses a distinctive, unlikely-to-collide phrase (rather
+  // than a generic word) so this test can't accidentally match content
+  // left behind by another spec/run sharing the same seeded workspace.
+  const consoleErrors: string[] = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") consoleErrors.push(msg.text());
+  });
+  page.on("pageerror", (err) => consoleErrors.push(String(err)));
+
+  const needle = "qizil sirli kalamush 42";
+
+  await page.goto("/login");
+  await page.fill("#session-id", SESSION_ID);
+  await page.click('button[type="submit"]');
+  await page.waitForURL("**/workspaces");
+  await page.goto(`/workspaces/${WORKSPACE_ID}/chat`);
+
+  await page.click('button:has-text("Yangi suhbat")');
+  await expect(page.getByPlaceholder("Xabar yozing...")).toBeVisible();
+  await page.fill('input[placeholder="Xabar yozing..."]', needle);
+  await page.click('button:has-text("Yuborish")');
+  await expect(page.getByText(needle, { exact: false }).first()).toBeVisible();
+
+  // Start a second, different conversation so there is more than one to
+  // jump BETWEEN — proves the click actually navigates, not just that a
+  // single already-open conversation happens to contain the text.
+  await page.click('button:has-text("Yangi suhbat")');
+  await expect(page.getByText(needle)).not.toBeVisible();
+
+  await page.fill('input[placeholder="Suhbat tarixini qidirish..."]', needle);
+  await page.click('button:has-text("Qidirish")');
+  const resultButton = page.getByRole("button", { name: needle, exact: false });
+  await expect(resultButton).toBeVisible();
+  await resultButton.click();
+
+  // Clicking a result clears the search panel and switches to the
+  // conversation that actually contains the match.
+  await expect(page.getByPlaceholder("Suhbat tarixini qidirish...")).toHaveValue("");
+  await expect(page.getByText(needle, { exact: false }).first()).toBeVisible();
+
+  await page.fill('input[placeholder="Suhbat tarixini qidirish..."]', "hech-qachon-mos-kelmaydigan-soz");
+  await page.click('button:has-text("Qidirish")');
+  await expect(page.getByText("Hech narsa topilmadi.")).toBeVisible();
+
+  expect(consoleErrors, `unexpected browser console errors: ${consoleErrors.join("\n")}`).toEqual([]);
+});
+
 test("AI provider settings: enable/disable, test connection, fallback toggle, my preference", async ({
   page,
 }) => {
