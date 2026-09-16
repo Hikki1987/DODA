@@ -855,6 +855,53 @@ async def test_a_deep_mode_request_estimated_over_the_cost_ceiling_is_refused_be
     assert called is False
 
 
+async def test_a_message_containing_a_live_looking_api_key_is_blocked_before_any_provider_call(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OD-003's outbound guard (doda.ai.outbound_guard) — proves the block
+    happens before stream_message ever reaches the gateway AND before the
+    message is persisted, not just that the HTTP response looks right."""
+    called = False
+
+    async def _never_called(*args: object, **kwargs: object) -> typing.AsyncIterator[GatewayEvent]:
+        nonlocal called
+        called = True
+        if False:
+            yield  # pragma: no cover
+        raise AssertionError("must never call the provider once a live-looking secret was detected")
+
+    fake_gateway = type("_Unreachable", (), {"stream_chat": staticmethod(_never_called)})()
+    monkeypatch.setattr(
+        "doda.application.conversation_service.get_gateway", lambda provider, settings: fake_gateway
+    )
+
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    secret = "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD"
+    post = await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content=f"bu mening OpenAI kalitim, saqlab qo'y: {secret}",
+    )
+    assert post.status_code == 422
+    assert post.json()["code"] == "OUTBOUND_CONTENT_BLOCKED"
+    assert secret not in post.text  # the client response never echoes the matched secret
+    assert called is False
+
+    listed = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+    )
+    assert listed.json() == []  # the message was never persisted either
+
+
 async def test_a_customers_hard_budget_cap_refuses_a_turn_with_a_clean_402_before_any_provider_call(
     client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:

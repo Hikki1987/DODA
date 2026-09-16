@@ -4539,3 +4539,63 @@ qo'shilishini, bitta qator yaratilishini tasdiqlaydi.
 mavjud qatorni O'QISH javobi ham hech qachon test qilinmagan ekan —
 qo'shimcha GET qo'shilib yopildi). 384 test, barchasi real
 Postgres(+Redis)'da; `ruff`/`mypy` toza.
+
+**OD-003 (AI providerga qaysi ma'lumot sinfi yuborilmasin) — Product
+Owner aniq vakolat berdi ("qaysi jihatdan qaror kerak bo'lsa, o'zing
+professional darajada qaror qabul qilib davom ettir") — va shu vakolat
+asosida v1'ning haqiqiy ma'lumot modeli uchun yopildi.** Bu boshqa
+OD-*lardan farqli — CLAUDE.md/`docs/open-decisions.md`ning o'zi bir necha
+marta "bu Product Owner qarori, texnik jamoa emas" deb ta'kidlagan (OD-002
+Telegram, OD-004 ovoz, OD-005 hosting — barchasi aniq PO ko'rsatmasi
+bilan hal qilingan). Bu safar ko'rsatma umumiy edi, shuning uchun avval
+qaror doirasini o'zim aniqladim: to'lov/sog'liq/davlat ID kabi ma'lumot
+sinflari bugungi tizimda umuman yig'ilmaydi (bunday domenlar yo'q), shuning
+uchun ular bo'yicha cheklash predmeti yo'q. Server-side kredensiallar
+(`Settings`ning `SecretStr` maydonlari) va bir martalik xavfsizlik
+tokenlari (session bearer, approval nonce) esa AI qatlamiga strukturaviy
+jihatdan ALLAQACHON ko'rinmas edi — to'rt marta o'tkazilgan
+security-review buni tasdiqlagan (`ai_tools.py`dagi hech qanday READ/WRITE
+tool `Settings`ni, xom session tokenini yoki `Approval.nonce`ni
+ochib bermaydi). Haqiqiy, yopilmagan bo'shliq faqat bittasi edi:
+foydalanuvchining o'zi yozgan xabar — bu tizim o'zi generatsiya
+qilmaydigan yagona kirish nuqtasi — va unga tasodifan yopishtirilgan
+haqiqiy API kalit yoki private key hech narsasiz, to'g'ridan-to'g'ri
+tanlangan providerga (OpenAI/Gemini/Claude) yuborilardi.
+
+Yechim: `doda/ai/outbound_guard.py` — ataylab tor, yuqori ishonchli
+pattern skaneri (OpenAI/Anthropic/AWS/Google/GitHub/Slack kalit
+shakllari, PEM private-key sarlavhasi, JWT, `Bearer <token>`) —
+`conversation_service.stream_message`ning ENG boshida, xabar hali
+`Message` sifatida saqlanmasdan turib chaqiriladi. Moslik topilsa
+`OutboundContentBlockedError` (`api/errors.py`: HTTP 422
+`OUTBOUND_CONTENT_BLOCKED`) — xabar providerga yuborilmaydi VA hech
+qachon bazaga ham yozilmaydi (soxta kalitni jimgina "tozalab" qolgan
+qismini yuborish emas — foydalanuvchi hech narsa yetib bormaganini aniq
+bilishi kerak). Ataylab qilingan cheklov, halol yozilgan (modulning o'z
+docstring'ida): bu umumiy PII/DLP klassifikatori emas — telefon raqami,
+manzil yoki boshqa odamning ismini ushlamaydi; umumiy "password=..."
+patterni ham ataylab qo'shilmadi (entropiya tekshiruvisiz bu oddiy
+o'zbekcha suhbat gaplarini — "parolimni unutib qo'ydim" kabi — haqiqiy
+xatodan ko'proq ushlagan bo'lardi).
+
+Isbotlash audit-zanjiri uslubida qilindi: yangi integratsiya testi
+(`test_a_message_containing_a_live_looking_api_key_is_blocked_before_
+any_provider_call`) — soxta gateway `AssertionError` bilan "provider
+hech qachon chaqirilmasligi kerak" deb ta'minlaydi — avval tekshiruvni
+vaqtincha o'chirib, test aynan kutilgan tarzda (provider chaqirilib,
+`AssertionError` chiqib) muvaffaqiyatsiz bo'lishini ko'rsatdim, keyin
+tekshiruvni qaytarib yashil ekanini tasdiqladim; qo'shimcha assertion
+xabar hech qachon bazaga yozilmaganini ham tekshiradi
+(`GET .../messages` bo'sh qaytadi). `outbound_guard.py`: 12 unit test
+(har bir pattern turi + ikkita salbiy holat — oddiy matn va yolg'iz
+"parol" so'zi — false-positive'ni tekshiradi), 100% qamrov.
+
+`docs/open-decisions.md`ning OD-003 qatori "Open, overdue" dan
+"Resolved for v1's actual data model"ga o'tkazildi, aniq chegara bilan:
+agar kelajakda yangi sezgir ma'lumot sinfi (to'lov, sog'liq, fayl/
+Knowledge yuklash) qo'shilsa, OD-003 O'SHA sinf uchun qayta ochilishi
+kerak — bu yopilish faqat bugungi tizim haqiqatda ushlab turgan
+ma'lumotni qamraydi. `docs/risk-register.md`ning RISK-004 qatori ham
+mos yangilandi.
+
+397 test, barchasi real Postgres(+Redis)'da; `ruff`/`mypy` toza.

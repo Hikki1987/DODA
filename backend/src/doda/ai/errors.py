@@ -64,3 +64,16 @@ class BudgetExceededError(ModelGatewayError):
     def __init__(self, message: str, *, scope: str) -> None:
         super().__init__(message)
         self.scope = scope
+
+
+class OutboundContentBlockedError(ModelGatewayError):
+    """Raised by `doda.application.conversation_service.stream_message`
+    (via `doda.ai.outbound_guard`) before the user's message is even
+    persisted, let alone sent to a provider — same "before any provider
+    call" placement as BudgetExceededError, kept here for the same
+    reason. `label` is one of `outbound_guard`'s fixed pattern names,
+    safe to surface to the client (never the matched secret text)."""
+
+    def __init__(self, message: str, *, label: str) -> None:
+        super().__init__(message)
+        self.label = label

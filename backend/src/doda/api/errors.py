@@ -19,6 +19,7 @@ from doda.ai.errors import (
     ModelProviderError,
     ModelRateLimitedError,
     ModelTimeoutError,
+    OutboundContentBlockedError,
 )
 from doda.api.middleware import TRACE_ID_HEADER
 from doda.application.action_service import ApprovalInvalidError
@@ -259,6 +260,21 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=_envelope(
                 code="BUDGET_EXCEEDED",
                 message="Oylik AI byudjeti tugadi.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(OutboundContentBlockedError)
+    async def _outbound_content_blocked(request: Request, exc: OutboundContentBlockedError) -> JSONResponse:
+        # 10.1/OD-003: never echo the matched text back — only the fixed
+        # pattern label, which names a credential TYPE, not its value.
+        logger.warning("ai_outbound_content_blocked", trace_id=_trace_id(request), pattern_label=exc.label)
+        return JSONResponse(
+            status_code=422,
+            content=_envelope(
+                code="OUTBOUND_CONTENT_BLOCKED",
+                message="Xabar tarkibida maxfiy kalit/tokenga o'xshash matn aniqlandi — xabar yuborilmadi.",
                 trace_id=_trace_id(request),
                 retryable=False,
             ),

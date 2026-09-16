@@ -480,6 +480,20 @@ haqiqiy suhbat resolyutsiyasida ishlatilishini tasdiqlamagan edi. 384
 test, barchasi real Postgres'da; `ruff`/`mypy` toza. To'liq tafsilot:
 `CLAUDE.md`.
 
+**OD-003 (AI providerga qaysi ma'lumot yuborilmasin) — Product Owner
+vakolati bilan v1'ning haqiqiy ma'lumot modeli uchun yopildi.** Bugungi
+tizimda to'lov/sog'liq/davlat ID kabi sinflar umuman yig'ilmaydi;
+server-side kredensiallar va bir martalik xavfsizlik tokenlari AI
+qatlamiga strukturaviy jihatdan allaqachon ko'rinmas edi. Yagona real
+bo'shliq — foydalanuvchining o'zi yozgan xabarga tasodifan yopishtirilgan
+haqiqiy API kalit — `doda.ai.outbound_guard`ning tor, yuqori ishonchli
+pattern skaneri bilan yopildi: xabar hali saqlanmasdan turib tekshiriladi,
+moslik topilsa hech qachon bazaga yozilmaydi va hech qachon providerga
+yubormaydi (HTTP 422 `OUTBOUND_CONTENT_BLOCKED`). Ataylab umumiy PII/DLP
+klassifikatori emas — bu chegara modulning o'z docstring'ida aniq
+yozilgan. 397 test, barchasi real Postgres(+Redis)'da; `ruff`/`mypy`
+toza. To'liq tafsilot: `CLAUDE.md`.
+
 ## Ishga tushirish (local dev)
 
 ```bash

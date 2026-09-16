@@ -39,8 +39,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.ai.capabilities import assert_supports_tools
-from doda.ai.errors import ModelProviderError, ModelRateLimitedError, ModelTimeoutError
+from doda.ai.errors import (
+    ModelProviderError,
+    ModelRateLimitedError,
+    ModelTimeoutError,
+    OutboundContentBlockedError,
+)
 from doda.ai.factory import get_gateway
+from doda.ai.outbound_guard import detect_likely_secret
 from doda.ai.types import (
     ChatMode,
     ChatRole,
@@ -215,6 +221,15 @@ async def stream_message(
     translate those into a clean 4xx without any partial stream having
     started.
     """
+    # OD-003: block before the message is even persisted, let alone sent
+    # to any provider — see doda.ai.outbound_guard's own docstring for
+    # what this does and does not catch.
+    secret_label = detect_likely_secret(content)
+    if secret_label is not None:
+        raise OutboundContentBlockedError(
+            "the message looks like it contains a live credential", label=secret_label
+        )
+
     user_message = Message(
         customer_id=conversation.customer_id,
         conversation_id=conversation.id,
