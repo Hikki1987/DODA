@@ -5054,3 +5054,40 @@ tasdiqladim. Kod o'zgarmadi — sof pozitiv tekshiruv.
 
 433 test, barchasi real Postgres(+Redis)'da (99% qamrov, o'zgarishsiz);
 `ruff`/`mypy` toza.
+
+**NFR-PORT-001 (Portativlik: "provider-neutral domain va AI gateway",
+qabul mezoni "Ikkinchi provider bilan smoke test") — birinchi marta
+haqiqatda smoke-test qilindi, faqat ADR-009'ning yozma da'vosi emas.**
+ADR-009 Gemini/Claude qo'shilganda "`doda.ai.types`/`doda.ai.port`ga
+hech qanday o'zgarishsiz" deb yozgan edi, lekin bu hech qachon end-to-end
+tekshirilmagan edi: `test_{openai,gemini,claude}_gateway.py` har biri
+FAQAT o'z adapterini alohida (mock transport bilan) sinaydi;
+`test_conversations_api.py`ning provider-switch testi esa
+`_RecordingGateway` test double orqali ishlaydi, bu kod bazasi haqiqatda
+yetkazadigan real adapterlar orqali emas. Ya'ni hech narsa to'liq
+orkestratsiyani (`conversation_service.stream_message` — saqlash,
+byudjet reserve/reconcile, tool-round tsikli, SSE yig'ish, butun
+authoritative-chain HTTP yo'li) HAQIQIY uchta gateway implementatsiyasiga
+qarshi ishga tushirib, domain/application qatlamining provider bo'yicha
+hech qanday maxsus holat talab qilmasligini isbotlamagan edi.
+
+Yangi `tests/integration/test_ai_provider_portability.py` — bitta test,
+uchta suhbat, har biri boshqa HAQIQIY gateway sinfiga (`OpenAIGateway`/
+`GeminiGateway`/`ClaudeGateway`, har birining o'z real SDK klienti, faqat
+HTTP transporti mock — uch birlik test faylining aynan o'zi ishlatgan
+texnika) pin qilingan, har biri xuddi shu HTTP endpoint/authz
+zanjiri/saqlash/byudjet kodi orqali haydaladi. Agar bitta provayder ham
+maxsus branching talab qilganida, hech bo'lmaganda bittasi muvaffaqiyatsiz
+bo'lgan yoki boshqacha chaqiruv shakli talab qilgan bo'lardi — hech
+qaysi biri talab qilmaydi.
+
+Audit-zanjiri uslubida isbotlandi: `stream_message`ning gateway tanlash
+qatorini (`get_gateway(choice.provider, settings)`) vaqtincha
+`get_gateway(Provider.OPENAI, settings)`ga qattiq bog'lab (real
+regressiya sinfi — "provider yorlig'i yangilanadi, lekin haqiqiy
+chaqirilgan gateway o'zgarmaydi"), test aynan kutilgan tarzda ("Salom
+Gemini'dan" o'rniga "Salom OpenAI'dan" qaytib) muvaffaqiyatsiz bo'lishini
+ko'rsatdim, keyin qaytarib yashil ekanini tasdiqladim.
+
+434 test, barchasi real Postgres(+Redis)'da (99% qamrov, o'zgarishsiz);
+`ruff`/`mypy` toza.
