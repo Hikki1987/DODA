@@ -5759,3 +5759,53 @@ haqiqatan chinakam narsani ushlaydi, vacuous emas.
 
 Kod o'zgarmadi (yangi mustaqil skript qo'shildi) — 462 test o'zgarishsiz,
 `ruff`/`mypy src/doda` toza.
+
+**Oltinchi `security-review` o'tkazildi — bu safar to'rtinchisidan (0a9f4b2,
+"butun PR, 0 topilma") KEYINGI besh nomzod nomzod topilgan beshinchi
+review'dan (d484087, nonce-disclosure tuzatishi) KEYINGI hamma narsaga
+qarshi: coverage-gap yopilishlari, OD-003 outbound guard, FR-CONV-001/
+002/006, FR-TASK-002/003/005, FR-WKS-007, FR-ACT-002/005/006/007, va
+turli NFR tekshiruv skriptlari (~8000 qator, 77 fayl, 24 commit).**
+Jarayon bir xil uch bosqich: (1) topish subagent'i, (2) topilgan HAR BIR
+nomzod uchun ALOHIDA, mustaqil false-positive filtrlash subagent'i
+(parallel, har biriga faqat o'sha bitta nomzodning tavsifi berildi —
+boshqa nomzodlar yoki topuvchi subagent'ning o'z ishonch bahosi
+ko'rsatilmadi, tarafkashlikni oldini olish uchun), (3) faqat ishonch
+darajasi >=8 rasmiy hisobotga kiritiladi.
+
+Topish subagent'i uchta past-ishonchli (o'zi 2-4/10 deb baholagan)
+nomzodni qayd etdi, hammasi "kelajakka qaratilgan mustahkamlash" toifasida,
+"hozir ekspluatatsiya qilinadigan" emas:
+1. `apply_transition`ning `receipt` parametri (FR-ACT-007) — mazmun
+   darajasida redaction tekshiruvi yo'q, faqat `test_audit_redaction.py`
+   literal dict kalitlarini statik tekshiradi, `receipt`ning o'zi
+   o'zgaruvchi bo'lgani uchun qiymati tekshirilmaydi. Filtrlash: 2/10 —
+   butun kod bazasida `receipt=` bilan chaqiriladigan yagona joy
+   `telegram_relay.py`, va u faqat xavfsiz `{"message_id": <int>}`
+   uzatadi; bu FR-ACT-009/FR-ACT-001 kabi "hali qurilmagan connector
+   uchun bo'sh joy" toifasi, real ekspluatatsiya yo'li yo'q.
+2. Telegram retry'ning duplikat yuborish xavfi (FR-ACT-005/006 tuzatishi)
+   — agar `TelegramTransientError` klassifikatsiyasi noto'g'ri bo'lsa.
+   Filtrlash: 2/10 — retry qilinadigan uchta xato turi (ConnectError/
+   ConnectTimeout/PoolTimeout) TCP/ulanish darajasida, ta'rifi bo'yicha
+   HAR DOIM so'rov yuborilishidan OLDIN sodir bo'ladi (httpx hech qachon
+   to'liq so'rov-javob siklidan keyin bu xatolarni ko'tarmaydi); 429 esa
+   Telegram'ning o'zining "navbatga qo'yilmadi" degan aniq signali —
+   "agar noto'g'ri bo'lsa" stsenariysi standart bo'lmagan, protokolni
+   buzadigan oraliq server xatti-harakatini talab qiladi, bu haqiqiy
+   xavf emas.
+3. `fire_due_reminders`ning so'rovida aniq `customer_id` predikati yo'q,
+   faqat RLS'ga tayanadi. Filtrlash: 2/10 — bu `verify_audit_chain_
+   job.py`/`find_stuck_running_actions.py` bilan BAYT-BAYTIGA bir xil,
+   allaqachon qabul qilingan naqsh (`tenant_scoped_session` sikli +
+   RLS yagona qatlam, atayin qilingan istisno sinfi); `task_reminders`
+   FORCE RLS'ga ega (0022-migratsiya) va `test_rls_coverage.py`ning
+   ikkala testi (jadval qamrovi + rol bypass qila olmasligi) buni
+   uzluksiz tekshiradi.
+
+Uchalasi ham rasmiy hisobot chegarasidan (>=8) ancha past — hech qanday
+tuzatish qilinmadi. Bu safar ham 4-review'ga o'xshab "chinakam toza"
+natija — hech qanday nomzod chegara-usti (masalan ishonch 7) emas edi.
+
+462 test, barchasi real Postgres+Redis'da (kod o'zgarmadi — sof
+tekshiruv).
