@@ -5643,3 +5643,68 @@ bilan qizardi, qaytarilgandan keyin yashil.
 
 460 test (backend, 459 + 1 yangi), barchasi real Postgres+Redis'da;
 `ruff`/`mypy src/doda` toza.
+
+**FR-ACT-006ni yozishdan keyin, TRD'ning UC-004 bo'limini (3.9-dan oldingi
+"Kritik use case: email yuborish") to'liq o'qib chiqishda — bu safar
+CLAUDE.md xotirasidan emas, hujjatning o'zidan — FR-ACT-005'ning yuqorida
+"qisman qurildi" deb yozilgan retry mexanizmida haqiqiy, jiddiy xato
+topildi va darhol tuzatildi.** UC-004'ning o'z "NEGATIV STSENARIYLAR —
+MAJBURIY TESTLAR" jadvali aniq beshta holatni sanaydi, biri esa: **"provider
+timeout bergan lekin xat aslida yuborilgan"** (provider timeout berdi,
+lekin xat aslida yuborilgan) — "har biri uchun alohida test va aniq
+kutilgan xulq mavjud bo'lishi shart" degan majburiy talab bilan.
+
+Yuqorida qurilgan `_send_with_retries` esa aynan shu stsenariyni ATAYLAB
+EMAS, xato bilan noto'g'ri hal qilgan edi: `TelegramTransientError` HAR
+QANDAY `httpx.HTTPError` (jumladan `ReadTimeout`/`WriteTimeout` — so'rov
+Telegram'ga YUBORILGAN, lekin javob kelmagan holat) va HAR QANDAY 5xx
+uchun ko'tarilardi — bularning barchasi qayta urinilardi. Muammo: agar
+so'rov haqiqatda Telegram'ga yetib borgan bo'lsa (`ReadTimeout`) yoki
+Telegram ichki xatoga uchragan bo'lsa (5xx), xabar ALLAQACHON yuborilgan
+bo'lishi extremal darajada mumkin — Telegram Bot API'sida so'rov
+darajasidagi idempotency key yo'q (bu `telegram_relay.py`ning o'z
+docstring'ida ancha oldin hujjatlashtirilgan haqiqat). Demak mening
+qurilgan retry mexanizmim aynan shu noaniq holatlarda QAYTA urinib,
+HAQIQIY DUPLIKAT xabar yuborish xavfini keltirib chiqargan bo'lardi —
+bu FR-ACT-004'ning "bir xil kalit bilan takroriy yuborish bitta tashqi
+effekt hosil qiladi" invariantini buzadigan, ishlab chiqarilgan production
+xatosi bo'lardi, garchi CI'da yashil bo'lsa ham (chunki mavjud testlarim
+faqat "5xx qayta uriniladi" va "tarmoq xatosi qayta uriniladi"ni
+tekshirgan edi, "ammo bu xavfsizmi" savolini bermagan edi).
+
+**Tuzatish**: `TelegramTransientError` endi FAQAT so'rov Telegram'ga
+YETIB BORMAGANI ANIQ bo'lgan holatlarda ko'tariladi — `httpx.
+ConnectError`/`ConnectTimeout`/`PoolTimeout` (ulanish hatto
+o'rnatilmagan) va HTTP 429 (Telegram so'rovni navbatga qo'yishdan OLDIN
+aniq rad etadi — "juda ko'p so'rov", xabar hech qachon yuborilmagan).
+Qolgan HAMMA narsa — `ReadTimeout`/`WriteTimeout`, 5xx, JSON parslash
+xatosi — endi bazaviy, QAYTA URINILMAYDIGAN `TelegramSendError`ni
+ko'taradi: "noaniq holatda yolg'on FAILED (inson qayta tekshiradi) —
+haqiqiy duplikat xabardan YAXSHIROQ" tamoyili bilan, ataylab.
+
+Audit-zanjiri uslubida ikki darajada isbotlandi: (1) unit darajada —
+`test_telegram_client.py`ga `test_a_read_timeout_is_not_a_transient_
+error` va `test_a_5xx_response_is_not_a_transient_error` qo'shildi (avval
+5xx'ni transient deb tekshirgan test endi TESKARI — non-transient
+ekanini tekshiradi); (2) integration darajada — `test_telegram_relay.py`ga
+`test_a_read_timeout_is_not_retried_even_once` qo'shildi (`call_count
+== 1`, terminal FAILED). Ikkalasi ham vaqtincha eski (xato) klassifikatsiyani
+qaytarib (`httpx.HTTPError` HAR QANDAY holatda transient deb ko'tarilsin),
+ikkala test ham aynan kutilgan tarzda muvaffaqiyatsiz bo'lishini (`assert
+3 == 1` — ReadTimeout uch marta qayta urinilib) ko'rsatdim, keyin
+tuzatishni qaytarib ikkalasi ham yashil ekanini tasdiqladim. Mavjud ikkita
+FR-ACT-005 integratsiya testi ham (transient-clears-up, sustained-bounded)
+endi 5xx o'rniga `httpx.ConnectError` ishlatadi (haqiqatda transient
+bo'lgan yagona senariylardan biri) — 503 endi ular tekshirmoqchi bo'lgan
+narsani tekshirmaydi (5xx birinchi urinishdayoq terminal bo'ladi).
+
+Bu topilma o'zi ham CLAUDE.md'ning o'z intizomini tasdiqlaydi: TRD matnini
+xotiradan emas, har safar hujjatning o'zidan qayta o'qish — bu safar
+UC-004'ning "MAJBURIY testlar" jadvalini FR-ACT-005'ni "qurildi" deb
+e'lon qilgandan KEYIN o'qish shu real xatoni ochib berdi, oldindan
+taxmin qilinmagan.
+
+462 test (backend, 460 + 2 yangi: bitta unit — read-timeout, bitta
+integration — read-timeout-not-retried; ikkita mavjud test 5xx'dan
+ConnectError'ga o'tkazildi, sof tuzatish), barchasi real Postgres+Redis'da;
+`ruff`/`mypy src/doda` toza.

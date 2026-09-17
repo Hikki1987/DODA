@@ -78,19 +78,28 @@ async def test_malformed_json_response_raises_telegram_send_error() -> None:
 # FR-ACT-005 (Must): "Provider outage simulyatsiyasida ma'lumot yo'qolmaydi" —
 # telegram_relay.py retries TelegramTransientError specifically, so the
 # client must actually distinguish it from a definitive, non-retryable
-# rejection.
+# rejection. UC-004's own mandated negative scenario — "provider timeout
+# bergan lekin xat aslida yuborilgan" (the provider timed out, but the
+# message was actually sent) — is why only failures KNOWN to have
+# happened before Telegram could have queued anything are transient; a
+# read timeout or a 5xx is genuinely ambiguous and must NOT be retried.
 
 
-async def test_5xx_response_raises_a_transient_error() -> None:
+async def test_a_connect_error_is_a_transient_error() -> None:
+    """The connection never reached Telegram at all — safe to retry."""
+
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(503, json={"ok": False, "description": "Service Unavailable"})
+        raise httpx.ConnectError("connection refused")
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     with pytest.raises(TelegramTransientError):
         await send_message(client, bot_token="tok", chat_id="1", text="hi")
 
 
-async def test_429_response_raises_a_transient_error() -> None:
+async def test_429_response_is_a_transient_error() -> None:
+    """Telegram explicitly rejected the request before queuing it for
+    delivery — safe to retry."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(429, json={"ok": False, "description": "Too Many Requests"})
 
@@ -99,13 +108,37 @@ async def test_429_response_raises_a_transient_error() -> None:
         await send_message(client, bot_token="tok", chat_id="1", text="hi")
 
 
-async def test_a_network_error_is_a_transient_error() -> None:
+async def test_a_read_timeout_is_not_a_transient_error() -> None:
+    """UC-004's own mandated negative scenario, verbatim: 'provider
+    timeout bergan lekin xat aslida yuborilgan'. A read timeout means the
+    request WAS sent — Telegram may have already processed it — so this
+    must NOT be retried (it has no request-level idempotency key to make
+    a retry safe): the base, non-retryable TelegramSendError, not
+    TelegramTransientError."""
+
     def handler(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("connection refused")
+        raise httpx.ReadTimeout("timed out waiting for a response")
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    with pytest.raises(TelegramTransientError):
+    with pytest.raises(TelegramSendError) as exc_info:
         await send_message(client, bot_token="tok", chat_id="1", text="hi")
+
+    assert not isinstance(exc_info.value, TelegramTransientError)
+
+
+async def test_a_5xx_response_is_not_a_transient_error() -> None:
+    """Same reasoning as a read timeout: Telegram's own docs don't
+    guarantee a 5xx means nothing was queued for delivery, so this is
+    not automatically retried either."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"ok": False, "description": "Service Unavailable"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(TelegramSendError) as exc_info:
+        await send_message(client, bot_token="tok", chat_id="1", text="hi")
+
+    assert not isinstance(exc_info.value, TelegramTransientError)
 
 
 async def test_a_definitive_rejection_is_not_a_transient_error() -> None:
