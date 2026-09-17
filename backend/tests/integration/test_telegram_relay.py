@@ -279,6 +279,59 @@ async def test_redelivery_of_an_already_succeeded_action_does_not_resend(db_avai
     assert action.status is ActionStatus.SUCCEEDED  # unchanged
 
 
+async def test_a_transient_failure_that_clears_up_still_succeeds(
+    db_available: bool, redis_client: Redis
+) -> None:
+    """FR-ACT-005 (Must): "Provider outage simulyatsiyasida ma'lumot
+    yo'qolmaydi" — a short-lived outage (first two attempts fail with a
+    503, the third succeeds) must not lose the action to a terminal
+    FAILED; it must retry and land on SUCCEEDED, same as if there had
+    been no outage at all."""
+    customer_id, action_id = await _seed_ready_telegram_action()
+
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            return httpx.Response(503, json={"ok": False, "description": "Service Unavailable"})
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 7}})
+
+    fields = {b"customer_id": str(customer_id).encode(), b"aggregate_id": str(action_id).encode()}
+    async with _mock_http_client(handler) as http_client:
+        await process_entry(http_client, fields=fields, bot_token="fake-test-token")
+
+    assert call_count == 3  # two failed attempts, then the retry that succeeded
+    action = await _get_action(customer_id, action_id)
+    assert action.status is ActionStatus.SUCCEEDED
+
+
+async def test_a_sustained_transient_outage_still_ends_in_a_bounded_failed(
+    db_available: bool, redis_client: Redis
+) -> None:
+    """The other half of the same fix: retries are bounded
+    (TELEGRAM_SEND_ATTEMPTS), not infinite — an outage that never clears
+    up within that budget still ends in a terminal FAILED, exactly as
+    before this fix, rather than hammering Telegram forever."""
+    customer_id, action_id = await _seed_ready_telegram_action()
+
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(503, json={"ok": False, "description": "Service Unavailable"})
+
+    fields = {b"customer_id": str(customer_id).encode(), b"aggregate_id": str(action_id).encode()}
+    async with _mock_http_client(handler) as http_client:
+        await process_entry(http_client, fields=fields, bot_token="fake-test-token")
+
+    assert call_count == 3  # TELEGRAM_SEND_ATTEMPTS, not unbounded
+    action = await _get_action(customer_id, action_id)
+    assert action.status is ActionStatus.FAILED
+
+
 async def test_malformed_payload_drives_action_to_failed_without_calling_telegram(
     db_available: bool, redis_client: Redis
 ) -> None:

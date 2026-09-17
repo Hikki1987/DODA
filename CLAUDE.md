@@ -5522,3 +5522,80 @@ yo'qligi sababli chuqurroq arxitektura ishi.
 
 453 test (backend, 451 + 2 yangi: `test_action_lifecycle.py`), barchasi
 real Postgres+Redis'da; `ruff`/`mypy src/doda` toza.
+
+**FR-ACT-005 (Timeout, retry, circuit breaker va compensating action —
+"Provider outage simulyatsiyasida ma'lumot yo'qolmaydi", Must) qisman
+qurildi — retry qismi.** Bu ID traceability auditda FR-ACT-001/002/005/
+006/007/009 guruhida "hech qanday kod yo'li chaqirmaydi" deb qayd
+etilgan edi. Tekshirilganda aniqlandi: `domain/action/state_machine.py`
+allaqachon `ActionStatus.FAILED -> RETRYING -> READY` zanjirini modellagan
+(izohida aniq yozilgan: "may be retried"), lekin butun kod bazasida
+bironta chaqiruvchisi yo'q edi — `telegram_relay.py`ning `process_entry`i
+HAR QANDAY `TelegramSendError`ni (transient tarmoq xatosi bo'ladimi,
+doimiy rad etish bo'ladimi — farqlanmasdan) darhol terminal FAILED'ga
+o'tkazardi, birinchi urinishdanoq.
+
+**Qaror: to'liq circuit breaker + FAILED->RETRYING->READY zanjiri emas,
+faqat in-process, chegaralangan retry+backoff qurildi — ataylab
+torroq qamrov.** To'liq circuit breaker (worker jarayoni davomida
+outage holatini kuzatib, action'larni READY'ga qaytarib qayta-qayta
+outbox orqali qayta yetkazish) loyihalashda haqiqiy xavf ochildi:
+agar sustained outage davomida har bir qayta yetkazish
+FAILED->RETRYING->READY zanjiridan o'tsa, `apply_transition`ning FAILED
+filiali HAR SAFAR `FAILED_ACTION` bildirishnomasi yaratadi (10.2/
+FR-NTF-002) — bu outage davomida (har relay poll sikli, ~1s) SPAM
+bildirishnoma degani, professional emas. Bu muammoni to'liq hal qilish
+(masalan bildirishnomani faqat birinchi urinishda yuborish, yoki
+persistent `retry_count`/`next_retry_at` ustunlari bilan migratsiya)
+alohida, diqqat bilan o'ylab chiqilishi kerak bo'lgan arxitektura ishi —
+shuning uchun bu safar QURILMADI, docstring'da ochiq qoldirildi.
+
+Buning o'rniga qurilgan, kichikroq lekin haqiqiy va to'liq testlangan
+qism: **in-process, chegaralangan retry+backoff**, faqat TRANSIENT
+xatolar uchun. `infrastructure/telegram_client.py`ga yangi
+`TelegramTransientError(TelegramSendError)` qo'shildi — tarmoq xatosi,
+JSON parslash xatosi, HTTP 429, yoki 5xx javob uchun ko'tariladi (bular
+qayta urinishda muvaffaqiyatli bo'lishi MUMKIN bo'lgan xatolar); qolgan
+har qanday aniq rad etish (masalan noto'g'ri chat_id, 400) hamon bazaviy
+`TelegramSendError`ni to'g'ridan-to'g'ri ko'taradi (qayta urinilmaydi —
+hech qachon muvaffaqiyatli bo'lmaydigan so'rovni qayta yuborish behuda).
+Ikkalasi ham bir xil sinf ierarxiyasida bo'lgani uchun mavjud beshta unit
+test (`test_telegram_client.py`) hech biri o'zgartirilmasdan yashil
+qoldi — `pytest.raises(TelegramSendError)` subklassni ham qamraydi.
+
+`telegram_relay.py`ga yangi `_send_with_retries` — `TELEGRAM_SEND_
+ATTEMPTS=3` marta, eksponensial backoff (`TELEGRAM_RETRY_BACKOFF_BASE_
+SECONDS=0.05`, testlarni sekinlashtirmasligi uchun kichik) bilan, faqat
+`TelegramTransientError` uchun. `process_entry` endi `send_message`
+o'rniga shu funksiyani chaqiradi — muvaffaqiyat/rad etish yo'llarining
+qolgan qismi (FAILED'ga o'tish, receipt bilan SUCCEEDED'ga o'tish)
+o'zgarmadi, chunki `_send_with_retries` retries tugagach oxirgi
+xatoni (baribir `TelegramSendError`ning bir turi) qayta ko'taradi.
+
+Audit-zanjiri uslubida isbotlandi: `_send_with_retries`ning `for attempt
+in range(TELEGRAM_SEND_ATTEMPTS)`ini vaqtincha `range(1)`ga (retry yo'q)
+qisqartirib, yangi `test_a_transient_failure_that_clears_up_still_
+succeeds` (birinchi ikki urinish 503, uchinchisi muvaffaqiyatli) aynan
+kutilgan tarzda (`assert 1 == 3`, action FAILED'da qolib) muvaffaqiyatsiz
+bo'lishini ko'rsatdim, keyin qaytarib yashil ekanini tasdiqladim. Ikkinchi
+yangi test — `test_a_sustained_transient_outage_still_ends_in_a_bounded_
+failed` — chegaraning haqiqatda CHEGARALANGAN ekanini (503 hech qachon
+tuzalmasa ham, aynan `TELEGRAM_SEND_ATTEMPTS`ta chaqiruvdan keyin
+terminal FAILED, cheksiz urinish emas) tasdiqlaydi. `test_telegram_
+client.py`ga to'rtta yangi unit test: 5xx/429/tarmoq xatosi transient
+ekanligini, va 400 (aniq rad etish) transient EMASLIGINI (`not
+isinstance(exc, TelegramTransientError)`) tekshiradi.
+
+**Ataylab qolgan bo'shliq (docstring'da ochiq)**: SUSTAINED outage
+(chegaralangan retry byudjetidan uzoqroq davom etsa) hamon terminal
+FAILED bilan tugaydi, bu fix'dan OLDINGI xulq bilan bir xil — action
+qayta so'ralishi kerak. To'liq circuit breaker va domain'ning
+FAILED->RETRYING->READY zanjiridan haqiqiy foydalanish (yuqoridagi
+bildirishnoma-spam muammosini ham hal qilgan holda) hamon ochiq,
+kelajakdagi ish — bu safar "kichik xavfsiz qadam" doirasida QOLDIRILDI,
+yolg'on "to'liq FR-ACT-005 qurildi" deb yozilmadi (shuning uchun
+yuqorida "qisman qurildi" deb aniq belgilandi).
+
+459 test (backend, 453 + 6 yangi: ikkita integration —
+`test_telegram_relay.py`, to'rtta unit — `test_telegram_client.py`),
+barchasi real Postgres+Redis'da; `ruff`/`mypy src/doda` toza.

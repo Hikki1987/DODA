@@ -43,6 +43,16 @@ this gap observable (an Action stuck in RUNNING past a threshold is
 reported, exit code 1) without attempting to resolve it — resolving it
 still needs the design decision above, not a monitoring script.
 
+FR-ACT-005 (Must, "Provider outage simulyatsiyasida ma'lumot yo'qolmaydi"):
+`_send_with_retries` retries a transient Telegram failure (network error,
+timeout, 429, 5xx — `telegram_client.TelegramTransientError`) with
+backoff before this relay gives up on it, so a short-lived outage no
+longer loses the message to an immediate, terminal FAILED. Deliberately
+scoped to in-process bounded retry only — see that function's own
+docstring for what a SUSTAINED outage still does (unchanged from before:
+terminal FAILED, no cross-cycle circuit breaker, no use of the domain's
+FAILED -> RETRYING -> READY chain).
+
 Honest limitation on THIS PR's own verification: no real Telegram bot
 token or chat is available in this environment, so the actual HTTP call
 to Telegram's API has not been exercised against the real service here
@@ -66,7 +76,12 @@ from doda.application.action_service import apply_transition
 from doda.config import get_settings
 from doda.db import tenant_scoped_session
 from doda.domain.action.models import Action, ActionStatus
-from doda.infrastructure.telegram_client import TelegramSendError, send_message
+from doda.infrastructure.telegram_client import (
+    TelegramSendError,
+    TelegramSendResult,
+    TelegramTransientError,
+    send_message,
+)
 
 logger = structlog.get_logger()
 
@@ -76,6 +91,10 @@ CONSUMER_NAME = "telegram-connector-1"
 TELEGRAM_TOOL_NAME = "telegram.send_message"
 DEFAULT_BLOCK_MS = 1000
 ACTOR_ID = "system:telegram_connector"
+
+# FR-ACT-005 (Must): "Provider outage simulyatsiyasida ma'lumot yo'qolmaydi".
+TELEGRAM_SEND_ATTEMPTS = 3
+TELEGRAM_RETRY_BACKOFF_BASE_SECONDS = 0.05
 
 
 async def ensure_consumer_group(redis: Redis) -> None:
@@ -120,6 +139,46 @@ async def _resolve(
         await apply_transition(session, action, target, actor_id=ACTOR_ID, receipt=receipt)
 
 
+async def _send_with_retries(
+    http_client: httpx.AsyncClient, *, bot_token: str, chat_id: str, text: str, action_id: uuid.UUID
+) -> TelegramSendResult:
+    """FR-ACT-005 (Must): "Provider outage simulyatsiyasida ma'lumot
+    yo'qolmaydi" — a short-lived provider outage (a transient network
+    error, timeout, 429, or 5xx — see telegram_client.TelegramTransientError)
+    must not immediately lose the action to a terminal FAILED. Retries up
+    to TELEGRAM_SEND_ATTEMPTS times with exponential backoff; a
+    non-retryable rejection (the base TelegramSendError, raised directly
+    rather than via the TelegramTransientError subclass) is NOT caught
+    here and propagates on the first attempt, exactly as before this fix.
+
+    Deliberately scoped: this is in-process, bounded retry only — it does
+    not implement a cross-cycle circuit breaker, and it does not use the
+    domain's FAILED -> RETRYING -> READY chain (state_machine.py). A
+    SUSTAINED outage beyond TELEGRAM_SEND_ATTEMPTS still ends in a
+    terminal FAILED, same as before this fix, requiring the action to be
+    re-proposed — that remains real, honestly-scoped future work (see the
+    module's own top-level docstring for the analogous "stuck RUNNING"
+    gap this does not close either).
+    """
+    last_exc: TelegramTransientError | None = None
+    for attempt in range(TELEGRAM_SEND_ATTEMPTS):
+        try:
+            return await send_message(http_client, bot_token=bot_token, chat_id=chat_id, text=text)
+        except TelegramTransientError as exc:
+            last_exc = exc
+            if attempt < TELEGRAM_SEND_ATTEMPTS - 1:
+                backoff = TELEGRAM_RETRY_BACKOFF_BASE_SECONDS * (2**attempt)
+                logger.info(
+                    "telegram_relay.retrying_after_transient_error",
+                    action_id=str(action_id),
+                    attempt=attempt + 1,
+                    backoff_seconds=backoff,
+                )
+                await asyncio.sleep(backoff)
+    assert last_exc is not None
+    raise last_exc
+
+
 async def process_entry(
     http_client: httpx.AsyncClient, *, fields: dict[bytes, bytes], bot_token: str | None
 ) -> None:
@@ -143,7 +202,9 @@ async def process_entry(
         return
 
     try:
-        result = await send_message(http_client, bot_token=bot_token, chat_id=chat_id, text=text)
+        result = await _send_with_retries(
+            http_client, bot_token=bot_token, chat_id=chat_id, text=text, action_id=action_id
+        )
     except TelegramSendError as exc:
         logger.warning("telegram_relay.send_failed", action_id=str(action_id), reason=str(exc))
         await _resolve(customer_id, action_id, ActionStatus.FAILED)

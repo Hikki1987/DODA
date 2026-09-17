@@ -15,7 +15,7 @@ tests/integration/test_telegram_relay.py for what IS verified end-to-end
 import httpx
 import pytest
 
-from doda.infrastructure.telegram_client import TelegramSendError, send_message
+from doda.infrastructure.telegram_client import TelegramSendError, TelegramTransientError, send_message
 
 
 async def test_successful_send_returns_the_message_id() -> None:
@@ -73,3 +73,51 @@ async def test_malformed_json_response_raises_telegram_send_error() -> None:
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     with pytest.raises(TelegramSendError):
         await send_message(client, bot_token="tok", chat_id="1", text="hi")
+
+
+# FR-ACT-005 (Must): "Provider outage simulyatsiyasida ma'lumot yo'qolmaydi" —
+# telegram_relay.py retries TelegramTransientError specifically, so the
+# client must actually distinguish it from a definitive, non-retryable
+# rejection.
+
+
+async def test_5xx_response_raises_a_transient_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"ok": False, "description": "Service Unavailable"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(TelegramTransientError):
+        await send_message(client, bot_token="tok", chat_id="1", text="hi")
+
+
+async def test_429_response_raises_a_transient_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={"ok": False, "description": "Too Many Requests"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(TelegramTransientError):
+        await send_message(client, bot_token="tok", chat_id="1", text="hi")
+
+
+async def test_a_network_error_is_a_transient_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(TelegramTransientError):
+        await send_message(client, bot_token="tok", chat_id="1", text="hi")
+
+
+async def test_a_definitive_rejection_is_not_a_transient_error() -> None:
+    """A permanent rejection (bad chat_id) must not be retried by
+    telegram_relay.py — it must raise the base TelegramSendError, not
+    the TelegramTransientError subclass."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"ok": False, "description": "chat not found"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(TelegramSendError) as exc_info:
+        await send_message(client, bot_token="tok", chat_id="missing", text="hi")
+
+    assert not isinstance(exc_info.value, TelegramTransientError)
