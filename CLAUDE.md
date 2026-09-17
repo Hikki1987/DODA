@@ -5021,3 +5021,36 @@ buzilishi keltirmadi) tasdiqlandi.
 immutability testi + ikkita resolution-precedence testi), barchasi
 real Postgres(+Redis)'da; `ruff`/`mypy` toza; frontend `tsc`/ESLint
 toza, production build muvaffaqiyatli; barcha 14 E2E spec yashil.
+
+**NFR-ISO-003 (AI kontekst izolyatsiyasi: "Prompt kontekstida boshqa
+workspace matni bo'lmaydi") — birinchi marta ijobiy tarzda, HTTP darajasida
+isbotlandi.** Bu ID traceability auditda "41 ta hech qayerda tilga
+olinmagan" ro'yxatiga kirgan edi. Kodni ko'rib chiqishda aniqlandi:
+`conversation_service._messages_to_history` faqat `list_messages(session,
+conversation_id=...)`dan quriladi, va `Message`ning o'zida `workspace_id`
+ustuni umuman yo'q — demak boshqa suhbatning qatori hech qanday so'rov
+yo'li orqali bitta turnning tarixiga kira olmaydi. Ya'ni bu talab
+QURILISH BO'YICHA allaqachon to'g'ri edi, lekin hech qachon ijobiy tarzda
+(pozitiv testda) isbotlanmagan edi.
+
+Mavjud FR-CONV-003 testi (`test_conversation_list_and_messages_do_not_
+leak_across_workspaces`) buni to'liq qamramaydi — u IKKI XIL customer
+ishlatadi, u yerda RLS'ning o'z `customer_id` filtri kontekst yig'ilishiga
+yetib borishdan OLDIN so'rovni bloklaydi. `test_cross_workspace_record_
+access.py` ochgan naqshning o'zi bu yerda ham qo'llanildi: yangi
+`tests/integration/test_ai_context_isolation.py` BIR XIL customer ostidagi
+IKKITA workspace'ni ishlatadi (RLS bunga yordam bermaydigan qat'iy holat)
+va HTTP javobiga emas, model gateway'ga haqiqatda YUBORILGAN `history`ning
+o'ziga qaraydi — ikkita ketma-ket turn orqali (A'ning maxfiy xabari
+yozilgandan KEYIN B'da ikkinchi turn ham) B workspace'iga hech qachon
+A'ning matni yetib bormasligini tasdiqlaydi.
+
+Audit-zanjiri uslubida isbotlandi: `list_messages`ning `conversation_id`
+filtrini vaqtincha olib tashlab (bitta customer'ning BARCHA xabarlarini
+qaytaradigan qilib), test aynan kutilgan tarzda — A'ning maxfiy matni
+B'ning gateway chaqiruviga aynan shu satr bilan sizib chiqib — muvaffaqiyatsiz
+bo'lishini ko'rsatdim, keyin filtrni qaytarib test qaytadan yashil ekanini
+tasdiqladim. Kod o'zgarmadi — sof pozitiv tekshiruv.
+
+433 test, barchasi real Postgres(+Redis)'da (99% qamrov, o'zgarishsiz);
+`ruff`/`mypy` toza.
