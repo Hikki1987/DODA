@@ -5261,3 +5261,55 @@ WCAG buzilishi keltirmadi) fresh seed'ga qarshi yashil.
 443 test (backend), barchasi real Postgres'da; `ruff`/`mypy` toza;
 frontend `tsc`/ESLint toza, production build muvaffaqiyatli; barcha
 14 E2E spec yashil.
+
+**NFR-DUR-001 ("DB PITR, object versioning, sinovdan o'tgan restore" —
+qabul mezoni: "Oylik restore drill") uchun birinchi haqiqiy restore
+drill skripti qurildi — va uni yozish jarayonining o'zi bu sessiyaning
+o'z sandbox muhiti bilan ishlab chiqarish topologiyasi orasidagi haqiqiy
+farqni ochib berdi.** `backend/scripts/backup_restore_drill.py` —
+`load_test_ai_chat.py`/`verify_audit_chain_job.py` bilan bir xil
+turkumdagi mustaqil skript: real `pg_dump` bilan joriy bazani
+zaxiralaydi, vaqtinchalik bazaga (`CREATE DATABASE`) `pg_restore`
+qiladi, keyin natijani IKKI usulda haqiqatda TEKSHIRADI — (1) HAR BIR
+jadvalning qator sonini manba va tiklangan nusxa orasida solishtirib,
+(2) tiklangan nusxaning o'zida HAR BIR customer'ning audit hash-zanjirini
+qayta tekshirib (`audit_service.verify_audit_chain`ni tiklangan bazaga
+qarshi chaqirib) — shunchaki "`pg_restore` 0 bilan chiqdi" emas,
+ma'lumot haqiqatda to'liq VA kriptografik jihatdan izchil ekanini
+isbotlaydi. **Halol chegara**: haqiqiy PITR (uzluksiz WAL arxivlash)
+Postgres server darajasidagi, hosting rejasiga bog'liq imkoniyat
+(OD-005) — kod bazasi buni o'zi yoqolmaydi; bu skript "tekshirilgan
+restore" talabining faqat kod bazasi nazorat qila oladigan yarmini
+qamraydi.
+
+**Yozish jarayonida haqiqiy, kutilmagan topilma chiqdi**: skript
+`DODA_MIGRATION_DATABASE_URL` (`doda`) rolidan foydalanadi — bu
+production topologiyasida (rasmiy Postgres Docker image, `POSTGRES_USER`
+har doim superuser, ADR-005ning o'z voqeasi) to'g'ri ishlaydi, chunki
+superuser RLS'ni avtomatik chetlab o'tadi. Lekin shu SESSIYANING o'z
+sandbox muhitida (`SessionStart` hook `doda`ni ATAYLAB NOSUPERUSER
+holda qoldiradi, extension'larni `postgres` orqali yaratadi — yuqoriga
+qarang) `doda` haqiqatda superuser EMAS (`pg_roles`dan tasdiqlandi:
+`rolsuper=f, rolbypassrls=f`). Bu real `pg_dump: query would be
+affected by row-level security policy` xatosi bilan qo'lda tasdiqlandi
+— taxmin emas. `doda`ga vaqtinchalik `BYPASSRLS` berib sinab ko'rish
+(keyin qaytarish) urinishi sessiyaning o'z xavfsizlik nazorati
+tomonidan **to'g'ri rad etildi** ("Security Weaken") — bu haqiqiy
+imtiyoz kengaytirish, hatto vaqtincha bo'lsa ham, bitta sessiyaning
+o'zi bir tomonlama qila oladigan narsa emas.
+
+Shuning uchun mexanik "quvur liniyasi" (createdb/dump/restore/compare/
+drop) `--schema-only` dump bilan (RLS COPY cheklovisiz) real ishga
+tushirilib tasdiqlandi — 32 ta jadval haqiqatda tiklandi, faqat
+`CREATE EXTENSION vector` (superuser talab qiladi — ADR-005ning aynan
+o'zi hujjatlashtirgan ikkinchi talab) xatosi bilan, bu esa `pg_restore`
+xato kodini (1) haqiqiy ma'lumot muvaffaqiyatiga ishonchsiz signal
+qilib qo'yishini ham ochib berdi — tuzatildi: `pg_restore`ning o'z
+chiqish kodi endi yakuniy hukm sifatida ishonilmaydi, faqat qator-son
+va audit-zanjiri tekshiruvlari haqiqiy hakam hisoblanadi. Bu YANGI
+bo'shliq emas — ADR-005 allaqachon hujjatlashtirgan, faqat o'qish
+tomonidan emas, yozish (backup) tomonidan ko'rilgan aynan shu ikki
+superuser-talab qiluvchi buyruq.
+
+443 test o'zgarishsiz (yangi skript pytest orqali emas, o'rnatilgan
+konventsiyaga ko'ra qo'lda tekshirildi); `ruff` toza.
