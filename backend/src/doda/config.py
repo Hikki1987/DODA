@@ -48,6 +48,21 @@ class Settings(BaseSettings):
             return "postgresql+asyncpg://" + value.removeprefix("postgresql://")
         return value
 
+    # NFR-PERF-003: measured (backend/scripts/load_test_ai_chat.py) that
+    # SQLAlchemy's own defaults (pool_size=5, max_overflow=10 — 15
+    # connections total per process) queue badly under concurrent chat
+    # load: 11x latency degradation at 10 concurrent sessions, ~51x at 50.
+    # Defaults here match SQLAlchemy's own so behavior is UNCHANGED until
+    # an operator explicitly raises them. Raising them safely requires
+    # knowing this deployment's own topology — Postgres's own
+    # max_connections (minus a few reserved for superuser) must stay
+    # above (app process count) x (db_pool_size + db_max_overflow) with
+    # headroom for the migration role/other clients, and that topology
+    # (how many app instances, which managed Postgres tier) is a hosting
+    # decision (OD-005), not something this codebase can pick on its own.
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+
     # SecretStr for the same reason as the two database URLs above: the
     # default here carries no password, but a managed/production Redis
     # (Redis Cloud, Upstash, ElastiCache with AUTH) commonly embeds one in

@@ -5091,3 +5091,85 @@ ko'rsatdim, keyin qaytarib yashil ekanini tasdiqladim.
 
 434 test, barchasi real Postgres(+Redis)'da (99% qamrov, o'zgarishsiz);
 `ruff`/`mypy` toza.
+
+**NFR-PERF-002/003 — "AI First meaningful output <8s P95" va "50 parallel
+chat sessiya degradatsiyasiz" — birinchi marta o'lchandi, NFR-PERF-001'ning
+o'zi ochgan xuddi shu uslub bilan: real, qaytariladigan o'lchov, CI gate
+emas, halol topilma bilan.** `backend/scripts/load_test_ai_chat.py` —
+`load_test_api.py`ning davomi, lekin muhim farq bilan: "50 parallel chat
+sessiya" ko'p-tenant SaaS'da real ma'noda 50 XIL customer bir vaqtda
+chatlashishi (har biri o'z `AIBudgetLedger` qulfiga ega), BITTA
+customer'ning budjet qulfini 50 marta bir vaqtda urishi emas (bu lock
+contention'ni o'lchagan bo'lardi, chat throughput'ni emas) — shuning
+uchun skript N ta mustaqil customer/workspace/user/session'ni to'g'ridan-
+to'g'ri DB orqali (`seed_e2e_demo.py`ning dev/test seam'i bilan bir xil)
+urug'lantiradi, keyin barcha N ta birinchi-turn xabarni bir vaqtda
+yuboradi va har birining SSE oqimidagi BIRINCHI baytgacha bo'lgan vaqtni
+o'lchaydi (NFR-PERF-002'ning "birinchi mazmunli chiqish"iga eng yaqin
+proksi).
+
+**Halol chegara, oldindan yozilgan**: bu muhitda haqiqiy AI provider
+kaliti yo'q, shuning uchun har bir turn `NullModelGateway`ni ishlatadi —
+tarmoq round-trip'isiz, in-process matn shakllantirish. Demak absolyut
+raqamlar haqiqiy provayder javob vaqtini EMAS, DODA'ning O'Z xarajatini
+(sessiya/authz rezolyutsiyasi, xabar saqlash, byudjet reserve/reconcile,
+SSE freymlash) o'lchaydi — bu aynan shu kod bazasi nazorat qila oladigan
+qism, va real provayder qo'shilganda uning ustiga qo'shiladigan qism.
+
+**Birinchi ishga tushirishda haqiqiy, sezilarli topilma chiqdi**: standart
+SQLAlchemy pool sozlamalari (`pool_size=5, max_overflow=10` — jarayon
+boshiga 15 ulanish) concurrent chat yuklamasi ostida jiddiy navbatga
+turishga olib keladi — 10 ta concurrent sessiyada 11x, 50 tasida ~51x
+latency degradatsiyasi (izolyatsiyalangan bazaviy ~23ms'dan concurrent
+P95 ~1156ms'gacha). Bu **taxmin emas, real Postgres'ga qarshi o'lchandi**.
+
+Gipotezani tasdiqlash uchun (audit-zanjiri uslubida, NFR-PERF-001'ning
+"pool_size gipotezasini tekshirib, keyin rad etish" tajribasi bilan bir
+xil intizom) `pool_size=50, max_overflow=50`ga vaqtincha ko'tarib ko'rdim
+— bu darhol Postgres'ning O'Z `max_connections=100`sini (skript o'zining
+alohida jarayoni + server jarayoni, ikkalasi ham katta pool bilan)
+tugatib, haqiqiy `asyncpg.exceptions.TooManyConnectionsError` bilan
+qulab tushdi. Bu muhim, real cheklovni ochib berdi: pool_size'ni
+o'ylab-o'ylanmasdan ko'tarish production'da HAM Postgres'ning umumiy
+ulanish limitidan (jarayonlar soni × pool_size, hosting darajasidagi
+qaror) osongina o'tib ketishi mumkin.
+
+Tuzatish shunga ko'ra ehtiyotkorlik bilan tanlandi: `db_pool_size`/
+`db_max_overflow` endi `Settings`ning haqiqiy, operator sozlay oladigan
+maydonlari (`config.py`) — standart qiymatlar SQLAlchemy'ning O'Z
+standartlari bilan **AYNAN bir xil** (5/10), shuning uchun hech qanday
+operator ularni o'zgartirmaguncha xatti-harakat o'ZGARMAYDI. `db.py`ning
+`engine`i endi `_build_engine(settings)` sof funksiyasi orqali quriladi
+(modul-darajasidagi singleton'ni buzmasdan, testlash uchun ajratilgan).
+To'g'ri qiymatni tanlash — jami jarayonlar soni × (pool_size+max_overflow)
+Postgres'ning `max_connections`idan (superuser uchun zaxiralangan joylar
+chegirilgan holda) past qolishi kerak — deployment topologiyasiga
+(nechta ilova instansi, qaysi managed Postgres reja) bog'liq, bu esa
+OD-005/hosting qaroriga tegishli — shuning uchun bu kod bazasi "to'g'ri"
+sonni o'zi tanlamaydi, faqat uni haqiqiy, hujjatlashtirilgan tarzda
+sozlanadigan qiladi.
+
+Audit-zanjiri uslubida isbotlandi (`tests/unit/test_db_pool_config.py`):
+`_build_engine`ning `pool_size`/`max_overflow` argumentlarini vaqtincha
+qattiq `5`/`10`ga bog'lab, "Settings'dan keladi" testi aynan kutilgan
+tarzda (`assert 5 == 23`) muvaffaqiyatsiz bo'lishini ko'rsatdim ("standart
+o'zgarishsiz qoladi" testi esa to'g'ri yashil qoldi — ikkalasi ham
+kutilganidek), keyin qaytarib ikkalasi ham yashil ekanini tasdiqladim.
+
+**Pool hajmini 30ga (moderate, xavfsiz) ko'tarib qayta o'lchash**
+degradatsiyani qisman yaxshiladi (~51x → ~29x), lekin TO'LIQ yo'q
+qilmadi — demak ulanish puli faqat BITTA omil, yagona sabab emas: har
+bir concurrent so'rov bir necha DB round-trip qiladi (sessiya-touch
+commit, byudjet reserve/reconcile, xabar insert'lari), bu esa ushbu
+sandbox'ning cheklangan CPU/DB o'tkazish qobiliyati bilan birlashib
+qoladi. **Ataylab tuzatilmadi**: qolgan degradatsiyani to'liq yopish —
+masalan, bitta turn uchun DB round-trip sonini kamaytirish — alohida,
+diqqat bilan o'ylab chiqilishi kerak bo'lgan arxitektura ishi (NFR-PERF-001
+audit-lock topilmasi bilan bir xil "o'lchadim, tushundim, ataylab
+chuqurroq tuzatmadim" qarori). Skript NFR-PERF-003 uchun bu muhitda
+halol **FAIL** deb xabar beradi — chegarani (3x) sun'iy ravishda
+yumshatib "yashil" qilib ko'rsatish qilinmadi.
+
+436 test, barchasi real Postgres(+Redis)'da (99% qamrov, o'zgarishsiz);
+`ruff`/`mypy` toza (yangi skript `mypy src`ning qamroviga kirmaydi,
+`load_test_api.py`/`verify_audit_chain_job.py` bilan bir xil konventsiya).

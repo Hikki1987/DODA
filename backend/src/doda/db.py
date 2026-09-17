@@ -11,13 +11,28 @@ from contextlib import asynccontextmanager
 from uuid import UUID
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-from doda.config import get_settings
+from doda.config import Settings, get_settings
+
+
+def _build_engine(settings: Settings) -> AsyncEngine:
+    """A pure function of `Settings` (rather than inlined at module scope)
+    so `tests/unit/test_db_pool_config.py` can construct an engine from
+    arbitrary pool-size settings and inspect it, without needing to
+    reload this module or touch the process-wide `engine` singleton
+    below."""
+    return create_async_engine(
+        settings.database_url.get_secret_value(),
+        pool_pre_ping=True,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+    )
+
 
 _settings = get_settings()
 
-engine = create_async_engine(_settings.database_url.get_secret_value(), pool_pre_ping=True)
+engine = _build_engine(_settings)
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
 
