@@ -38,6 +38,11 @@ class ActionOut(BaseModel):
     risk_level: RiskLevel
     status: ActionStatus
     payload: dict[str, Any]
+    preview: str
+    """FR-ACT-002: a human-readable dry-run description of what this
+    action will do (what/where/to whom/what change), shown for every
+    action regardless of risk_level — cheap to compute, and there's no
+    reason to withhold it below R3 (see `describe_action_preview`)."""
 
 
 class SubmitActionResponse(BaseModel):

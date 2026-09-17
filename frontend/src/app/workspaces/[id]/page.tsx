@@ -634,15 +634,16 @@ export default function WorkspacePage() {
         <h2 className="mb-3 text-lg font-semibold">Action&apos;lar</h2>
         <ul className="space-y-2">
           {actions?.map((action) => (
-            <li
-              key={action.id}
-              className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-sm"
-            >
-              <div className="flex flex-col">
-                <span>{action.tool_name}</span>
-                <span className="text-xs text-gray-500">risk: {action.risk_level}</span>
+            <li key={action.id} className="rounded-md border border-gray-200 px-3 py-2 text-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex flex-col">
+                  <span>{action.tool_name}</span>
+                  <span className="text-xs text-gray-500">risk: {action.risk_level}</span>
+                </div>
+                <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{action.status}</span>
               </div>
-              <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{action.status}</span>
+              {/* FR-ACT-002: dry-run preview shown for every action, R3+ included. */}
+              <p className="mt-1 text-xs text-gray-500">{action.preview}</p>
             </li>
           ))}
           {actions !== null && actions.length === 0 && (

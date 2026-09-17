@@ -5394,3 +5394,60 @@ keltirmadi) tasdiqlandi.
 447 test (backend), barchasi real Postgres'da; `ruff`/`mypy` toza;
 frontend `tsc`/ESLint toza, production build muvaffaqiyatli; barcha 14
 E2E spec yashil.
+
+**FR-ACT-002 (Dry-run action plan: "nima, qayerda, kimga, qanday
+o'zgarish" — "R3+ har bir action bajarilishdan oldin preview
+ko'rsatadi", Must) qurildi.** Bu ID `docs/risk-register.md`ning RISK-002/
+RISK-007 qatorlarida bir necha marta "hech qanday dedicated
+implementation yo'q" deb qayd etilgan edi — `propose_action`ning javobi
+allaqachon xom `payload` dict'ini qaytarardi, lekin bu FR-ACT-002ning
+o'z talab qilgan narsasi emas: "preview" — inson o'qiy oladigan, "bu
+action nima qiladi" degan aniq gap, xom JSON emas.
+
+`domain/action/tool_policy.py`ga `TOOL_MINIMUM_RISK_LEVEL`bilan bir xil
+registratsiya intizomi bilan `TOOL_PREVIEW_DESCRIBERS` (hozircha faqat
+`telegram.send_message` uchun — "Telegram orqali chat <id>ga xabar
+yuboradi: '<matn>'") va `describe_action_preview(tool_name, payload)`
+qo'shildi. Ro'yxatga OLINMAGAN tool uchun (bugungi kunda ko'pchilik,
+haqiqiy connector'lar hali yo'qligi sababli) generik, lekin halol
+fallback qaytariladi — tool nomi + xom payload, hech narsa yashirilmaydi,
+faqat chiroyli qilib formatlanmaydi. `ActionOut`ga yangi `preview: str`
+maydoni qo'shildi — barcha risk darajalarida (faqat R3+ emas, chunki
+hisoblash arzon va pastroq darajalarni yashirish uchun sabab yo'q),
+`propose`/`get`/`list`/`consume-approval` javoblarining barchasida bitta
+`_to_action_out` orqali.
+
+Testlar audit-zanjiri uslubida isbotlandi, va bu jarayonning o'zi
+**haqiqiy, bo'sh (vacuous) test xatosini** ochib berdi: birinchi versiya
+`assert "555" in preview`/`assert "Deploy tugadi" in preview` kabi
+substring tekshiruvlarini ishlatgan edi — lekin registratsiya
+qatorini vaqtincha o'chirib (`describer = None`) revert-test-restore
+qilishga urinishda, TESTLAR HAMON YASHIL qoldi. Sabab: generik
+fallback'ning o'zi ham xom payload dict'ini formatlab chiqaradi
+(`{'chat_id': '555', 'text': 'Deploy tugadi'}`), demak "555" va "Deploy
+tugadi" satrlari FALLBACK matnida ham tabiiy ravishda bor edi —
+substring tekshiruvi ro'yxatga olingan describer chaqirilganini
+UMUMAN isbotlamas edi. Ikkala test ham (`test_tool_policy.py`,
+`test_actions_api.py`) aniq, to'liq kutilgan matnga (`==`) tekshirishga
+o'tkazildi — endi describer'ni o'chirish testni aynan kutilgan tarzda
+qizartiradi (tasdiqlangan), qaytarilgach yashil.
+
+Frontend: workspace sahifasining Actions bo'limiga har bir action
+qatoriga preview matni qo'shildi (mavjud tool_name/risk/status'ning
+ostida, kichik kulrang matn). Bu ham xuddi shu strict-mode noaniqlik
+sinfini yana bir marta ushladi: seed qilingan `send_email` action'i
+uchun preview matni ("'send_email' tool'i uchun...") tool nomining o'z
+matnini SUBSTRING sifatida o'z ichiga oladi, demak mavjud
+`workspace.spec.ts`ning `page.getByText("send_email")` (non-exact) endi
+IKKITA elementga (tool-name span va preview paragraph) mos keladi —
+haqiqiy CI/mahalliy ishga tushirishda ushlandi, `{exact: true}` bilan
+tuzatildi.
+
+Real backend+production frontend'ga qarshi (barcha 14 E2E spec,
+jumladan accessibility skaneri — yangi preview matni hech qanday WCAG
+buzilishi keltirmadi) tasdiqlandi.
+
+451 test (backend, 447 + 4 yangi: ikkita unit — `test_tool_policy.py`,
+ikkita integration — `test_actions_api.py`), barchasi real Postgres'da;
+`ruff`/`mypy` toza; frontend `tsc`/ESLint toza, production build
+muvaffaqiyatli; barcha 14 E2E spec yashil.

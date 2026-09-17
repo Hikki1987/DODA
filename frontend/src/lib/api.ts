@@ -300,6 +300,7 @@ export interface ActionOut {
   risk_level: string;
   status: ActionStatus;
   payload: Record<string, unknown>;
+  preview: string;
 }
 
 export function listActions(sessionId: string, workspaceId: string): Promise<ActionOut[]> {

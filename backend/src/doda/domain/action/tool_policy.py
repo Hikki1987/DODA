@@ -24,6 +24,9 @@ Add an entry here only once a tool is backed by a real connector and its
 minimum risk has actually been reviewed — never speculatively.
 """
 
+from collections.abc import Callable
+from typing import Any
+
 from doda.domain.action.models import RiskLevel
 
 _RISK_ORDER: dict[RiskLevel, int] = {level: index for index, level in enumerate(RiskLevel)}
@@ -46,3 +49,34 @@ def enforce_minimum_risk_level(tool_name: str, requested: RiskLevel) -> RiskLeve
     if minimum is None:
         return requested
     return requested if _RISK_ORDER[requested] >= _RISK_ORDER[minimum] else minimum
+
+
+def _describe_telegram_send_message(payload: dict[str, Any]) -> str:
+    chat_id = payload.get("chat_id", "?")
+    text = payload.get("text", "")
+    return f"Telegram orqali chat {chat_id}ga xabar yuboradi: “{text}”"
+
+
+# FR-ACT-002 (dry-run preview, Must): "nima, qayerda, kimga, qanday
+# o'zgarish" (what, where, to whom, what change) for one registered tool,
+# in a human-readable sentence — the same registration discipline as
+# TOOL_MINIMUM_RISK_LEVEL above (only real, connector-backed tools get an
+# entry; nothing speculative). An unregistered tool_name still gets a
+# preview (describe_action_preview never raises), just not a tailored
+# one — see its own fallback below.
+TOOL_PREVIEW_DESCRIBERS: dict[str, Callable[[dict[str, Any]], str]] = {
+    "telegram.send_message": _describe_telegram_send_message,
+}
+
+
+def describe_action_preview(tool_name: str, payload: dict[str, Any]) -> str:
+    """A human-readable dry-run preview of what proposing this action will
+    actually do, shown to the caller before an R3+ action is approved and
+    executed. Falls back to a generic, honest description (naming the
+    tool and its raw payload) for any tool_name with no registered
+    describer — this must never hide what a caller doesn't recognize,
+    only phrase what it does recognize more helpfully."""
+    describer = TOOL_PREVIEW_DESCRIBERS.get(tool_name)
+    if describer is not None:
+        return describer(payload)
+    return f"'{tool_name}' tool'i uchun tayyor preview yo'q — xom payload: {payload}"

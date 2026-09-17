@@ -625,3 +625,54 @@ async def test_a_different_members_idempotency_key_replay_never_discloses_the_or
     # ... but a different, non-proposing actor must never receive its nonce.
     assert replay_body["approval"] is None
     assert original_nonce not in replay.text
+
+
+# FR-ACT-002 (dry-run preview, Must): "R3+ har bir action bajarilishdan
+# oldin preview ko'rsatadi" — the propose response (and every later
+# fetch of the same action) must include a human-readable preview.
+
+
+async def test_registered_tools_action_response_includes_a_readable_preview(
+    client: AsyncClient, db_available: bool
+) -> None:
+    member = await seed_workspace_member(auth_strength=AuthStrength.AAL2)
+
+    submit = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/actions",
+        json={
+            "tool_name": "telegram.send_message",
+            "risk_level": "R3",
+            "payload": {"chat_id": "555", "text": "Deploy tugadi"},
+        },
+        headers=_auth_headers(member.session_id, "e2e-preview-1"),
+    )
+    body = submit.json()
+    assert body["action"]["status"] == "AWAITING_APPROVAL"
+    preview = body["action"]["preview"]
+    # Assert the registered describer's own phrasing — a raw-payload-dump
+    # fallback would ALSO contain "555"/"Deploy tugadi" (they're just the
+    # dict's own values), which would make a substring-only assertion
+    # pass even if the tailored describer were never actually invoked.
+    assert preview == "Telegram orqali chat 555ga xabar yuboradi: “Deploy tugadi”"
+
+    # A later GET of the same action must show the identical preview —
+    # this isn't a propose-time-only artifact.
+    fetched = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/actions/{body['action']['id']}",
+        headers=_auth_headers(member.session_id),
+    )
+    assert fetched.json()["preview"] == preview
+
+
+async def test_unregistered_tools_action_response_still_includes_a_preview(
+    client: AsyncClient, db_available: bool
+) -> None:
+    member = await seed_workspace_member()
+
+    submit = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/actions",
+        json={"tool_name": "knowledge.read", "risk_level": "R1", "payload": {"query": "hi"}},
+        headers=_auth_headers(member.session_id, "e2e-preview-2"),
+    )
+    preview = submit.json()["action"]["preview"]
+    assert "knowledge.read" in preview

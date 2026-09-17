@@ -4,7 +4,11 @@ tool that has a registered minimum. Pure domain logic, no DB needed.
 """
 
 from doda.domain.action.models import RiskLevel
-from doda.domain.action.tool_policy import TOOL_MINIMUM_RISK_LEVEL, enforce_minimum_risk_level
+from doda.domain.action.tool_policy import (
+    TOOL_MINIMUM_RISK_LEVEL,
+    describe_action_preview,
+    enforce_minimum_risk_level,
+)
 
 
 def test_registered_tool_below_minimum_is_raised_to_the_minimum() -> None:
@@ -31,3 +35,24 @@ def test_telegram_send_message_is_registered_at_r3() -> None:
     # Pins the actual policy decision (OD-002), not just the mechanism —
     # a change to this value should be a conscious, reviewed edit.
     assert TOOL_MINIMUM_RISK_LEVEL["telegram.send_message"] is RiskLevel.R3
+
+
+# FR-ACT-002 (dry-run preview): "nima, qayerda, kimga, qanday o'zgarish".
+
+
+def test_registered_tools_preview_names_the_recipient_and_the_content() -> None:
+    preview = describe_action_preview(
+        "telegram.send_message", {"chat_id": "12345", "text": "Salom, bugungi hisobot tayyor"}
+    )
+    # Assert the registered, tailored phrasing itself — not just that the
+    # recipient/content substrings appear, since the generic fallback's
+    # raw-payload dump would ALSO contain those same substrings (a dict
+    # repr of {"chat_id": "12345", ...} trivially includes "12345") and
+    # would make this test pass even if the registered describer were
+    # never actually called.
+    assert preview == 'Telegram orqali chat 12345ga xabar yuboradi: “Salom, bugungi hisobot tayyor”'
+
+
+def test_unregistered_tools_preview_names_the_tool_and_shows_the_raw_payload() -> None:
+    preview = describe_action_preview("some.future.tool", {"foo": "bar"})
+    assert preview == "'some.future.tool' tool'i uchun tayyor preview yo'q — xom payload: {'foo': 'bar'}"

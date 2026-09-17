@@ -62,7 +62,13 @@ test("login, workspace, task, notification, action, audit flow", async ({ page }
   });
 
   await test.step("actions section shows the seeded send_email action", async () => {
-    await expect(page.getByText("send_email")).toBeVisible();
+    // exact: true — FR-ACT-002's own dry-run preview for this
+    // unregistered tool ("'send_email' tool'i uchun...") contains the
+    // substring "send_email" too, so a non-exact getByText now matches
+    // both the tool-name span and the preview paragraph (strict-mode
+    // violation) — the same ambiguity class documented elsewhere in this
+    // codebase, this time from the preview text itself.
+    await expect(page.getByText("send_email", { exact: true })).toBeVisible();
     await expect(page.getByText("risk: R3")).toBeVisible();
     // exact: true — "AWAITING_APPROVAL" (the status badge) is otherwise a
     // case-insensitive substring match of the audit section's own

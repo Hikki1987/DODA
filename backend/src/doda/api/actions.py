@@ -26,6 +26,7 @@ from doda.application.action_service import (
 from doda.application.authz_service import authorize_consume_approval, authorize_propose_action
 from doda.domain.action.approval import Approval
 from doda.domain.action.models import Action, ActionStatus
+from doda.domain.action.tool_policy import describe_action_preview
 
 router = APIRouter(tags=["actions"])
 
@@ -39,6 +40,7 @@ def _to_action_out(action: Action) -> ActionOut:
         risk_level=action.risk_level,
         status=action.status,
         payload=action.payload,
+        preview=describe_action_preview(action.tool_name, action.payload),
     )
 
 
