@@ -5708,3 +5708,54 @@ taxmin qilinmagan.
 integration — read-timeout-not-retried; ikkita mavjud test 5xx'dan
 ConnectError'ga o'tkazildi, sof tuzatish), barchasi real Postgres+Redis'da;
 `ruff`/`mypy src/doda` toza.
+
+**FR-ACT-005 tuzatishidan keyin UC-004'ning o'z "NEGATIV STSENARIYLAR —
+MAJBURIY TESTLAR" jadvalidagi qolgan to'rtta stsenariy ham qayta
+tekshirildi** (real bo'shliq topilishidan keyin "boshqalari ham to'g'rimi"
+deb tekshirish tabiiy ehtiyot chorasi edi): "Approval eskirgan" —
+`test_expired_approval_is_rejected_and_action_moves_to_expired` ✓;
+"payload approvaldan keyin o'zgargan" — `test_approval_rejected_if_
+payload_changed_after_approval_requested` ✓; "bir xil approval ikki
+marta ishlatilgan" — `test_a_consumed_approval_cannot_be_consumed_
+again_over_http` ✓; "step-up bekor qilingan" —
+`test_high_risk_action_requires_step_up_before_approval_consumption` ✓
+(AAL1 bilan consume urinishi `STEP_UP_REQUIRED`). Barcha beshtasi
+(to'rttasi + yangi tuzatilgan "provider timeout" stsenariysi) endi
+haqiqatda alohida test bilan qoplangan — hech qanday yangi kod
+o'zgarmadi, sof tekshiruv.
+
+**NFR-OBS-001ning o'z "Tekshiruv" ustuni — "Trace completeness job" —
+hech qachon qurilmagan edi.** Mavjud testlar faqat BITTA action/bitta
+so'rov darajasida trace-korrelyatsiyani tekshiradi (`test_action_trace_
+id_matches_the_http_requests_own_trace_id` — yozish yarmi;
+`test_audit_api.py`ning `trace_id` filtri — o'qish yarmi), lekin
+"100%" degan da'voni HAQIQIY, to'plangan ma'lumot ustida hech narsa
+tasdiqlamagan edi. Bu invariant (har bir action'ga tegishli audit
+yozuvi O'SHA action'ning o'z trace_id'sini olib yurishi) sxema darajasida
+ham majburlanmagan — `trace_id` ikkala jadvalda ham mustaqil, oddiy
+NOT NULL ustun, ular orasida FK-o'xshash constraint yo'q; bu sof
+application-darajasidagi intizom (`record_audit_event`ga har doim
+`action.trace_id` uzatilishi kerak) — aynan shu intizomning bir marta
+buzilgani (`propose_and_submit_action`ning o'z bog'liqsiz `uuid4()`si)
+yuqorida ("NFR-OBS-001'ning o'zagi... haqiqatda 0% edi") allaqachon
+hujjatlashtirilgan real xato edi.
+
+`backend/scripts/verify_trace_completeness_job.py` —
+`verify_audit_chain_job.py`/`find_stuck_running_actions.py` bilan bir
+xil turkumdagi mustaqil skript (`UserCustomerIndex` orqali customer'larni
+topib, har birining HAR BIR action'i uchun unga `safe_metadata["action_
+id"]` orqali bog'langan HAR BIR audit yozuvining `trace_id`si action'ning
+o'z `trace_id`siga teng ekanini tekshiradi, mos kelmasa stderr + exit
+code 1). Boshqa mustaqil skriptlar kabi pytest orqali emas, qo'lda
+tekshirildi (o'rnatilgan konventsiya): (1) shu sessiya davomida yig'ilgan
+haqiqiy ~13625 ta customer'ning barchasiga qarshi ishga tushirilib,
+0 ta nomuvofiqlik topildi ("trace completeness OK"); (2) `record_audit_
+event`ni chetlab o'tib, to'g'ridan-to'g'ri soxta (noto'g'ri trace_id
+bilan) audit yozuvi qo'shadigan qo'lda yozilgan repro skript bilan —
+`test_audit_chain_verification.py`ning tamper-vektori naqshining
+o'zi — tekshiruv funksiyasi ANIQ shu nomuvofiqlikni (customer/action/
+kutilgan va haqiqiy trace_id) ko'rsatishi tasdiqlandi, ya'ni skript
+haqiqatan chinakam narsani ushlaydi, vacuous emas.
+
+Kod o'zgarmadi (yangi mustaqil skript qo'shildi) — 462 test o'zgarishsiz,
+`ruff`/`mypy src/doda` toza.
