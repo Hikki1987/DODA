@@ -50,7 +50,7 @@ def test_registered_tools_preview_names_the_recipient_and_the_content() -> None:
     # repr of {"chat_id": "12345", ...} trivially includes "12345") and
     # would make this test pass even if the registered describer were
     # never actually called.
-    assert preview == 'Telegram orqali chat 12345ga xabar yuboradi: “Salom, bugungi hisobot tayyor”'
+    assert preview == "Telegram orqali chat 12345ga xabar yuboradi: “Salom, bugungi hisobot tayyor”"
 
 
 def test_unregistered_tools_preview_names_the_tool_and_shows_the_raw_payload() -> None:
