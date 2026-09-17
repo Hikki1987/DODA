@@ -57,6 +57,7 @@ ALLOWED_SAFE_METADATA_KEYS = {
     "language",
     "exported_trace_id",
     "event_count",
+    "provider_receipt",
 }
 
 

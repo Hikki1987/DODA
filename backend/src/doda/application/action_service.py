@@ -32,6 +32,15 @@ class ApprovalInvalidError(Exception):
     """Raised when an approval cannot be consumed as-is (9.2 invariants)."""
 
 
+class MissingProviderReceiptError(Exception):
+    """FR-ACT-007: raised when a caller tries to transition an Action to
+    SUCCEEDED without supplying a provider receipt (apply_transition)."""
+
+    def __init__(self, action_id: uuid.UUID) -> None:
+        self.action_id = action_id
+        super().__init__(f"cannot mark action {action_id} SUCCEEDED without a provider receipt (FR-ACT-007)")
+
+
 async def propose_action(
     session: AsyncSession,
     *,
@@ -109,7 +118,12 @@ async def propose_action(
 
 
 async def apply_transition(
-    session: AsyncSession, action: Action, target: ActionStatus, *, actor_id: str
+    session: AsyncSession,
+    action: Action,
+    target: ActionStatus,
+    *,
+    actor_id: str,
+    receipt: dict[str, Any] | None = None,
 ) -> Action:
     """Validate+apply a state transition and audit it either way (4.2).
 
@@ -128,7 +142,19 @@ async def apply_transition(
     action and fails transition()'s own state-machine check, raising and
     rolling back that entire transaction — including its in-memory
     `approval.status = APPROVED` write, which never commits.
+
+    FR-ACT-007 (Must): "Receipt'siz 'SUCCEEDED' holati yozilmaydi" — a
+    caller transitioning to SUCCEEDED must supply `receipt`, a small
+    dict describing what the external provider actually confirmed (e.g.
+    Telegram's own message_id). Enforced here, the single chokepoint,
+    rather than trusted to each connector — a worker that "forgot" to
+    pass one gets a raised MissingProviderReceiptError instead of a
+    silently unverified success. The receipt is recorded on the audit
+    event for this transition (`provider_receipt` in safe_metadata), not
+    just accepted and discarded.
     """
+    if target is ActionStatus.SUCCEEDED and receipt is None:
+        raise MissingProviderReceiptError(action.id)
     await session.execute(
         select(Action)
         .where(Action.id == action.id)
@@ -157,7 +183,12 @@ async def apply_transition(
         trace_id=action.trace_id,
         actor_id=actor_id,
         event_type=f"action.{target.value.lower()}.v1",
-        safe_metadata={"action_id": str(action.id), "from": previous.value, "to": target.value},
+        safe_metadata={
+            "action_id": str(action.id),
+            "from": previous.value,
+            "to": target.value,
+            "provider_receipt": receipt,
+        },
     )
 
     # FR-NTF-002: two of the four required notification types are action

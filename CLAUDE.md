@@ -5451,3 +5451,74 @@ buzilishi keltirmadi) tasdiqlandi.
 ikkita integration — `test_actions_api.py`), barchasi real Postgres'da;
 `ruff`/`mypy` toza; frontend `tsc`/ESLint toza, production build
 muvaffaqiyatli; barcha 14 E2E spec yashil.
+
+**FR-ACT-007 (Provider-receipt confirmation: "Har bir action Provider'dan
+qaytgan tasdiqlash (masalan xabar ID) bilan yakunlanadi" — "Receipt'siz
+'SUCCEEDED' holati yozilmaydi", Must) qurildi.** Bu ID
+`docs/risk-register.md`/traceability auditda "41 ta hech qayerda tilga
+olinmagan" ro'yxatida edi. Tekshirilganda aniqlandi: kerakli ma'lumot
+(`TelegramSendResult.message_id` — Telegram Bot API'ning o'z yuborish
+tasdig'i) `infrastructure/telegram_client.py`da ALLAQACHON bor edi, lekin
+`telegram_relay.py`ning `process_entry`i uni jimgina tashlab yuborardi —
+`send_message(...)`ning natijasini hech qanday o'zgaruvchiga saqlamasdan,
+`await send_message(...)` sifatida chaqirib qo'ya qolardi. Ya'ni
+SUCCEEDED holatiga o'tish "hech qanday xato ko'tarilmadi" degan zaif
+signaldan boshqa hech narsaga tayanmasdi — aynan FR-ACT-007ning o'zi
+taqiqlagan holat.
+
+Majburlash markazlashtirilgan joyda qilindi: `application/action_
+service.py`ning `apply_transition` — har bir Action o'tishining yagona
+umumiy chokepoint'i (concurrency tuzatishlarining o'zi ham shu yerda
+qulflangan) — endi ixtiyoriy `receipt: dict[str, Any] | None = None`
+parametrini qabul qiladi va state-machine tekshiruvidan OLDIN aniq
+tekshiradi: agar `target is ActionStatus.SUCCEEDED and receipt is None`,
+yangi `MissingProviderReceiptError` ko'taradi — qulflashgacha ham
+yetib bormaydi, chunki bu chaqiruvchining dasturlash xatosi, race emas.
+Bitta joyda hal qilingani uchun kelajakda qo'shiladigan HAR QANDAY yangi
+connector ham avtomatik shu talabga bo'ysunadi — har bir relay o'zi
+alohida eslab qolishi shart emas. Receipt `record_audit_event`ning
+`safe_metadata`siga `"provider_receipt"` kaliti bilan yoziladi (
+`test_audit_redaction.py`ning `ALLOWED_SAFE_METADATA_KEYS`iga qo'shildi)
+— demak `action.succeeded.v1` audit yozuvining o'zi endi receipt'ning
+doimiy, tekshiriladigan yozuvi.
+
+`telegram_relay.py`ning `process_entry`i endi `send_message(...)`ning
+natijasini (`TelegramSendResult`) saqlaydi va SUCCEEDED'ga o'tishda
+`receipt={"message_id": result.message_id}`ni uzatadi.
+
+Audit-zanjiri uslubida ikki tomondan isbotlandi
+(`test_action_lifecycle.py`): (1)
+`test_succeeded_without_a_receipt_is_rejected` — receipt'siz SUCCEEDED
+urinishi `MissingProviderReceiptError` bilan rad etilishini VA action
+holati RUNNING'da qolishini (yarim bajarilgan holatda qolib
+ketmasligini) tasdiqlaydi; (2)
+`test_succeeded_with_a_receipt_records_it_on_the_audit_event` — receipt
+bilan chaqiruv muvaffaqiyatli bo'lishini VA audit yozuvining
+`safe_metadata["provider_receipt"]`i aynan uzatilgan qiymatga teng
+ekanini tekshiradi. Ikkalasi ham `tool_name="knowledge.read"` (ro'yxatga
+olinmagan, R0'da qoladigan tool) ishlatadi — `telegram.send_message`ni
+ishlatish xato bo'lar edi, chunki u `TOOL_MINIMUM_RISK_LEVEL` orqali R3'ga
+ko'tariladi va AWAITING_APPROVAL'ga (READY'ga emas) yo'naltiradi; bu
+birinchi qoralamada aniqlanib, testni yozishdan OLDIN tuzatildi.
+
+`test_telegram_relay.py`ning mavjud
+`test_ready_telegram_action_is_driven_to_succeeded` testiga yangi
+assertion qo'shildi — bu haqiqiy, to'liq connector pipeline'i (outbox →
+Redis Stream → consumer → DB) orqali `action.succeeded.v1` audit
+yozuvining `safe_metadata["provider_receipt"]`i aynan
+`{"message_id": 1}` (test double'ning soxta Telegram javobi) ekanini
+real Postgres+Redis'ga qarshi tasdiqlaydi — bu faqat servis darajasidagi
+funksiyani emas, HAQIQIY relay worker yo'lini qamraydi.
+
+**Ataylab qolgan bo'shliq (modulning o'z docstring'ida ochiq yozilgan,
+bu safar ham yopilmadi)**: muvaffaqiyatli Telegram chaqiruvi bilan
+SUCCEEDED commit'i orasidagi qulash hamon Action'ni RUNNING holatida
+qotirib qo'yishi mumkin (`find_stuck_running_actions.py` buni
+KO'RSATADI, YECHMAYDI) — receipt talabi bu muammoni yopmaydi, faqat
+"receipt'siz hech qachon SUCCEEDED deb yozilmasin" invariantini
+ta'minlaydi, "hech qachon qotib qolmasin" emas. Bu ikkinchisi alohida,
+Telegram Bot API'ning o'zida so'rov darajasidagi idempotency key
+yo'qligi sababli chuqurroq arxitektura ishi.
+
+453 test (backend, 451 + 2 yangi: `test_action_lifecycle.py`), barchasi
+real Postgres+Redis'da; `ruff`/`mypy src/doda` toza.

@@ -12,6 +12,8 @@ from sqlalchemy import select
 
 from doda.application.action_service import (
     ApprovalInvalidError,
+    MissingProviderReceiptError,
+    apply_transition,
     consume_approval,
     propose_action,
     request_approval,
@@ -20,6 +22,7 @@ from doda.application.action_service import (
 from doda.application.hashing import hash_payload
 from doda.domain.action.approval import ApprovalStatus
 from doda.domain.action.models import Action, ActionStatus, RiskLevel
+from doda.domain.audit.models import AuditEvent
 from doda.domain.base import utcnow
 from doda.domain.outbox.models import OutboxMessage
 
@@ -255,3 +258,59 @@ async def test_duplicate_idempotency_key_returns_same_action_not_a_new_one(
         .all()
     )
     assert len(rows) == 1
+
+
+# FR-ACT-007 (Must): "Receipt'siz 'SUCCEEDED' holati yozilmaydi".
+
+
+async def _running_action(tenant_session) -> tuple[uuid.UUID, object, Action]:
+    customer_id, session = tenant_session
+    workspace_id, trace_id = uuid.uuid4(), uuid.uuid4()
+    action, _ = await propose_action(
+        session,
+        customer_id=customer_id,
+        workspace_id=workspace_id,
+        trace_id=trace_id,
+        actor_id="user:alice",
+        tool_name="knowledge.read",
+        risk_level=RiskLevel.R0,
+        payload={"query": "hi"},
+        idempotency_key="idem-receipt-1",
+    )
+    await validate_action(session, action, actor_id="user:alice")
+    assert action.status is ActionStatus.READY
+    await apply_transition(session, action, ActionStatus.RUNNING, actor_id="worker:test")
+    return customer_id, session, action
+
+
+async def test_succeeded_without_a_receipt_is_rejected(tenant_session) -> None:
+    _, session, action = await _running_action(tenant_session)
+
+    with pytest.raises(MissingProviderReceiptError):
+        await apply_transition(session, action, ActionStatus.SUCCEEDED, actor_id="worker:test")
+
+    # The rejected attempt must not have silently applied the transition.
+    assert action.status is ActionStatus.RUNNING
+
+
+async def test_succeeded_with_a_receipt_records_it_on_the_audit_event(tenant_session) -> None:
+    customer_id, session, action = await _running_action(tenant_session)
+
+    await apply_transition(
+        session,
+        action,
+        ActionStatus.SUCCEEDED,
+        actor_id="worker:test",
+        receipt={"message_id": 42},
+    )
+    assert action.status is ActionStatus.SUCCEEDED
+
+    event = (
+        await session.execute(
+            select(AuditEvent).where(
+                AuditEvent.customer_id == customer_id,
+                AuditEvent.event_type == "action.succeeded.v1",
+            )
+        )
+    ).scalar_one()
+    assert event.safe_metadata["provider_receipt"] == {"message_id": 42}

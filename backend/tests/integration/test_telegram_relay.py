@@ -19,6 +19,7 @@ import httpx
 import pytest
 from redis.asyncio import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
+from sqlalchemy import select
 
 from doda.application.action_service import (
     consume_approval,
@@ -29,6 +30,7 @@ from doda.application.action_service import (
 from doda.config import get_settings
 from doda.db import tenant_scoped_session
 from doda.domain.action.models import Action, ActionStatus, RiskLevel
+from doda.domain.audit.models import AuditEvent
 from doda.infrastructure.outbox_relay import relay_once as outbox_relay_once
 from doda.infrastructure.telegram_relay import (
     CONSUMER_GROUP,
@@ -98,6 +100,16 @@ async def _get_action(customer_id: uuid.UUID, action_id: uuid.UUID) -> Action:
         return action
 
 
+async def _get_succeeded_audit_event(customer_id: uuid.UUID) -> AuditEvent:
+    # customer_id is a fresh uuid4 per seeded test (see
+    # _seed_ready_telegram_action), and tenant_scoped_session's RLS scopes
+    # this query to it — exactly one action, exactly one SUCCEEDED event.
+    async with tenant_scoped_session(customer_id) as session:
+        return (
+            await session.execute(select(AuditEvent).where(AuditEvent.event_type == "action.succeeded.v1"))
+        ).scalar_one()
+
+
 async def _drain_until_resolved(
     redis: Redis,
     http_client: httpx.AsyncClient,
@@ -141,6 +153,11 @@ async def test_ready_telegram_action_is_driven_to_succeeded(db_available: bool, 
             action_id=action_id,
         )
     assert action.status is ActionStatus.SUCCEEDED
+
+    # FR-ACT-007: the SUCCEEDED transition must carry Telegram's own
+    # message_id as its receipt, not just "no exception was raised".
+    event = await _get_succeeded_audit_event(customer_id)
+    assert event.safe_metadata["provider_receipt"] == {"message_id": 1}
 
 
 async def test_telegram_api_failure_drives_action_to_failed(db_available: bool, redis_client: Redis) -> None:

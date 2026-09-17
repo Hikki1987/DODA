@@ -56,7 +56,7 @@ covered.
 import asyncio
 import signal
 import uuid
-from typing import cast
+from typing import Any, cast
 
 import httpx
 import structlog
@@ -107,11 +107,17 @@ async def _drive_to_running(customer_id: uuid.UUID, action_id: uuid.UUID) -> Act
         return action
 
 
-async def _resolve(customer_id: uuid.UUID, action_id: uuid.UUID, target: ActionStatus) -> None:
+async def _resolve(
+    customer_id: uuid.UUID,
+    action_id: uuid.UUID,
+    target: ActionStatus,
+    *,
+    receipt: dict[str, Any] | None = None,
+) -> None:
     async with tenant_scoped_session(customer_id) as session:
         action = await session.get(Action, action_id)
         assert action is not None  # we just committed it into existence above
-        await apply_transition(session, action, target, actor_id=ACTOR_ID)
+        await apply_transition(session, action, target, actor_id=ACTOR_ID, receipt=receipt)
 
 
 async def process_entry(
@@ -137,13 +143,15 @@ async def process_entry(
         return
 
     try:
-        await send_message(http_client, bot_token=bot_token, chat_id=chat_id, text=text)
+        result = await send_message(http_client, bot_token=bot_token, chat_id=chat_id, text=text)
     except TelegramSendError as exc:
         logger.warning("telegram_relay.send_failed", action_id=str(action_id), reason=str(exc))
         await _resolve(customer_id, action_id, ActionStatus.FAILED)
         return
 
-    await _resolve(customer_id, action_id, ActionStatus.SUCCEEDED)
+    # FR-ACT-007: SUCCEEDED must carry a receipt — Telegram's own
+    # message_id, not just "no exception was raised".
+    await _resolve(customer_id, action_id, ActionStatus.SUCCEEDED, receipt={"message_id": result.message_id})
 
 
 async def relay_once(redis: Redis, http_client: httpx.AsyncClient, *, bot_token: str | None) -> int:
