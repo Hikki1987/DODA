@@ -53,6 +53,43 @@ class TaskHistory(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     )
 
 
+class ReminderStatus(enum.StrEnum):
+    PENDING_CONFIRMATION = "PENDING_CONFIRMATION"
+    CONFIRMED = "CONFIRMED"
+    CANCELLED = "CANCELLED"
+    FIRED = "FIRED"
+
+
+class Reminder(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """FR-TASK-005: "Reminder yaratish so'rovi... Aniq vaqt va trigger
+    foydalanuvchi tomonidan tasdiqlanadi" — a reminder REQUEST never fires
+    on its own; `remind_at` only takes effect once an explicit confirm
+    call (application/task_service.confirm_reminder) moves it out of
+    PENDING_CONFIRMATION. Only CONFIRMED reminders are ever considered by
+    the firing job (task_service.fire_due_reminders).
+
+    "Trigger" is deliberately scoped to the one concrete, unambiguous
+    reading of this requirement this codebase can build without guessing
+    at a Product Owner decision: a fixed point in time the user typed in
+    themselves — not a natural-language/AI-parsed trigger ("remind me
+    when X happens"), which would require deciding how ambiguous phrasing
+    resolves and is not something to invent here (QOIDA 2)."""
+
+    __tablename__ = "task_reminders"
+
+    customer_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("task_tasks.id"), index=True)
+    actor_id: Mapped[str] = mapped_column(String(256))
+    remind_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[ReminderStatus] = mapped_column(
+        SAEnum(ReminderStatus, name="reminder_status", native_enum=False, length=32),
+        default=ReminderStatus.PENDING_CONFIRMATION,
+    )
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    fired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
 class TaskDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     """FR-TASK-003: a decision record (variant considered, tradeoff,
     decision made, reason). "Qaror versiyalanadi; oldingi versiya

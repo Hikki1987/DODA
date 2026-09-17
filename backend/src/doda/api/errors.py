@@ -31,7 +31,12 @@ from doda.application.kill_switch_service import KillSwitchEngagedError
 from doda.application.notification_service import NotificationPreferenceError
 from doda.application.oidc_login_service import OidcNotConfiguredError, OidcStateMismatchError
 from doda.application.session_service import SessionInvalidError
-from doda.application.task_service import InvalidTaskTransition, TaskParentNotFoundError
+from doda.application.task_service import (
+    InvalidTaskTransition,
+    ReminderConfirmationMismatchError,
+    ReminderNotPendingError,
+    TaskParentNotFoundError,
+)
 from doda.application.workspace_service import DuplicateWorkspaceMembershipError, WorkspaceMembershipError
 from doda.domain.action.state_machine import InvalidActionTransition
 from doda.domain.security.decisions import Decision
@@ -120,6 +125,32 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=_envelope(
                 code="NOT_FOUND",
                 message="Parent task topilmadi.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(ReminderNotPendingError)
+    async def _reminder_not_pending(request: Request, exc: ReminderNotPendingError) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content=_envelope(
+                code="REMINDER_INVALID",
+                message="Reminder bu holatda emas.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(ReminderConfirmationMismatchError)
+    async def _reminder_confirmation_mismatch(
+        request: Request, exc: ReminderConfirmationMismatchError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content=_envelope(
+                code="REMINDER_INVALID",
+                message="Tasdiqlanayotgan vaqt reminder'ning joriy qiymatiga mos kelmadi.",
                 trace_id=_trace_id(request),
                 retryable=False,
             ),

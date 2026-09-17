@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from doda.application.notification_service import create_notification
 from doda.domain.base import utcnow
 from doda.domain.notification.models import NotificationType
-from doda.domain.task.models import Task, TaskDecision, TaskHistory, TaskStatus
+from doda.domain.task.models import Reminder, ReminderStatus, Task, TaskDecision, TaskHistory, TaskStatus
 
 MAX_PAGE_SIZE = 200
 
@@ -33,6 +33,20 @@ class InvalidTaskTransition(Exception):
         self.current = current
         self.target = target
         super().__init__(f"{current.value} -> {target.value} is not an allowed task transition")
+
+
+class ReminderConfirmationMismatchError(Exception):
+    """confirm_reminder requires the caller to echo back the exact
+    remind_at they are confirming (FR-TASK-005: the TIME itself is what
+    gets confirmed, not just an opaque id) — raised when it does not
+    match the stored value, e.g. a stale client showing an old request."""
+
+
+class ReminderNotPendingError(Exception):
+    """confirm_reminder/cancel_reminder called on a reminder that has
+    already left the state they require (already CONFIRMED/CANCELLED/
+    FIRED) — an ordinary state-machine guard, the same shape as
+    InvalidTaskTransition above."""
 
 
 class TaskParentNotFoundError(Exception):
@@ -175,6 +189,95 @@ async def list_task_decisions(session: AsyncSession, task_id: uuid.UUID) -> list
         select(TaskDecision).where(TaskDecision.task_id == task_id).order_by(TaskDecision.created_at)
     )
     return list(result.scalars())
+
+
+async def request_reminder(
+    session: AsyncSession, task: Task, *, actor_id: str, remind_at: datetime
+) -> Reminder:
+    """FR-TASK-005. Creates the REQUEST only — PENDING_CONFIRMATION,
+    never fires, never notifies anyone, until confirm_reminder moves it
+    to CONFIRMED. Deliberately no validation that remind_at is in the
+    future: a reminder confirmed for a time already past will simply be
+    picked up and fired on the very next run of fire_due_reminders,
+    which is the correct, boring behavior for a "confirm this exact
+    time" feature, not a special case to reject."""
+    reminder = Reminder(
+        customer_id=task.customer_id,
+        workspace_id=task.workspace_id,
+        task_id=task.id,
+        actor_id=actor_id,
+        remind_at=remind_at,
+        status=ReminderStatus.PENDING_CONFIRMATION,
+    )
+    session.add(reminder)
+    await session.flush()
+    return reminder
+
+
+async def confirm_reminder(
+    session: AsyncSession, reminder: Reminder, *, remind_at: datetime, actor_id: str
+) -> Reminder:
+    if reminder.status is not ReminderStatus.PENDING_CONFIRMATION:
+        raise ReminderNotPendingError(f"reminder {reminder.id} is {reminder.status.value}, not pending")
+    if reminder.remind_at != remind_at:
+        raise ReminderConfirmationMismatchError(
+            f"reminder {reminder.id}'s current remind_at does not match what was confirmed"
+        )
+    reminder.status = ReminderStatus.CONFIRMED
+    reminder.confirmed_at = utcnow()
+    await session.flush()
+    return reminder
+
+
+async def cancel_reminder(session: AsyncSession, reminder: Reminder) -> Reminder:
+    if reminder.status not in (ReminderStatus.PENDING_CONFIRMATION, ReminderStatus.CONFIRMED):
+        raise ReminderNotPendingError(
+            f"reminder {reminder.id} is {reminder.status.value}, cannot be cancelled"
+        )
+    reminder.status = ReminderStatus.CANCELLED
+    await session.flush()
+    return reminder
+
+
+async def list_reminders_for_task(session: AsyncSession, task_id: uuid.UUID) -> list[Reminder]:
+    result = await session.execute(
+        select(Reminder).where(Reminder.task_id == task_id).order_by(Reminder.created_at)
+    )
+    return list(result.scalars())
+
+
+async def fire_due_reminders(session: AsyncSession, *, now: datetime | None = None) -> list[Reminder]:
+    """Scans this transaction's tenant (customer_id already bound by
+    tenant_scoped_session) for CONFIRMED reminders whose remind_at has
+    passed, fires a REMINDER_DUE notification to the requester for each,
+    and marks them FIRED. Called by backend/scripts/fire_due_reminders_job.py
+    once per customer, the same "standalone script iterates customers via
+    UserCustomerIndex, calls one tenant-scoped application function per
+    customer" shape as verify_audit_chain_job.py/
+    find_stuck_running_actions.py."""
+    now = now or utcnow()
+    result = await session.execute(
+        select(Reminder).where(Reminder.status == ReminderStatus.CONFIRMED, Reminder.remind_at <= now)
+    )
+    due = list(result.scalars())
+    for reminder in due:
+        task = await session.get(Task, reminder.task_id)
+        assert task is not None  # FK guarantees this; RLS already scopes both to the same tenant
+        await create_notification(
+            session,
+            customer_id=reminder.customer_id,
+            workspace_id=reminder.workspace_id,
+            recipient_id=reminder.actor_id,
+            notification_type=NotificationType.REMINDER_DUE,
+            reference_type="task",
+            reference_id=task.id,
+            safe_metadata={"title": task.title},
+        )
+        reminder.status = ReminderStatus.FIRED
+        reminder.fired_at = now
+    if due:
+        await session.flush()
+    return due
 
 
 async def list_tasks_for_workspace(

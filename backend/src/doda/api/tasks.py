@@ -10,23 +10,30 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from doda.api.dependencies import RequestContext, get_request_context
 from doda.api.task_schemas import (
     ChangeTaskStatusRequest,
+    ConfirmReminderRequest,
     CreateTaskRequest,
     RecordTaskDecisionRequest,
+    ReminderOut,
+    RequestReminderRequest,
     TaskDecisionOut,
     TaskHistoryEntryOut,
     TaskOut,
 )
 from doda.application.authz_service import authorize_create_task, authorize_task_mutation
 from doda.application.task_service import (
+    cancel_reminder,
     change_task_status,
+    confirm_reminder,
     create_task,
     generate_task_plan,
+    list_reminders_for_task,
     list_task_decisions,
     list_task_history,
     list_tasks_for_workspace,
     record_task_decision,
+    request_reminder,
 )
-from doda.domain.task.models import Task, TaskStatus
+from doda.domain.task.models import Reminder, Task, TaskStatus
 
 router = APIRouter(tags=["tasks"])
 
@@ -191,3 +198,90 @@ async def get_task_decisions(
         )
         for record in decisions
     ]
+
+
+def _to_reminder_out(reminder: Reminder) -> ReminderOut:
+    return ReminderOut(
+        id=reminder.id,
+        task_id=reminder.task_id,
+        actor_id=reminder.actor_id,
+        remind_at=reminder.remind_at,
+        status=reminder.status,
+        confirmed_at=reminder.confirmed_at,
+        fired_at=reminder.fired_at,
+        created_at=reminder.created_at,
+    )
+
+
+async def _get_owned_reminder(ctx: RequestContext, task_id: uuid.UUID, reminder_id: uuid.UUID) -> Reminder:
+    reminder = await ctx.db.get(Reminder, reminder_id)
+    if reminder is None or reminder.task_id != task_id or reminder.workspace_id != ctx.workspace.workspace_id:
+        raise HTTPException(status_code=404, detail="reminder not found")
+    return reminder
+
+
+@router.post(
+    "/v1/workspaces/{workspace_id}/tasks/{task_id}/reminders",
+    response_model=ReminderOut,
+)
+async def request_task_reminder(
+    task_id: uuid.UUID,
+    body: RequestReminderRequest,
+    ctx: RequestContext = Depends(get_request_context),
+) -> ReminderOut:
+    """FR-TASK-005. Same authorization as recording a decision (owner or
+    workspace_admin) — this only creates a PENDING_CONFIRMATION request,
+    never anything that actually fires on its own."""
+    task = await _get_owned_task(ctx, task_id)
+    authorize_task_mutation(ctx.workspace, task)
+    reminder = await request_reminder(
+        ctx.db, task, actor_id=f"user:{ctx.workspace.user_id}", remind_at=body.remind_at
+    )
+    return _to_reminder_out(reminder)
+
+
+@router.get(
+    "/v1/workspaces/{workspace_id}/tasks/{task_id}/reminders",
+    response_model=list[ReminderOut],
+)
+async def get_task_reminders(
+    task_id: uuid.UUID, ctx: RequestContext = Depends(get_request_context)
+) -> list[ReminderOut]:
+    await _get_owned_task(ctx, task_id)  # 404s before revealing any reminder exists
+    reminders = await list_reminders_for_task(ctx.db, task_id)
+    return [_to_reminder_out(reminder) for reminder in reminders]
+
+
+@router.post(
+    "/v1/workspaces/{workspace_id}/tasks/{task_id}/reminders/{reminder_id}/confirm",
+    response_model=ReminderOut,
+)
+async def confirm_task_reminder(
+    task_id: uuid.UUID,
+    reminder_id: uuid.UUID,
+    body: ConfirmReminderRequest,
+    ctx: RequestContext = Depends(get_request_context),
+) -> ReminderOut:
+    task = await _get_owned_task(ctx, task_id)
+    authorize_task_mutation(ctx.workspace, task)
+    reminder = await _get_owned_reminder(ctx, task_id, reminder_id)
+    reminder = await confirm_reminder(
+        ctx.db, reminder, remind_at=body.remind_at, actor_id=f"user:{ctx.workspace.user_id}"
+    )
+    return _to_reminder_out(reminder)
+
+
+@router.post(
+    "/v1/workspaces/{workspace_id}/tasks/{task_id}/reminders/{reminder_id}/cancel",
+    response_model=ReminderOut,
+)
+async def cancel_task_reminder(
+    task_id: uuid.UUID,
+    reminder_id: uuid.UUID,
+    ctx: RequestContext = Depends(get_request_context),
+) -> ReminderOut:
+    task = await _get_owned_task(ctx, task_id)
+    authorize_task_mutation(ctx.workspace, task)
+    reminder = await _get_owned_reminder(ctx, task_id, reminder_id)
+    reminder = await cancel_reminder(ctx.db, reminder)
+    return _to_reminder_out(reminder)

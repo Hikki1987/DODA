@@ -123,6 +123,29 @@ test("login, workspace, task, notification, action, audit flow", async ({ page }
     await taskRow.getByRole("button", { name: "Qarorlarni yashirish" }).click();
   });
 
+  await test.step("requesting and confirming a reminder (FR-TASK-005) shows it as CONFIRMED", async () => {
+    const taskRow = page.locator('[data-testid="task-list"] li:has-text("E2E test task")');
+    await taskRow.getByRole("button", { name: "Eslatmalar" }).click();
+
+    const remindAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 1 day from now
+    const localValue = new Date(remindAt.getTime() - remindAt.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+    await taskRow.getByLabel("Eslatma vaqti").fill(localValue);
+    await taskRow.getByRole("button", { name: "Eslatma so'rash" }).click();
+
+    const reminderList = taskRow.getByTestId("reminder-list");
+    await expect(reminderList.getByText("PENDING_CONFIRMATION")).toBeVisible();
+
+    await reminderList.getByRole("button", { name: "Tasdiqlash" }).click();
+    // Not exact: the <li>'s full text is "<date> — CONFIRMED" (PENDING_
+    // CONFIRMATION is the only other status that could collide, and it
+    // doesn't share the substring "CONFIRMED").
+    await expect(reminderList.getByText("CONFIRMED")).toBeVisible();
+
+    await taskRow.getByRole("button", { name: "Eslatmalarni yashirish" }).click();
+  });
+
   await test.step("task history shows the TODO -> IN_PROGRESS transition", async () => {
     const taskRow = page.locator('li:has-text("E2E test task")');
     await taskRow.getByRole("button", { name: "Tarix" }).click();

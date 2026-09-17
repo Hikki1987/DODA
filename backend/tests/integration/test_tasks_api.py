@@ -600,3 +600,167 @@ async def test_decisions_on_a_sibling_workspaces_task_are_a_404(
         headers=_auth_headers(member.session_id),
     )
     assert read.status_code == 404
+
+
+async def test_requesting_and_confirming_a_reminder_returns_it_in_the_list(
+    client: AsyncClient, db_available: bool
+) -> None:
+    member = await seed_workspace_member()
+    task_id = await _create_task(client, member, "Renew the domain")
+    remind_at = (utcnow() + timedelta(days=1)).isoformat()
+
+    requested = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/reminders",
+        json={"remind_at": remind_at},
+        headers=_auth_headers(member.session_id),
+    )
+    assert requested.status_code == 200
+    body = requested.json()
+    assert body["status"] == "PENDING_CONFIRMATION"
+    assert body["confirmed_at"] is None
+
+    confirmed = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/reminders/{body['id']}/confirm",
+        json={"remind_at": body["remind_at"]},
+        headers=_auth_headers(member.session_id),
+    )
+    assert confirmed.status_code == 200
+    assert confirmed.json()["status"] == "CONFIRMED"
+    assert confirmed.json()["confirmed_at"] is not None
+
+    listing = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/reminders",
+        headers=_auth_headers(member.session_id),
+    )
+    assert [r["id"] for r in listing.json()] == [body["id"]]
+    assert listing.json()[0]["status"] == "CONFIRMED"
+
+
+async def test_confirming_with_a_mismatched_time_is_rejected(client: AsyncClient, db_available: bool) -> None:
+    """FR-TASK-005: it's the exact TIME that gets confirmed, not just an
+    opaque id — a stale/wrong remind_at must not silently confirm
+    whatever the current value happens to be."""
+    member = await seed_workspace_member()
+    task_id = await _create_task(client, member, "Renew the domain")
+    remind_at = (utcnow() + timedelta(days=1)).isoformat()
+
+    requested = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/reminders",
+        json={"remind_at": remind_at},
+        headers=_auth_headers(member.session_id),
+    )
+    reminder_id = requested.json()["id"]
+
+    wrong_time = (utcnow() + timedelta(days=2)).isoformat()
+    confirmed = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/reminders/{reminder_id}/confirm",
+        json={"remind_at": wrong_time},
+        headers=_auth_headers(member.session_id),
+    )
+    assert confirmed.status_code == 409
+    assert confirmed.json()["code"] == "REMINDER_INVALID"
+
+
+async def test_a_cancelled_reminder_cannot_be_confirmed_or_cancelled_again(
+    client: AsyncClient, db_available: bool
+) -> None:
+    member = await seed_workspace_member()
+    task_id = await _create_task(client, member, "Renew the domain")
+    remind_at = (utcnow() + timedelta(days=1)).isoformat()
+
+    requested = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/reminders",
+        json={"remind_at": remind_at},
+        headers=_auth_headers(member.session_id),
+    )
+    reminder_id = requested.json()["id"]
+
+    cancelled = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/reminders/{reminder_id}/cancel",
+        headers=_auth_headers(member.session_id),
+    )
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "CANCELLED"
+
+    second_cancel = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/reminders/{reminder_id}/cancel",
+        headers=_auth_headers(member.session_id),
+    )
+    assert second_cancel.status_code == 409
+
+    confirm_after_cancel = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/reminders/{reminder_id}/confirm",
+        json={"remind_at": remind_at},
+        headers=_auth_headers(member.session_id),
+    )
+    assert confirm_after_cancel.status_code == 409
+
+
+async def test_plain_member_who_is_not_the_owner_cannot_request_a_reminder(
+    client: AsyncClient, db_available: bool
+) -> None:
+    owner = await seed_workspace_member(workspace_role="workspace_admin", customer_role="customer_owner")
+    task_id = await _create_task(client, owner, "Owner's task")
+
+    other = await seed_workspace_member()
+    other_membership = await client.post(
+        f"/v1/customers/{owner.customer_id}/members",
+        json={"user_id": str(other.user_id), "role": "member"},
+        headers=_auth_headers(owner.session_id),
+    )
+    assert other_membership.status_code == 200
+    await client.post(
+        f"/v1/workspaces/{owner.workspace_id}/members",
+        json={"customer_membership_id": other_membership.json()["id"], "role": "member"},
+        headers=_auth_headers(owner.session_id),
+    )
+
+    response = await client.post(
+        f"/v1/workspaces/{owner.workspace_id}/tasks/{task_id}/reminders",
+        json={"remind_at": utcnow().isoformat()},
+        headers=_auth_headers(other.session_id),
+    )
+    assert response.status_code == 403
+
+
+async def test_reminders_on_a_sibling_workspaces_task_are_a_404(
+    client: AsyncClient, db_available: bool
+) -> None:
+    member = await seed_workspace_member()
+    other = await seed_workspace_member()
+    task_id = await _create_task(client, other, "Someone else's task")
+
+    write = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/reminders",
+        json={"remind_at": utcnow().isoformat()},
+        headers=_auth_headers(member.session_id),
+    )
+    assert write.status_code == 404
+
+    read = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/reminders",
+        headers=_auth_headers(member.session_id),
+    )
+    assert read.status_code == 404
+
+
+async def test_confirming_a_reminder_that_belongs_to_a_different_task_is_a_404(
+    client: AsyncClient, db_available: bool
+) -> None:
+    member = await seed_workspace_member()
+    task_a = await _create_task(client, member, "Task A")
+    task_b = await _create_task(client, member, "Task B")
+
+    requested = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_a}/reminders",
+        json={"remind_at": utcnow().isoformat()},
+        headers=_auth_headers(member.session_id),
+    )
+    reminder_id = requested.json()["id"]
+
+    confirmed = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_b}/reminders/{reminder_id}/confirm",
+        json={"remind_at": requested.json()["remind_at"]},
+        headers=_auth_headers(member.session_id),
+    )
+    assert confirmed.status_code == 404

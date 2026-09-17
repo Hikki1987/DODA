@@ -20,12 +20,20 @@ from doda.domain.base import Base, CreatedAtMixin, UUIDPrimaryKeyMixin
 
 
 class NotificationType(enum.StrEnum):
-    """FR-NTF-002's four required types."""
+    """FR-NTF-002's four required types, plus REMINDER_DUE (FR-TASK-005) —
+    a fifth, additive type for a distinct feature. FR-NTF-002 mandates
+    that those four always work; it does not close this enum against a
+    genuinely new notification-worthy event. FR-NTF-003/004 (no sensitive
+    content, per-type opt-out) apply to REMINDER_DUE exactly as they do
+    to the original four — see 0022's CHECK-constraint migration and
+    notification_service.py's ALLOWED_SAFE_METADATA_KEYS-equivalent
+    review before adding safe_metadata for it."""
 
     PENDING_APPROVAL = "PENDING_APPROVAL"
     FAILED_ACTION = "FAILED_ACTION"
     COMPLETED_TASK = "COMPLETED_TASK"
     SECURITY_ALERT = "SECURITY_ALERT"
+    REMINDER_DUE = "REMINDER_DUE"
 
 
 class Notification(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):

@@ -59,6 +59,7 @@ async def test_default_preferences_are_all_enabled(client: AsyncClient, db_avail
         "FAILED_ACTION": True,
         "COMPLETED_TASK": True,
         "SECURITY_ALERT": True,
+        "REMINDER_DUE": True,
     }
 
 

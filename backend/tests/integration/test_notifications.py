@@ -8,9 +8,16 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from doda.application.action_service import apply_transition, propose_action
-from doda.application.task_service import change_task_status, create_task
+from doda.application.task_service import (
+    change_task_status,
+    confirm_reminder,
+    create_task,
+    fire_due_reminders,
+    request_reminder,
+)
 from doda.db import tenant_scoped_session
 from doda.domain.action.models import ActionStatus, RiskLevel
+from doda.domain.base import utcnow
 from doda.domain.notification.models import NotificationType
 from doda.domain.task.models import TaskStatus
 from doda.main import app
@@ -23,6 +30,7 @@ ALLOWED_METADATA_KEYS = {
     NotificationType.FAILED_ACTION: {"tool_name"},
     NotificationType.COMPLETED_TASK: {"title"},
     NotificationType.SECURITY_ALERT: {"scope", "reason"},
+    NotificationType.REMINDER_DUE: {"title"},
 }
 
 
@@ -118,6 +126,48 @@ async def test_completed_task_notification_fires_for_owner(client: AsyncClient, 
     matching = [n for n in response.json() if n["notification_type"] == "COMPLETED_TASK"]
     assert len(matching) == 1
     assert set(matching[0]["safe_metadata"]) <= ALLOWED_METADATA_KEYS[NotificationType.COMPLETED_TASK]
+
+
+async def test_reminder_due_notification_fires_only_after_confirmation_and_firing(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """FR-TASK-005/FR-NTF-002: a reminder REQUEST alone must never notify
+    anyone — only once it is confirmed AND the firing job has actually
+    run past its remind_at."""
+    member = await seed_workspace_member()
+
+    async with tenant_scoped_session(member.customer_id) as session:
+        task = await create_task(
+            session,
+            customer_id=member.customer_id,
+            workspace_id=member.workspace_id,
+            owner_id=f"user:{member.user_id}",
+            title="Confidential renewal deadline",
+        )
+        reminder = await request_reminder(
+            session, task, actor_id=f"user:{member.user_id}", remind_at=utcnow()
+        )
+
+    unconfirmed = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/notifications", headers=_auth_headers(member.session_id)
+    )
+    assert not any(n["notification_type"] == "REMINDER_DUE" for n in unconfirmed.json())
+
+    async with tenant_scoped_session(member.customer_id) as session:
+        reloaded = await session.get(type(reminder), reminder.id)
+        assert reloaded is not None
+        await confirm_reminder(
+            session, reloaded, remind_at=reloaded.remind_at, actor_id=f"user:{member.user_id}"
+        )
+        fired = await fire_due_reminders(session)
+        assert len(fired) == 1
+
+    response = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/notifications", headers=_auth_headers(member.session_id)
+    )
+    matching = [n for n in response.json() if n["notification_type"] == "REMINDER_DUE"]
+    assert len(matching) == 1
+    assert set(matching[0]["safe_metadata"]) <= ALLOWED_METADATA_KEYS[NotificationType.REMINDER_DUE]
 
 
 async def test_security_alert_broadcasts_to_every_workspace_member(

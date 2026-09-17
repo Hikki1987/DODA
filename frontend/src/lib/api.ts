@@ -213,6 +213,67 @@ export function recordTaskDecision(
   });
 }
 
+// FR-TASK-005: a reminder REQUEST never fires on its own — it stays
+// PENDING_CONFIRMATION until confirmReminder is called with the exact
+// same remind_at it was created with (the time itself is what's being
+// confirmed, not just an id).
+export type ReminderStatus = "PENDING_CONFIRMATION" | "CONFIRMED" | "CANCELLED" | "FIRED";
+
+export interface ReminderOut {
+  id: string;
+  task_id: string;
+  actor_id: string;
+  remind_at: string;
+  status: ReminderStatus;
+  confirmed_at: string | null;
+  fired_at: string | null;
+  created_at: string;
+}
+
+export function getTaskReminders(
+  sessionId: string,
+  workspaceId: string,
+  taskId: string,
+): Promise<ReminderOut[]> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/tasks/${taskId}/reminders`, sessionId);
+}
+
+export function requestTaskReminder(
+  sessionId: string,
+  workspaceId: string,
+  taskId: string,
+  remindAt: string,
+): Promise<ReminderOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/tasks/${taskId}/reminders`, sessionId, {
+    method: "POST",
+    body: JSON.stringify({ remind_at: remindAt }),
+  });
+}
+
+export function confirmTaskReminder(
+  sessionId: string,
+  workspaceId: string,
+  taskId: string,
+  reminderId: string,
+  remindAt: string,
+): Promise<ReminderOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/tasks/${taskId}/reminders/${reminderId}/confirm`, sessionId, {
+    method: "POST",
+    body: JSON.stringify({ remind_at: remindAt }),
+  });
+}
+
+export function cancelTaskReminder(
+  sessionId: string,
+  workspaceId: string,
+  taskId: string,
+  reminderId: string,
+): Promise<ReminderOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/tasks/${taskId}/reminders/${reminderId}/cancel`, sessionId, {
+    method: "POST",
+  });
+}
+
 // ---- /v1/workspaces/{id}/actions ----
 
 export type ActionStatus =

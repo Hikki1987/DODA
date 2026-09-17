@@ -5173,3 +5173,91 @@ yumshatib "yashil" qilib ko'rsatish qilinmadi.
 436 test, barchasi real Postgres(+Redis)'da (99% qamrov, o'zgarishsiz);
 `ruff`/`mypy` toza (yangi skript `mypy src`ning qamroviga kirmaydi,
 `load_test_api.py`/`verify_audit_chain_job.py` bilan bir xil konventsiya).
+
+**FR-TASK-005 (Reminder yaratish so'rovi: "Aniq vaqt va trigger
+foydalanuvchi tomonidan tasdiqlanadi", Should) qurildi — bu ID
+traceability auditda avvalroq ko'rib chiqilgan, lekin "so'rovi" so'zi
+chat/AI orqali erkin tildagi trigger'ni anglatishi mumkinmi degan
+noaniqlik tufayli ataylab qurilmagan qoldirilgan edi.** Qayta ko'rib
+chiqishda aniqlandi: qabul mezonining o'zi — "aniq vaqt... tasdiqlanadi"
+— AI/NLP talab qilmaydi, faqat foydalanuvchi o'zi kiritgan qat'iy vaqt
+va uni ikkinchi, alohida qadamda tasdiqlash. "Trigger" shu ID uchun
+ataylab faqat BITTA aniq, taxmin qilinmaydigan ma'noga — qat'iy vaqt
+nuqtasiga — cheklandi; "biror hodisa sodir bo'lganda eslat" kabi
+tabiiy tilda tahlil qilinadigan trigger QOIDA 2 bo'yicha hali qurilmadi
+(bu haqiqiy Product Owner qarorini talab qiladi).
+
+`task_reminders` jadvali (0022-migratsiya) — `Reminder` (customer_id,
+workspace_id, task_id, actor_id, remind_at, status, confirmed_at,
+fired_at). `task_decisions`dan farqli — bu jadval MUTABLE (status
+o'zgaradi), append-only trigger yo'q, `task_tasks`ning o'zi bilan bir
+xil RLS naqshi. `ReminderStatus`: PENDING_CONFIRMATION → CONFIRMED →
+FIRED (yoki istalgan vaqt CANCELLED). Reminder REQUEST hech qachon
+o'zi yonmaydi — faqat `confirm_reminder` chaqirilgandan keyin, VA
+chaqiruvchi aniq o'sha `remind_at` qiymatini qaytarib tasdiqlaganda
+(qat'iy ID emas, VAQTNING o'zi tasdiqlanadi — mos kelmasa 409
+`REMINDER_INVALID`).
+
+Xuddi shu migratsiya `NotificationType`ga beshinchi, qo'shimcha tur —
+`REMINDER_DUE` — qo'shdi va ikkita mavjud jadval (`notifications`,
+`notification_preferences`)ning CHECK constraint'larini kengaytirdi
+(eski migratsiyalarning o'zi o'zgartirilmadi — "migratsiya tarixini
+buzma" qoidasiga rioya qilib, YANGI migratsiya orqali ALTER qilindi).
+FR-NTF-002ning "to'rtta majburiy tur" talabi buzilmadi — bu talab
+o'sha to'rttasi doim ishlashini talab qiladi, yangisini taqiqlamaydi.
+
+`application/task_service.py`ga to'rtta funksiya qo'shildi:
+`request_reminder` (PENDING_CONFIRMATION yaratadi, hech narsani
+bildirmaydi), `confirm_reminder` (vaqtni tekshirib CONFIRMED qiladi),
+`cancel_reminder`, va `fire_due_reminders` — bu oxirgisi haqiqiy
+"yonish" logikasi: CONFIRMED va muddati o'tgan reminder'larni topib,
+`REMINDER_DUE` bildirishnomasi yaratadi va FIRED deb belgilaydi.
+Avtorizatsiya — `authorize_task_mutation` (task egasi yoki
+workspace_admin), xuddi qaror yozish bilan bir xil, chunki reminder
+so'rash/tasdiqlash ham task-mutating amal.
+
+**"Yonish" alohida HTTP endpoint emas — mustaqil fon jarayoni**:
+`backend/scripts/fire_due_reminders_job.py`, `verify_audit_chain_job.py`
+bilan bir xil naqsh (`UserCustomerIndex` orqali customer'larni topib,
+har birida `fire_due_reminders`ni chaqiradi, "alert" infratuzilmasi
+hali yo'qligi ochiq aytilgan). Qancha tez-tez ishga tushirilishi
+operatsion/hosting qarori (OD-005), bu skriptning o'zi tanlamaydi.
+
+Testlar: `test_tasks_api.py`ga 7 ta yangi HTTP test (so'rash→tasdiqlash
+oqimi, mos kelmagan vaqt bilan tasdiqlash rad etilishi, bekor qilingan
+reminder qayta tasdiqlanmasligi/bekor qilinmasligi, egasi bo'lmagan
+a'zo rad etilishi, qo'shni workspace'ning reminder'i 404, boshqa
+task'ga tegishli reminder_id 404); `test_notifications.py`ga
+`REMINDER_DUE` uchun `ALLOWED_METADATA_KEYS` yozuvi va yangi test —
+so'ralgan-lekin-tasdiqlanmagan reminder hech qanday bildirishnoma
+yaratmasligini, faqat tasdiqlangan VA `fire_due_reminders` chaqirilgan
+reminder haqiqiy `REMINDER_DUE` bildirishnomasi yaratishini tekshiradi
+(FR-NTF-003 uchun safe_metadata `{"title"}`dan tashqariga chiqmasligi
+bilan birga). Buni yozishda mavjud
+`test_default_preferences_are_all_enabled` testi haqiqiy, kutilgan
+regressiya bilan qizardi (5 ta tur endi standart yoqilgan, u qattiq
+4 tani kutgan edi) — yangi tur qo'shilishi haqiqatda notification
+preferences API'siga ta'sir qilishini isbotlab, test yangilandi.
+
+Frontend: har bir task qatoriga "Eslatmalar"/"Eslatmalarni yashirish"
+toggle qo'shildi (Tarix/Qarorlar bilan bir xil naqsh) — mavjud
+reminder'lar ro'yxati (vaqt + holat, PENDING_CONFIRMATION/CONFIRMED
+uchun "Tasdiqlash"/"Bekor qilish" tugmalari) va yangi so'rov formasi
+(`datetime-local` input). Playwright'da (`workspace.spec.ts`) so'rash→
+"Tasdiqlash" bosish→CONFIRMED ko'rinishi real backend'ga qarshi
+tasdiqlandi — bu jarayonda ikkita amaliy Playwright xatosi tuzatildi:
+(1) `getByText("CONFIRMED", {exact: true})` mos kelmadi, chunki
+`<li>`ning to'liq matni "<sana> — CONFIRMED" edi (exact butun elementga
+tegishli); non-exact'ga o'tkazildi (PENDING_CONFIRMATION bilan
+substring to'qnashuvi yo'q, chunki u "CONFIRMED" emas "CONFIRMATION"
+so'zini o'z ichiga oladi). (2) testni ikkinchi marta qayta seed'siz
+ishga tushirish "E2E test task" nomli IKKITA task yaratib, "Qarorlar"
+tugmasi uchun strict-mode xatosi berdi — bu shu sessiyada bir necha
+marta takrorlangan "har E2E ishga tushirish yangi seed talab qiladi"
+darsining yana bir nusxasi, kod xatosi emas. Barcha 14 E2E spec
+(accessibility skaneri bilan birga — yangi eslatma UI'si hech qanday
+WCAG buzilishi keltirmadi) fresh seed'ga qarshi yashil.
+
+443 test (backend), barchasi real Postgres'da; `ruff`/`mypy` toza;
+frontend `tsc`/ESLint toza, production build muvaffaqiyatli; barcha
+14 E2E spec yashil.

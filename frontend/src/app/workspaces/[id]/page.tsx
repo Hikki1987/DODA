@@ -6,14 +6,17 @@ import { useParams, useRouter } from "next/navigation";
 import {
   ApiError,
   archiveWorkspace,
+  cancelTaskReminder,
   changeTaskStatus,
   changeWorkspaceMemberRole,
+  confirmTaskReminder,
   createTask,
   disengageWorkspaceKillSwitch,
   engageWorkspaceKillSwitch,
   getTaskDecisions,
   getTaskHistory,
   getTaskPlan,
+  getTaskReminders,
   getWorkspaceKillSwitch,
   listActions,
   listNotifications,
@@ -23,10 +26,12 @@ import {
   markNotificationRead,
   recordTaskDecision,
   removeWorkspaceMember,
+  requestTaskReminder,
   type ActionOut,
   type AuditEventOut,
   type KillSwitchStatusOut,
   type NotificationOut,
+  type ReminderOut,
   type TaskDecisionOut,
   type TaskHistoryEntryOut,
   type TaskOut,
@@ -82,6 +87,9 @@ export default function WorkspacePage() {
   const [openTaskDecisions, setOpenTaskDecisions] = useState<Record<string, TaskDecisionOut[]>>({});
   const [decisionDrafts, setDecisionDrafts] = useState<Record<string, DecisionDraft>>({});
   const [recordingDecisionFor, setRecordingDecisionFor] = useState<string | null>(null);
+  const [openTaskReminders, setOpenTaskReminders] = useState<Record<string, ReminderOut[]>>({});
+  const [reminderDrafts, setReminderDrafts] = useState<Record<string, string>>({});
+  const [requestingReminderFor, setRequestingReminderFor] = useState<string | null>(null);
   const [traceIdInput, setTraceIdInput] = useState("");
   const [appliedTraceId, setAppliedTraceId] = useState("");
 
@@ -209,6 +217,67 @@ export default function WorkspacePage() {
       setError(err instanceof ApiError ? err.message : "Qarorni saqlab bo'lmadi.");
     } finally {
       setRecordingDecisionFor(null);
+    }
+  }
+
+  async function toggleTaskReminders(task: TaskOut) {
+    if (sessionId === null) return;
+    if (openTaskReminders[task.id] !== undefined) {
+      setOpenTaskReminders((prev) => {
+        const next = { ...prev };
+        delete next[task.id];
+        return next;
+      });
+      return;
+    }
+    try {
+      const reminders = await getTaskReminders(sessionId, workspaceId, task.id);
+      setOpenTaskReminders((prev) => ({ ...prev, [task.id]: reminders }));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Eslatmalarni yuklab bo'lmadi.");
+    }
+  }
+
+  async function handleRequestReminder(task: TaskOut) {
+    if (sessionId === null || requestingReminderFor !== null) return;
+    const remindAt = reminderDrafts[task.id];
+    if (!remindAt) return;
+    setRequestingReminderFor(task.id);
+    try {
+      // FR-TASK-005: this only creates a PENDING_CONFIRMATION request —
+      // it never fires or notifies anyone until confirmed below.
+      await requestTaskReminder(sessionId, workspaceId, task.id, new Date(remindAt).toISOString());
+      setReminderDrafts((prev) => ({ ...prev, [task.id]: "" }));
+      const reminders = await getTaskReminders(sessionId, workspaceId, task.id);
+      setOpenTaskReminders((prev) => ({ ...prev, [task.id]: reminders }));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Eslatma so'rovini yuborib bo'lmadi.");
+    } finally {
+      setRequestingReminderFor(null);
+    }
+  }
+
+  async function handleConfirmReminder(task: TaskOut, reminder: ReminderOut) {
+    if (sessionId === null) return;
+    try {
+      // Echoes back the reminder's own current remind_at — the exact
+      // time is what's being confirmed, not just the id.
+      await confirmTaskReminder(sessionId, workspaceId, task.id, reminder.id, reminder.remind_at);
+      const reminders = await getTaskReminders(sessionId, workspaceId, task.id);
+      setOpenTaskReminders((prev) => ({ ...prev, [task.id]: reminders }));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Eslatmani tasdiqlab bo'lmadi.");
+    }
+  }
+
+  async function handleCancelReminder(task: TaskOut, reminder: ReminderOut) {
+    if (sessionId === null) return;
+    try {
+      await cancelTaskReminder(sessionId, workspaceId, task.id, reminder.id);
+      const reminders = await getTaskReminders(sessionId, workspaceId, task.id);
+      setOpenTaskReminders((prev) => ({ ...prev, [task.id]: reminders }));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Eslatmani bekor qilib bo'lmadi.");
     }
   }
 
@@ -405,6 +474,12 @@ export default function WorkspacePage() {
                   >
                     {openTaskDecisions[task.id] !== undefined ? "Qarorlarni yashirish" : "Qarorlar"}
                   </button>
+                  <button
+                    onClick={() => toggleTaskReminders(task)}
+                    className="text-xs text-gray-500 hover:underline"
+                  >
+                    {openTaskReminders[task.id] !== undefined ? "Eslatmalarni yashirish" : "Eslatmalar"}
+                  </button>
                 </div>
               </div>
               {openTaskHistory[task.id] !== undefined && (
@@ -477,6 +552,72 @@ export default function WorkspacePage() {
                       className="text-xs text-blue-600 hover:underline disabled:opacity-50"
                     >
                       Qaror yozish
+                    </button>
+                  </form>
+                </div>
+              )}
+              {openTaskReminders[task.id] !== undefined && (
+                <div className="mt-2 space-y-2 border-t border-gray-100 pt-2">
+                  <ul data-testid="reminder-list" className="space-y-1">
+                    {openTaskReminders[task.id].map((reminder) => (
+                      <li key={reminder.id} className="text-xs text-gray-500">
+                        {new Date(reminder.remind_at).toLocaleString()} — {reminder.status}
+                        {reminder.status === "PENDING_CONFIRMATION" && (
+                          <>
+                            {" "}
+                            <button
+                              onClick={() => handleConfirmReminder(task, reminder)}
+                              className="text-blue-600 hover:underline"
+                            >
+                              Tasdiqlash
+                            </button>{" "}
+                            <button
+                              onClick={() => handleCancelReminder(task, reminder)}
+                              className="text-red-600 hover:underline"
+                            >
+                              Bekor qilish
+                            </button>
+                          </>
+                        )}
+                        {reminder.status === "CONFIRMED" && (
+                          <>
+                            {" "}
+                            <button
+                              onClick={() => handleCancelReminder(task, reminder)}
+                              className="text-red-600 hover:underline"
+                            >
+                              Bekor qilish
+                            </button>
+                          </>
+                        )}
+                      </li>
+                    ))}
+                    {openTaskReminders[task.id].length === 0 && (
+                      <li className="text-xs text-gray-500">Hali eslatma yo&apos;q.</li>
+                    )}
+                  </ul>
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      handleRequestReminder(task);
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <input
+                      aria-label="Eslatma vaqti"
+                      type="datetime-local"
+                      value={reminderDrafts[task.id] ?? ""}
+                      onChange={(event) =>
+                        setReminderDrafts((prev) => ({ ...prev, [task.id]: event.target.value }))
+                      }
+                      className="rounded border border-gray-200 px-2 py-1 text-xs"
+                    />
+                    <button
+                      type="submit"
+                      disabled={requestingReminderFor === task.id || !reminderDrafts[task.id]}
+                      className="text-xs text-blue-600 hover:underline disabled:opacity-50"
+                    >
+                      Eslatma so&apos;rash
                     </button>
                   </form>
                 </div>

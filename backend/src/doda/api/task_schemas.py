@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from doda.domain.task.models import TaskStatus
+from doda.domain.task.models import ReminderStatus, TaskStatus
 
 
 class CreateTaskRequest(BaseModel):
@@ -48,4 +48,26 @@ class TaskDecisionOut(BaseModel):
     tradeoff: str
     decision: str
     reason: str
+    created_at: datetime
+
+
+class RequestReminderRequest(BaseModel):
+    remind_at: datetime
+
+
+class ConfirmReminderRequest(BaseModel):
+    remind_at: datetime
+    """Echoes the exact value being confirmed (FR-TASK-005: the TIME
+    itself is what's confirmed) — must match the reminder's current
+    remind_at or the request is rejected as a mismatch."""
+
+
+class ReminderOut(BaseModel):
+    id: uuid.UUID
+    task_id: uuid.UUID
+    actor_id: str
+    remind_at: datetime
+    status: ReminderStatus
+    confirmed_at: datetime | None
+    fired_at: datetime | None
     created_at: datetime
