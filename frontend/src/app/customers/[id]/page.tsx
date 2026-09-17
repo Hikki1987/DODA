@@ -11,6 +11,7 @@ import {
   engageCustomerKillSwitch,
   getAiBudgetStatus,
   getAiFallbackSetting,
+  getCustomerAuditEvidencePackage,
   getCustomerKillSwitch,
   getMyAiPreference,
   inviteCustomerMember,
@@ -70,6 +71,7 @@ export default function CustomerPage() {
   const [auditEvents, setAuditEvents] = useState<AuditEventOut[] | null>(null);
   const [chainVerification, setChainVerification] = useState<AuditChainVerificationOut | null>(null);
   const [verifyingChain, setVerifyingChain] = useState(false);
+  const [exportingEvidence, setExportingEvidence] = useState(false);
   const [archivedWorkspaces, setArchivedWorkspaces] = useState<WorkspaceOut[] | null>(null);
   const [restoringWorkspaceId, setRestoringWorkspaceId] = useState<string | null>(null);
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatusOut[] | null>(null);
@@ -206,6 +208,29 @@ export default function CustomerPage() {
       setError(err instanceof ApiError ? err.message : "Zanjirni tekshirib bo'lmadi.");
     } finally {
       setVerifyingChain(false);
+    }
+  }
+
+  async function handleExportEvidencePackage() {
+    if (sessionId === null || exportingEvidence || appliedTraceId === "") return;
+    setExportingEvidence(true);
+    try {
+      // FR-AUD-005: exports exactly the currently-filtered trace_id's
+      // audit trail, bundled with a per-event hash recomputation and the
+      // whole-customer chain-verification result — see the backend's own
+      // EvidencePackage docstring for what each proves.
+      const pkg = await getCustomerAuditEvidencePackage(sessionId, customerId, appliedTraceId);
+      const blob = new Blob([JSON.stringify(pkg, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `doda-evidence-${appliedTraceId}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Evidence paketini eksport qilib bo'lmadi.");
+    } finally {
+      setExportingEvidence(false);
     }
   }
 
@@ -635,6 +660,16 @@ export default function CustomerPage() {
               className="text-red-600 hover:underline"
             >
               Tozalash
+            </button>
+          )}
+          {appliedTraceId !== "" && (
+            <button
+              type="button"
+              onClick={handleExportEvidencePackage}
+              disabled={exportingEvidence}
+              className="rounded border border-gray-300 px-2 py-1 font-medium text-gray-700 disabled:opacity-50"
+            >
+              {exportingEvidence ? "Eksport qilinmoqda..." : "Evidence eksport"}
             </button>
           )}
         </form>

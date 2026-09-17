@@ -5313,3 +5313,84 @@ superuser-talab qiluvchi buyruq.
 
 443 test o'zgarishsiz (yangi skript pytest orqali emas, o'rnatilgan
 konventsiyaga ko'ra qo'lda tekshirildi); `ruff` toza.
+
+**FR-AUD-005 (Evidence paketini eksport qilish: "trace + natija + hash" —
+"Eksport qayta tekshiriladigan hash bilan keladi", Must) qurildi.**
+Traceability auditda "41 ta hech qayerda tilga olinmagan" ro'yxatidagi
+yana bitta ID. Talabning o'zi ikkita alohida, aralashtirilmasligi kerak
+bo'lgan yaxlitlik da'vosini bir joyga yig'ishni talab qiladi — buni
+loyihalashning o'zi bu ishning asosiy qismi bo'ldi:
+1. **Har bir yozuvning o'z-o'ziga mosligi** — event'ning saqlangan
+   `hash`i uning O'Z saqlangan maydonlaridan qayta hisoblab chiqilganda
+   ham xuddi shunday chiqishi (`verify_audit_chain` allaqachon shu
+   formulani ishlatadi, endi `_recompute_event_hash`ga ajratib
+   chiqarildi — ikkalasi hech qachon indamay bir-biridan uzoqlashib
+   ketmasligi uchun bitta joy).
+2. **Butun zanjir bog'lanishi** — hech narsa qo'shilmagan/o'chirilmagan/
+   qayta tartiblanmaganligi (mavjud, butun-customer `verify_audit_chain`).
+
+Bu ikkalasi BIR XIL narsa emas — va buni aniqlab bo'lmaydi deb
+o'ylamaslik xato bo'lardi: bitta trace_id'ning o'z yozuvlari to'liq
+zanjirda deyarli hech qachon KETMA-KET emas (boshqa, aloqasiz
+trace'larning yozuvlari xronologik tartibda orasida turadi) —
+shuning uchun faqat trace subset'ini o'zi bilan qayta zanjirlash
+HECH NARSANI isbotlamas edi (prev_hash tabiiy ravishda mos kelmaydi,
+bu esa yolg'on-musbat "buzilish" bo'lardi). Faqat BUTUN zanjir
+tekshiruvi buni haqiqatda qila oladi — shuning uchun `EvidencePackage`
+ikkalasini ham o'z ichiga oladi, alohida-alohida izohlangan holda,
+chalkashtirmasdan.
+
+`audit_query_service.list_audit_events_for_trace` — bitta trace_id'ning
+BARCHA yozuvlarini (customer_id + trace_id bo'yicha, eng eskisidan
+boshlab) qaytaradi, mavjud `list_audit_events`dan farqli — ATAYLAB
+sahifalanmagan (bitta trace odatda kam sonli yozuvga ega, "evidence"
+degani "to'liq, kesilmagan" degani). `audit_service.build_evidence_
+package` — har bir yozuv uchun `hash_self_consistent`ni hisoblaydi
+(`_recompute_event_hash(event) == event.hash`) VA butun customer
+zanjirining `verify_audit_chain` natijasini qo'shadi.
+
+`GET /v1/customers/{id}/audit/evidence-package?trace_id=...` — audit
+viewer bilan bir xil auditoriya (`authorize_view_customer_audit`:
+CustomerOwner/Auditor). Eksportning o'zi ham audit qilinadi
+(`audit.evidence_exported.v1`, `exported_trace_id`/`event_count` bilan —
+"audit.viewed.v1"/"audit.chain_verified.v1" naqshining takrori).
+
+Isbotlash audit-zanjiri uslubida qilindi: `hash_self_consistent`
+hisoblashni vaqtincha `True`ga qattiq bog'lab,
+`test_a_tampered_events_hash_is_flagged_not_self_consistent` (to'g'ridan-
+to'g'ri, `record_audit_event`ni chetlab o'tib, soxta hash bilan yangi
+qator qo'shadigan — `test_audit_chain_verification.py`ning o'zi
+ishlatgan real tamper vektori) aynan kutilgan tarzda (`assert True is
+False`) muvaffaqiyatsiz bo'lishini ko'rsatdim, keyin qaytarib yashil
+ekanini tasdiqladim. To'rtta test: to'g'ri trace faqat o'z yozuvlarini
+o'z ichiga olishi (aralash trace sizib chiqmasligi), tamper aniqlanishi,
+HTTP darajasida scope+audit (`seed_workspace_member(..., customer_role=
+"customer_owner")` — CustomerOwner-only endpoint uchun), va oddiy a'zo
+403 olishi.
+
+Frontend: customer sahifasining mavjud trace_id filtr formasiga
+(allaqachon qurilgan — audit ro'yxatidagi har bir yozuvning trace_id'i
+bosilganda shu qiymat bilan filtrlaydi) "Evidence eksport" tugmasi
+qo'shildi — faqat trace_id filtri qo'llanilganda ko'rinadi (yangi input
+maydoni shart emas, mavjud `appliedTraceId` state'idan foydalaniladi).
+Bosilganda `GET .../audit/evidence-package`ni chaqirib, natijani
+`doda-evidence-<trace_id>.json` sifatida yuklab beradi (`/v1/me/export`
+tugmasining Blob+`<a download>` naqshining aynan o'zi).
+
+Yangi Playwright qadami (`customer.spec.ts`, o'z mustaqil
+`E2E_CUSTOMER_` seed'i ichida, yangi seed shart emas) mavjud
+"customer.member_invited.v1" audit yozuvining trace_id'ini bosib
+filtrlaydi, "Evidence eksport"ni bosib haqiqiy faylni yuklab oladi
+(`page.waitForEvent("download")`, `/v1/me/export`ning o'z testidagi
+bilan bir xil naqsh) va yuklangan JSON'da: izlangan event turi
+mavjudligini, HAR BIR yozuvning `hash_self_consistent`i rost ekanini,
+va `full_chain_verification.ok`ni tekshiradi — soxta fayl emas, haqiqiy
+round-trip.
+
+Real backend+production frontend'ga qarshi (barcha 14 E2E spec,
+jumladan accessibility skaneri — yangi tugma hech qanday WCAG buzilishi
+keltirmadi) tasdiqlandi.
+
+447 test (backend), barchasi real Postgres'da; `ruff`/`mypy` toza;
+frontend `tsc`/ESLint toza, production build muvaffaqiyatli; barcha 14
+E2E spec yashil.

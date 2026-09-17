@@ -12,7 +12,13 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query
 
-from doda.api.audit_schemas import AuditChainVerificationOut, AuditChainViolationOut, AuditEventOut
+from doda.api.audit_schemas import (
+    AuditChainVerificationOut,
+    AuditChainViolationOut,
+    AuditEventOut,
+    EvidenceEventOut,
+    EvidencePackageOut,
+)
 from doda.api.dependencies import (
     CustomerRequestContext,
     RequestContext,
@@ -20,7 +26,7 @@ from doda.api.dependencies import (
     get_request_context,
 )
 from doda.application.audit_query_service import list_audit_events
-from doda.application.audit_service import record_audit_event, verify_audit_chain
+from doda.application.audit_service import build_evidence_package, record_audit_event, verify_audit_chain
 from doda.application.authz_service import authorize_view_customer_audit
 from doda.domain.audit.models import AuditEvent
 from doda.domain.security.roles import WorkspaceRole
@@ -146,4 +152,65 @@ async def verify_customer_audit_chain(
         ok=result.ok,
         checked_count=result.checked_count,
         violations=[AuditChainViolationOut(event_id=v.event_id, reason=v.reason) for v in result.violations],
+    )
+
+
+@router.get(
+    "/v1/customers/{customer_id}/audit/evidence-package",
+    response_model=EvidencePackageOut,
+)
+async def get_customer_audit_evidence_package(
+    trace_id: uuid.UUID,
+    ctx: CustomerRequestContext = Depends(get_customer_request_context),
+) -> EvidencePackageOut:
+    """FR-AUD-005: same audience as the audit viewer/verify endpoints
+    (CustomerOwner/Auditor) — read-only, no repair. Bundles this one
+    trace_id's full event set with a per-event hash recomputation AND the
+    existing whole-customer chain-verification result, so a recipient
+    (an external auditor, the customer's own security team) can check
+    tamper-evidence without DB access — see EvidencePackage's own
+    docstring for why those are two distinct claims, not one.
+    """
+    authorize_view_customer_audit(ctx.customer)
+
+    package = await build_evidence_package(ctx.db, customer_id=ctx.customer.customer_id, trace_id=trace_id)
+
+    await record_audit_event(
+        ctx.db,
+        customer_id=ctx.customer.customer_id,
+        trace_id=uuid.uuid4(),
+        actor_id=f"user:{ctx.customer.user_id}",
+        event_type="audit.evidence_exported.v1",
+        safe_metadata={
+            "role": ctx.customer.role.value,
+            "exported_trace_id": str(trace_id),
+            "event_count": len(package.events),
+        },
+    )
+
+    return EvidencePackageOut(
+        customer_id=package.customer_id,
+        trace_id=package.trace_id,
+        events=[
+            EvidenceEventOut(
+                id=e.id,
+                event_type=e.event_type,
+                actor_id=e.actor_id,
+                workspace_id=e.workspace_id,
+                occurred_at=e.occurred_at,
+                safe_metadata=e.safe_metadata,
+                prev_hash=e.prev_hash,
+                hash=e.hash,
+                hash_self_consistent=e.hash_self_consistent,
+            )
+            for e in package.events
+        ],
+        full_chain_verification=AuditChainVerificationOut(
+            ok=package.full_chain_verification.ok,
+            checked_count=package.full_chain_verification.checked_count,
+            violations=[
+                AuditChainViolationOut(event_id=v.event_id, reason=v.reason)
+                for v in package.full_chain_verification.violations
+            ],
+        ),
     )

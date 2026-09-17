@@ -454,6 +454,40 @@ export function verifyCustomerAuditChain(
   return apiFetch(`/v1/customers/${customerId}/audit/verify`, sessionId);
 }
 
+// FR-AUD-005: bundles one trace_id's full event set with a per-event hash
+// recomputation AND the whole-customer chain-verification result — see
+// the backend's own EvidencePackage docstring for why those are two
+// distinct claims, not one.
+export interface EvidenceEventOut {
+  id: string;
+  event_type: string;
+  actor_id: string;
+  workspace_id: string | null;
+  occurred_at: string;
+  safe_metadata: Record<string, unknown>;
+  prev_hash: string | null;
+  hash: string;
+  hash_self_consistent: boolean;
+}
+
+export interface EvidencePackageOut {
+  customer_id: string;
+  trace_id: string;
+  events: EvidenceEventOut[];
+  full_chain_verification: AuditChainVerificationOut;
+}
+
+export function getCustomerAuditEvidencePackage(
+  sessionId: string,
+  customerId: string,
+  traceId: string,
+): Promise<EvidencePackageOut> {
+  return apiFetch(
+    `/v1/customers/${customerId}/audit/evidence-package?trace_id=${encodeURIComponent(traceId)}`,
+    sessionId,
+  );
+}
+
 // ---- /v1/customers/{id}/kill-switch ----
 
 export function getCustomerKillSwitch(sessionId: string, customerId: string): Promise<KillSwitchStatusOut> {

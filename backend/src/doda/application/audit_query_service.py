@@ -55,3 +55,23 @@ async def list_audit_events(
     query = query.order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()).limit(limit)
     result = await session.execute(query)
     return list(result.scalars())
+
+
+async def list_audit_events_for_trace(
+    session: AsyncSession, *, customer_id: uuid.UUID, trace_id: uuid.UUID
+) -> list[AuditEvent]:
+    """FR-AUD-005 (evidence package export): every event for ONE trace_id,
+    oldest-first — deliberately NOT paginated like list_audit_events above.
+    An "evidence package" that silently truncated at the default page size
+    would be a correctness bug, not a UX nicety; MAX_PAGE_SIZE is kept only
+    as the same safety bound every other list endpoint in this codebase
+    already has, not as an expected limit for one trace's event count.
+    """
+    query = (
+        select(AuditEvent)
+        .where(AuditEvent.customer_id == customer_id, AuditEvent.trace_id == trace_id)
+        .order_by(AuditEvent.created_at.asc(), AuditEvent.id.asc())
+        .limit(MAX_PAGE_SIZE)
+    )
+    result = await session.execute(query)
+    return list(result.scalars())

@@ -61,6 +61,30 @@ test("customer page: members, notification prefs, audit, kill switch", async ({ 
     await expect(page.getByText("customer.member_removed.v1")).toBeVisible();
   });
 
+  await test.step("filtering by a trace_id and exporting an evidence package downloads a real file", async () => {
+    const invitedRow = page.locator('li:has-text("customer.member_invited.v1")');
+    await invitedRow.locator("button[title=\"Shu trace_id bo'yicha filtrlash\"]").click();
+    await expect(page.getByRole("button", { name: "Evidence eksport" })).toBeVisible();
+
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.click('button:has-text("Evidence eksport")'),
+    ]);
+    const exportedPath = await download.path();
+    const fs = await import("node:fs/promises");
+    const evidence = JSON.parse(await fs.readFile(exportedPath!, "utf-8"));
+    // Proves this is a real GET .../audit/evidence-package round-trip, not
+    // a placeholder: exactly the traced event, with a self-consistent hash
+    // and a healthy full-customer chain.
+    expect(evidence.events.some((e: { event_type: string }) => e.event_type === "customer.member_invited.v1")).toBe(
+      true,
+    );
+    expect(evidence.events.every((e: { hash_self_consistent: boolean }) => e.hash_self_consistent)).toBe(true);
+    expect(evidence.full_chain_verification.ok).toBe(true);
+
+    await page.click("text=Tozalash");
+  });
+
   await test.step("toggle a notification preference off and back on", async () => {
     const prefRow = page.locator('li:has-text("FAILED_ACTION")');
     await prefRow.getByRole("button").click();

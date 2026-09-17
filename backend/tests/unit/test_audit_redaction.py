@@ -55,6 +55,8 @@ ALLOWED_SAFE_METADATA_KEYS = {
     "reference_type",
     "reference_id",
     "language",
+    "exported_trace_id",
+    "event_count",
 }
 
 
