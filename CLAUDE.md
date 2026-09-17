@@ -5599,3 +5599,47 @@ yuqorida "qisman qurildi" deb aniq belgilandi).
 459 test (backend, 453 + 6 yangi: ikkita integration —
 `test_telegram_relay.py`, to'rtta unit — `test_telegram_client.py`),
 barchasi real Postgres+Redis'da; `ruff`/`mypy src/doda` toza.
+
+**FR-ACT-006 (Connector credential hech qachon model kontekstiga
+uzatilmaydi — "Prompt/audit/log'da token qidiruvi 0 natija beradi",
+Must) qurildi.** Bu ID ham FR-ACT-001/002/005/006/007/009 traceability
+guruhida edi. Tekshirilganda aniqlandi: bu talab kodda AMALDA
+allaqachon to'g'ri edi (grep bilan tasdiqlandi — `telegram_bot_token`
+faqat `config.py` (deklaratsiya) va `telegram_relay.py` (bitta
+ochib-ishlatish nuqtasi, SecretStr'dan `main()`ning eng oxirida) da
+uchraydi, AI/prompt qatlamining (`ai/*`, `application/ai_tools.py`,
+`application/conversation_service.py`) HECH birida yo'q) — lekin bu
+RISK-006 sinfining yana bir nusxasi edi: **hujjatlashtirilgan, lekin
+hech qachon statik/dinamik tekshiruv bilan qulflanmagan xavfsizlik
+xususiyati**, auditor bo'shlig'i va append-only trigger tasdiqlovi bilan
+bir xil dars.
+
+`tests/unit/test_connector_credential_isolation.py` —
+`test_audit_redaction.py`/`test_bootstrap_index_writers.py`/`test_side_
+effect_boundary.py` bilan bir xil statik matn-skanerlash usuli (DB shart
+emas): `CONNECTOR_CREDENTIAL_FIELD_NAMES = {"telegram_bot_token"}`ning
+har bir nomi butun `src/doda` bo'ylab qidiriladi, faqat ikkita
+hujjatlashtirilgan istisno bilan (`config.py`ning o'z deklaratsiyasi,
+`telegram_relay.py`ning o'z connector chaqiruvi). Ataylab AI qatlami
+bilan CHEKLANMAGAN — butun kod bazasi bo'ylab skanerlaydi, chunki
+"token prompt/audit/log'da ko'rinmasin" talabi AI qatlamiga xos emas,
+istalgan log yordamchisi yoki API handler'iga ham tegishli, va "AI
+qatlami" degan alohida, parallel saqlanadigan fayl ro'yxatini yuritishdan
+ko'ra butun kod bazasini skanerlash soddaroq.
+
+**Ataylab tor**: ro'yxat FR-ACT-006'ning o'z nomi taklif qilgan
+"connector credential" (umumiy) tushunchasidan TORROQ — aniq, qo'lda
+ko'rib chiqilgan nom ro'yxati, `config.py` maydon nomlariga pattern-match
+emas. Kelajakda ikkinchi connector qo'shilsa, uning credential maydoni
+BU RO'YXATGA ATAYLAB QO'SHILISHI SHART — avtomatik qamrab olinmaydi. Bu
+ongli almashinuv (yangilanishi SHART bo'lgan aniq ro'yxat, jimgina mos
+kelishni to'xtatadigan "aqlli" evristikadan afzal) — kelajakda unutilgan
+narsa deb xato tushunilmasligi uchun aniq yozildi.
+
+Audit-zanjiri uslubida isbotlandi: `ai/port.py`ga vaqtincha
+`telegram_bot_token` so'zini o'z ichiga olgan izoh qo'shib ko'rildi —
+test aniq fayl nomi (`ai/port.py references 'telegram_bot_token'`)
+bilan qizardi, qaytarilgandan keyin yashil.
+
+460 test (backend, 459 + 1 yangi), barchasi real Postgres+Redis'da;
+`ruff`/`mypy src/doda` toza.
