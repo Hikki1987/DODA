@@ -11,6 +11,7 @@ the client's own request/response handling in isolation.
 """
 
 import asyncio
+import json
 import os
 import signal
 import uuid
@@ -277,6 +278,72 @@ async def test_redelivery_of_an_already_succeeded_action_does_not_resend(db_avai
     assert call_count == 1  # Telegram was NOT called again
     action = await _get_action(customer_id, action_id)
     assert action.status is ActionStatus.SUCCEEDED  # unchanged
+
+
+async def test_two_concurrent_telegram_relay_workers_never_double_send_the_same_action(
+    db_available: bool, redis_client: Redis
+) -> None:
+    """NFR-SCL-001's own verification method ('Ikki instansda test') was
+    already applied to outbox_relay.py's Postgres-side locking
+    (test_outbox_relay.py's own concurrency test), but never to THIS
+    connector's Redis consumer-group side — the one that actually matters
+    for FR-ACT-004/9.2 here, since a double Telegram send is a real,
+    irreversible external side effect, not just a duplicate DB row.
+    test_redelivery_of_an_already_succeeded_action_does_not_resend above
+    only proves the SEQUENTIAL case (one worker, redelivered after the
+    fact) — this proves two workers reading the SAME consumer group at
+    the SAME time (a real asyncio.gather, not sequential awaits) never
+    both get handed the same stream entry, even though both use the
+    exact same hardcoded CONSUMER_NAME production runs with today (see
+    the module's own CONSUMER_NAME constant) — it's Redis's own atomic,
+    single-threaded command execution doing the work here, not any
+    locking this codebase itself implements (unlike outbox_relay's
+    FOR UPDATE SKIP LOCKED, which needed its own proof for exactly that
+    reason).
+    """
+
+    def _drain_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 0}})
+
+    # Same backlog concern test_outbox_relay.py's own concurrency test
+    # documents: this Redis instance is shared across the whole test
+    # session, so leftover PEL entries from earlier tests could otherwise
+    # occupy a batch slot ahead of the five this test seeds below.
+    async with _mock_http_client(_drain_handler) as drain_client:
+        while await relay_once(redis_client, drain_client, bot_token="fake-test-token"):
+            pass
+
+    seeded = [
+        await _seed_ready_telegram_action(chat_id=f"concurrent-drill-{i}", text=f"msg {i}") for i in range(5)
+    ]
+    while await outbox_relay_once(redis_client):
+        pass
+
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.content)["chat_id"])
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": len(calls)}})
+
+    async with _mock_http_client(handler) as http_client:
+        for _ in range(20):
+            statuses = [(await _get_action(cid, aid)).status for cid, aid in seeded]
+            if all(status is not ActionStatus.READY for status in statuses):
+                break
+            await asyncio.gather(
+                relay_once(redis_client, http_client, bot_token="fake-test-token"),
+                relay_once(redis_client, http_client, bot_token="fake-test-token"),
+            )
+        else:
+            pytest.fail("not every seeded action left READY")
+
+    expected_chat_ids = [f"concurrent-drill-{i}" for i in range(5)]
+    # Exactly once each — never twice (a double send), never zero (dropped).
+    assert sorted(calls) == sorted(expected_chat_ids)
+
+    for customer_id, action_id in seeded:
+        action = await _get_action(customer_id, action_id)
+        assert action.status is ActionStatus.SUCCEEDED
 
 
 async def test_a_transient_failure_that_clears_up_still_succeeds(

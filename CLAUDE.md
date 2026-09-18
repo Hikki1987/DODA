@@ -6203,3 +6203,49 @@ ORQASIDA HECH QANDAY yashirin keshlash/kechikish yo'qligini isbotlaydi —
 kill switch drill'ining o'zi ham xuddi shu sababdan qurilgan edi.
 
 474 test, barchasi real Postgres'da; `ruff`/`mypy src/doda` toza.
+
+**NFR-SCL-001'ning o'z tekshiruv usuli ("Ikki instansda test") endi
+`telegram_relay.py`ga ham qo'llanildi — ilgari faqat `outbox_relay.py`
+uchun qilingan edi.** `test_redelivery_of_an_already_succeeded_action_
+does_not_resend` faqat KETMA-KET holatni (bitta worker, xato/qulashdan
+keyin qayta yetkazish) sinaydi; haqiqiy IKKITA bir vaqtdagi worker (real
+`asyncio.gather`, xuddi shu `CONSUMER_NAME` bilan — production'da barcha
+nusxalar ishlatadigan aynan shu qattiq yozilgan qiymat) hech qachon
+sinalmagan edi. Yangi
+`test_two_concurrent_telegram_relay_workers_never_double_send_the_same_
+action` beshta READY telegram action'ni ikkita chinakam bir vaqtdagi
+`relay_once` chaqiruvi orqali haydaydi va Telegram'ning o'z (soxta) API
+chaqiruvi HAR BIR action uchun ANIQ bir marta bo'lishini (`sorted(calls)
+== sorted(expected)` — ikki marta emas, nol marta emas) tasdiqlaydi.
+
+**Halol eslatma**: bu himoya `outbox_relay`ning `FOR UPDATE SKIP
+LOCKED`idan farqli — bu kod bazasining o'z qulflash mexanizmi emas,
+Redis Stream consumer group'larining o'z, bitta-buyruqli atomik
+bajarilish kafolati (ikkita mijoz bir vaqtda `XREADGROUP` chaqirsa ham,
+Redis ularni ketma-ket, bir-biriga mos kelmaydigan holda bajaradi).
+Shuning uchun `outbox_relay`ning o'z concurrency testida qilingandek
+"himoyani olib tashlab, test qizarishini ko'rsatish" usuli bu yerda
+to'g'ridan-to'g'ri qo'llanmadi — bu kod bazasining o'zi bu kafolatni
+amalga oshirmaydi, Redis'ning ichki ishlash tafsilotini o'chirib
+bo'lmaydi.
+
+Bitta shunday urinish qilib ko'rildi va **ataylab qaytarib tashlandi**:
+`relay_once`ning har chaqiruvida yangi, tasodifiy consumer group
+yaratadigan vaqtinchalik "xato in'ektsiyasi" (ikkita ishchi turli
+guruhlardan foydalansa, ikkalasi ham bir xil yozuvlarni oladi degan
+gipotezani sinash uchun) — lekin bu HAR BIR yangi guruh stream'ning
+BOSHIDAN (`id="0"`) o'qishni boshlashiga olib keldi, ya'ni butun sessiya
+davomida to'plangan minglab eski yozuvni qayta o'qishga urindi va
+osilib qoldi (120s timeout). Tajriba darhol to'xtatildi, production fayl
+zaxira nusxadan tiklandi (`git diff` bilan 0 farq tasdiqlandi), va
+tajriba orqasida qolgan **1201 ta** vaqtinchalik "broken-*"/"group-a"
+consumer group Redis'dan qo'lda tozalandi (`XGROUP DESTROY`, `xinfo_
+groups` bilan oldin/keyin tasdiqlangan — faqat haqiqiy `telegram-
+connector` guruhi qoldi, pending:0). Bu holda revert-test-restore
+o'rniga testning o'z docstring'idagi mulohaza (Redis atomikligi, bu
+kod bazasining o'z mexanizmi emas) haqiqiy isbot sifatida qoldirildi —
+xato in'ektsiyasi bu holatda foydadan ko'ra ko'proq zarar keltirdi
+(umumiy Redis holatini buzish xavfi), shuning uchun davom ettirilmadi.
+
+475 test, barchasi real Postgres+Redis'da (ikki marta ketma-ket ishga
+tushirilib barqarorligi tasdiqlandi); `ruff`/`mypy src/doda` toza.
