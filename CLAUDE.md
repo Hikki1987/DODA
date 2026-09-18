@@ -6093,3 +6093,43 @@ va allaqachon yakunlangan) ham qamrab olindi.
 
 Real backend+production frontend'ga qarshi (barcha 14 E2E spec) tasdiqlandi.
 Backend o'zgarmadi, 473 test o'zgarishsiz.
+
+**FR-ACT-009ning o'zi ochgan yangi observability bo'shlig'i darhol
+yopildi: COMPENSATING holatida qotib qolgan action'ni ko'radigan hech
+narsa yo'q edi.** `complete_compensation` ataylab avtomatlashtirilmagan
+(inson attestatsiyasi, yuqoriga qarang) — demak `request_cancellation`
+RUNNING'ni COMPENSATING'ga o'tkazgandan keyin, agar javobgar
+workspace_admin buni unutib qo'ysa (yoki umuman shu qadam kerakligini
+bilmasa), action abadiy COMPENSATING'da qotib qolishi mumkin — hech
+qanday relay worker, timer yoki bildirishnoma sikli uni qayta ko'rib
+chiqmaydi. Bu aynan `find_stuck_running_actions.py`ning o'zi RUNNING
+uchun hujjatlashtirgan bo'shliqning bir xil nusxasi, faqat COMPENSATING
+uchun — va bu bo'shliq FR-ACT-009 shu sessiyada qurilishidan OLDIN
+mavjud bo'lolmas edi (COMPENSATING holatiga hech qachon yetib
+bo'lmagan), shuning uchun buni darhol yopish tabiiy davomi edi.
+
+`backend/scripts/find_stuck_compensating_actions.py` —
+`find_stuck_running_actions.py` bilan bir xil naqsh (`UserCustomerIndex`
+orqali customer'larni topib, har birining COMPENSATING action'lari uchun
+o'zining `action.compensating.v1` audit yozuvi eskirganmi tekshiradi).
+Ikkita farq bilan: (1) standart chegara 1 soat (RUNNING'ning 15
+daqiqasidan ancha uzoq) — chunki kompensatsiyani yakunlash relay
+worker'ning emas, insonning tashqi vazifasi, buni sezish va bajarish
+uchun realistik vaqt kerak; (2) bu skript ham AYNAN RUNNING skripti kabi
+"nima qotib qolganini KO'RSATADI, uni HAL QILMAYDI" — qaysi kompensatsiya
+haqiqatda bajarilgan-bajarilmaganini hal qilish aynan FR-ACT-009ning o'zi
+WorkspaceAdmin'ga topshirgan inson qarori, monitoring skripti taxmin
+qilishi kerak bo'lgan narsa emas.
+
+Boshqa mustaqil skriptlar kabi pytest test yo'q — qo'lda, real
+Postgres'ga qarshi tekshirildi: haqiqiy R0 action to'liq propose→
+validate→READY→(apply_transition bilan to'g'ridan-to'g'ri)RUNNING→
+(request_cancellation bilan)COMPENSATING oqimi orqali yaratildi.
+Standart 1 soatlik chegara bilan bu YANGI action to'g'ri "compensating_ok"
+deb belgilandi (exit 0); `threshold=timedelta(seconds=0)` bilan esa aynan
+shu action haqiqiy `compensating_since`/yosh bilan STUCK deb belgilandi
+(exit 1) — ikkalasi ham skriptning o'zi (import qilingan `main()`
+funksiyasi orqali) haqiqiy ishga tushirilib tasdiqlandi.
+
+Kod bazasi o'zgarmadi (yangi mustaqil skript qo'shildi) — 473 test
+o'zgarishsiz, `ruff`/`mypy src/doda` toza.
