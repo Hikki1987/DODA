@@ -6007,3 +6007,52 @@ accessibility skaneri — yangi tugma hech qanday WCAG buzilishi
 keltirmadi) tasdiqlandi. 473 test (backend, 462+11), barchasi real
 Postgres+Redis'da; `ruff`/`mypy src/doda` toza; frontend `tsc`/ESLint/
 production build toza.
+
+**Yettinchi `security-review` o'tkazildi — oltinchisidan (1f917b3) keyingi
+hamma narsaga qarshi: uchinchi `/simplify` pass va FR-ACT-009 (action
+bekor qilish/compensating oqimi, ikkita yangi authz funksiyasi va ikkita
+yangi HTTP endpoint bilan birga).** Jarayon bir xil: topish subagent'i
+butun diff'ni (30 fayl, ~1100 qator) ko'rib chiqdi, ayniqsa yangi
+`authorize_cancel_action`/`authorize_complete_compensation` va
+`POST .../actions/{id}/cancel`/`.../compensate/complete` endpoint'lariga
+e'tibor qaratib.
+
+**Natija: 0 topilma — bu safar hech qanday nomzod hatto filtrlash
+bosqichiga ham yetib bormadi** (topish subagent'ining o'zi >=0.8 ishonch
+chegarasiga yetadigan birorta narsa topmadi, shuning uchun alohida
+false-positive filtrlash subagent'lari kerak bo'lmadi). Tekshirilgan va
+to'g'ri ekani tasdiqlangan asosiy nuqtalar: (1) ikkala yangi endpoint ham
+avval workspace scoping'ni tekshiradi (`action.workspace_id !=
+ctx.workspace.workspace_id` — boshqa har bir bitta-ID endpoint bilan bir
+xil "404 avtorizatsiyadan oldin" naqshi), keyingina rolni; (2)
+`authorize_cancel_action` mavjud `ROLES_THAT_MAY_APPROVE_ANOTHER_
+ACTORS_ACTION` (faqat `WORKSPACE_ADMIN`) to'plamini qayta ishlatadi,
+`authorize_complete_compensation` esa faqat WorkspaceAdmin; (3)
+`request_cancellation`/`complete_compensation` ikkalasi ham yagona
+`apply_transition` chokepoint'i orqali o'tadi — demak mavjud
+`SELECT ... FOR UPDATE`/`populate_existing` qulflash va FR-ACT-007'ning
+receipt talabini avtomatik meros qiladi, state machine'ning o'zi bu
+PR'da o'zgarmagan; (4) `CompleteCompensationRequest.outcome` butun
+`ActionStatus` enum'ini qabul qilsa-da, `complete_compensation`
+`{COMPENSATED, FAILED}`dan tashqarisini `ValueError` bilan rad etadi, va
+hatto bu tekshiruv chetlab o'tilsa ham `apply_transition`ning o'z state-
+machine tekshiruvi mustaqil ravishda rad etardi (COMPENSATING'ning
+boshqa chiqish yo'li yo'q) — noto'g'ri `outcome` uchun 400 o'rniga umumiy
+500 qaytishi aniqlandi, lekin bu xavfsizlik emas, robustness nuqsoni
+(endpoint allaqachon WorkspaceAdmin bilan qamalgan), shuning uchun
+topilma sifatida qayd etilmadi; (5) `ai_tools.propose_write_tool_
+action`dagi `RiskLevel.R3`→`RiskLevel.R0` o'zgarishi (5-tuzatishning
+davomi) risk-floor majburlashni to'liq `enforce_minimum_risk_level`ga
+topshiradi — bugungi kunda xavfsiz (yagona yozish tool'i, `telegram.
+send_message`, `TOOL_MINIMUM_RISK_LEVEL`da to'g'ri ro'yxatga olingan),
+lekin kelajakda `TOOL_MINIMUM_RISK_LEVEL`ga mos yozuvsiz yangi yozish
+tool'i qo'shilsa, u sukut bo'yicha R0'da taklif qilinishi mumkinligi
+dizayn eslatmasi sifatida qayd etildi (bugungi kunda ekspluatatsiya
+qilinadigan emas, >=0.8 chegarasiga yetmaydi); (6) `list_all_customer_
+ids` hech qanday HTTP route orqali ochilmagan (faqat ops-skriptlar).
+
+Bu safar avvalgi 4- va 6-review'lar bilan bir xil — chindan ham toza
+natija, zo'rma-zo'raki chegara-usti topilma ham yo'q edi.
+
+473 test, barchasi real Postgres+Redis'da (kod o'zgarmadi — sof
+tekshiruv).
