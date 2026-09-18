@@ -5809,3 +5809,122 @@ natija — hech qanday nomzod chegara-usti (masalan ishonch 7) emas edi.
 
 462 test, barchasi real Postgres+Redis'da (kod o'zgarmadi — sof
 tekshiruv).
+
+**Uchinchi `/simplify` ko'rib chiqish o'tkazildi — oxirgi simplify'dan
+(3ee4fe7) keyingi barcha commit'larga qarshi (~60 commit: SecretStr
+maskalash, Google OIDC, production deployment, to'liq FR-CONV chat
+scaffolding+multi-provider, FR-TASK-002/003/005, FR-WKS-007, FR-ACT-002/
+005/006/007, bir nechta NFR tekshiruv skripti, 5- va 6-security-review).**
+Jarayon bir xil: reuse/simplification/efficiency/altitude — 4 ta parallel
+subagent, har biri o'z burchagidan topilmalarini qaytardi, dublikatlar
+olib tashlanib, xavfsizlari to'g'ridan-to'g'ri tuzatildi.
+
+**Topildi va tuzatildi:**
+1. **Beshinchi security-review'ning nonce-disclosure tuzatishi (`d484087`)
+   ikkita chaqiruv nuqtasida (`api/actions.py`, `ai_tools.py`) bir xil
+   ~15 qatorli "replay bo'lsa, faqat asl actor'ga approval qaytar" blokini
+   mustaqil nusxalagan edi.** `action_service.py`ga yangi
+   `resolve_replay_approval(session, action, *, actor_id)` qo'shildi —
+   ikkalasi ham endi shu funksiyani chaqiradi. Bu markazlashtirish shunchaki
+   qulaylik emas: kelajakda uchinchi replay-chaqiruvchi paydo bo'lsa, u
+   ANIQ `action.actor_id == actor_id` tekshiruvini mustaqil qayta yozishga
+   majbur bo'lmaydi — 5-security-review'ning o'zi aynan shu tekshiruvning
+   IKKI joyda mustaqil, deyarli bir xil qilib yozilgani sababli birinchi
+   marta noto'g'ri (faqat bitta joyda) tuzatilgan edi.
+2. **`api/tasks.py`da `TaskDecisionOut`ni qurish ikki joyda (`record_
+   workspace_task_decision`, `get_task_decisions`) bir xil maydon-
+   ko'chirish bilan takrorlangan edi** — `_to_task_decision_out(record)`
+   yordamchisiga chiqarildi.
+3. **`api/ai_settings.py`da `ProviderStatusOut`ni qurish ikki joyda
+   (`list_provider_statuses`, `set_provider_enabled`) bir xil edi** —
+   `_to_provider_status_out(provider, settings, *, enabled, verification)`
+   yordamchisiga chiqarildi.
+4. **`openai_gateway.py` va `claude_gateway.py`ning ikkalasi ham Rate-Limit
+   javobidan `retry-after` header'ini qazib olish uchun bir xil 9 qatorli
+   parsing kodini mustaqil yozgan edi** — `ai/errors.py`ga
+   `parse_retry_after_header(exc)` qo'shildi, ikkala gateway ham
+   `ModelRateLimitedError`ni qurishda shuni chaqiradi.
+5. **`UserCustomerIndex`dan "barcha customer'lar" so'rovi TO'RTTA mustaqil
+   ops-skriptida (`verify_audit_chain_job.py`, `find_stuck_running_
+   actions.py`, `fire_due_reminders_job.py`, `verify_trace_completeness_
+   job.py`) bir xil olti qatorli so'rov sifatida takrorlangan edi** —
+   `customer_service.py`ga (yozish tomoni allaqachon shu faylda)
+   `list_all_customer_ids()` qo'shildi, to'rttasi ham shu funksiyani
+   chaqirishga o'tkazildi. `backup_restore_drill.py` ATAYLAB
+   o'zgartirilmadi — u boshqa DB rolidan (`doda`, migratsiya/superuser)
+   ochilgan mustaqil session factory ishlatadi, standart ilova session
+   factory'sini ochadigan umumiy yordamchi bu yerga mos kelmaydi.
+6. **Frontend: `sessions/page.tsx`ning "ma'lumotlarimni eksport qilish"
+   va `customers/[id]/page.tsx`ning "evidence eksport qilish" bir xil
+   Blob/createObjectURL/anchor-click/revokeObjectURL ketma-ketligini
+   mustaqil yozgan edi** — `api.ts`ga `downloadJsonFile(filename, data)`
+   qo'shildi, ikkalasi ham shuni chaqiradi.
+7. **Frontend: `streamConversationMessage` (SSE POST, `apiFetch`ning o'zini
+   ishlata olmaydi — xom `Response`/stream kerak) auth header va xato-
+   konvert mantig'ini `apiFetch`dan mustaqil qayta yozgan edi** — `api.ts`da
+   `authHeaders(sessionId)` va `throwApiError(response)` ajratib chiqarildi,
+   `apiFetch` HAM, `streamConversationMessage` HAM ikkalasini ham
+   ishlatadi — endi ikkalasi bir xil manbadan keladi, mustaqil emas.
+8. **Frontend: chat sahifasining 7 ta "pin/set/clear" handler'i
+   (`handlePinProvider`, `handlePinLanguage`, `handleClearPinnedLanguage`,
+   `handleSetWorkspacePreference`, `handleClearWorkspacePreference`,
+   `handleSetWorkspaceLanguage`, `handleClearWorkspaceLanguage`) bir xil
+   "band bo'lsa o'tkazib yubor → flag ko'tar → chaqir → flag tushir,
+   xatoda fallback xabar" skeletini takrorlagan edi** — `runGuarded(busy,
+   setBusy, action, fallbackMessage)` yordamchisiga chiqarildi, har bir
+   handler endi faqat NIMA farq qilishini (busy flag, haqiqiy chaqiruv,
+   xato xabari) beradi.
+9. **Altitude: `conversation_service.py`ning FR-CONV-001 til-rezolyutsiya
+   zanjiri (`conversation.pinned_language or detect_language(content) or
+   await get_workspace_language(...)`) to'g'ridan-to'g'ri `stream_message`
+   ichida, alohida testlanmasdan yotardi** — `ai_preference_service.
+   resolve_provider_choice`ning aynan o'zi o'rnatgan precedentga ko'ra
+   `resolve_effective_language(session, conversation, content, *,
+   workspace_id)`ga chiqarildi. Endi bu funksiya mustaqil (`stream_
+   message`ning butun oqimidan ajratilgan holda) sinalishi mumkin —
+   xuddi provayder-tanlash zanjirining o'zi kabi.
+10. **`conversation_service.py`ning mid-stream xato (`except BaseException`)
+    va muvaffaqiyatli yakunlanish yo'llari ikkalasi ham byudjetni
+    reconcile qilish + `record_usage_event`ni chaqirish kodining deyarli
+    bir xil nusxasini o'z ichiga olgan edi** — `_reconcile_and_record(status)`
+    nested closure'iga chiqarildi, ikkala yo'l ham (REFUNDED/RECONCILED
+    statusi bilan) shuni chaqiradi.
+11. **Efficiency: `task_service.fire_due_reminders` har bir muddati
+    o'tgan reminder uchun ALOHIDA `Task`ni so'rardi (N+1)** — endi bitta
+    `select(Task).where(Task.id.in_({...}))` bilan barcha kerakli
+    task'larni oldindan bitta so'rovda yuklaydi, keyin dict orqali
+    qidiradi.
+
+**Ataylab o'tkazib yuborildi** (skill'ning "false positive yoki doirasiz
+bo'lsa o'tkazib yubor" qoidasiga ko'ra):
+- `ai_provider_settings_service.py` (uchta funksiya) va `ai_preference_
+  service.py`/`kill_switch_service.py`/`notification_service.py`dagi
+  besh xil `begin_nested`/`IntegrityError` upsert nusxasini bitta umumiy
+  generik yordamchiga birlashtirish — ikkinchi `/simplify` pass'ining o'zi
+  aynan shu turkumdagi (uch xil qaytarish siyosati bilan) konsolidatsiyani
+  "majburan bitta abstraksiyaga solish turli semantikani haddan tashqari
+  umumlashtirib qo'yishi mumkin" deb ATAYLAB rad etgan edi (kill switch —
+  "birinchi g'olib", notification preference — "oxirgi yozuvchi g'olib",
+  provider verification — shartsiz overwrite). Bu safar ham xuddi shu
+  mulohaza qo'llaniladi — besh xil chaqiruvchi besh xil natija xohlaydi,
+  umumiy "upsert" funksiyasi bu farqni yashirib qo'yishi yoki
+  parametr-portlashiga (strategy enum) olib kelishi mumkin edi.
+- `list_my_workspaces`dagi auditor `continue`ning joylashuvi — bu
+  ikkinchi `/simplify` pass'ida ALLAQACHON to'g'ri joyga (alohida, erta
+  guard sifatida) ko'chirilgan edi, bu safar qayta ko'rib chiqishga hojat
+  yo'q edi.
+
+Tuzatishlardan keyin: 462 test (backend, real Postgres+Redis'da)
+o'zgarishsiz o'tdi; `ruff format`/`ruff check`/`mypy src/doda` toza;
+frontend `tsc --noEmit`/ESLint/production build (`next build`) toza;
+barcha 14 E2E spec haqiqiy backend+frontend'ga (production build,
+`E2E_`/`E2E_CUSTOMER_`/`E2E_A11Y_`/`E2E_ARCHIVE_`/`E2E_KILLSWITCH_`/
+`E2E_LOGOUT_`/`E2E_AUDITOR_`/`E2E_AUTHCALLBACK_`/`E2E_CHAT_` — to'qqizta
+mustaqil seed) qarshi qayta ishga tushirilib yashil. Ishga tushirish
+davomida `test_telegram_relay.py::test_run_forever_drives_an_action_
+then_stops_promptly_on_stop_event` bir marta muvaffaqiyatsiz bo'ldi —
+bu ham xuddi shu sessiyada bir necha marta hujjatlashtirilgan
+"`relay_once` outbox'ni platform-keng o'qiydi, boshqa testlarning
+qoldiq qatorlaridan ta'sirlanadi" flake sinfi (yolg'iz ishga tushirilganda
+va butun suite ikkinchi marta ishga tushirilganda ikkalasida ham yashil
+edi) — kod bilan bog'liq emas, tasdiqlangan.

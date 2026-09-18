@@ -10,25 +10,22 @@ schedule (cron/systemd timer) frequently enough that "due" reminders
 don't sit unfired for long — how frequently is an operational/hosting
 decision (OD-005), not something this script picks for itself.
 
-Iterates customer_ids from UserCustomerIndex — the same deliberately
-RLS-free bootstrap table verify_audit_chain_job.py/
-find_stuck_running_actions.py already use to discover which customers
-exist at all, never for tenant content.
+Discovers every customer to check via `customer_service.list_all_customer_ids`
+— the same RLS-free UserCustomerIndex bootstrap table
+verify_audit_chain_job.py/find_stuck_running_actions.py already use to
+discover which customers exist at all, never for tenant content.
 """
 
 import asyncio
 import sys
 
-from sqlalchemy import select
-
+from doda.application.customer_service import list_all_customer_ids
 from doda.application.task_service import fire_due_reminders
-from doda.db import async_session_factory, tenant_scoped_session
-from doda.domain.customer.models import UserCustomerIndex
+from doda.db import tenant_scoped_session
 
 
 async def main() -> int:
-    async with async_session_factory() as session:
-        customer_ids = (await session.scalars(select(UserCustomerIndex.customer_id).distinct())).all()
+    customer_ids = await list_all_customer_ids()
 
     total_fired = 0
     for customer_id in customer_ids:

@@ -35,6 +35,7 @@ from doda.ai.errors import (
     ModelProviderError,
     ModelRateLimitedError,
     ModelTimeoutError,
+    parse_retry_after_header,
 )
 from doda.ai.types import (
     ChatMode,
@@ -97,16 +98,9 @@ def _translate_error(exc: Exception) -> Exception:
     if isinstance(exc, anthropic.AuthenticationError):
         return ModelAuthenticationError("Claude rejected the configured API key")
     if isinstance(exc, anthropic.RateLimitError):
-        retry_after = None
-        headers = getattr(getattr(exc, "response", None), "headers", None)
-        if headers is not None:
-            raw = headers.get("retry-after")
-            if raw is not None:
-                try:
-                    retry_after = float(raw)
-                except ValueError:
-                    retry_after = None
-        return ModelRateLimitedError("Claude rate-limited this request", retry_after_seconds=retry_after)
+        return ModelRateLimitedError(
+            "Claude rate-limited this request", retry_after_seconds=parse_retry_after_header(exc)
+        )
     if isinstance(exc, anthropic.APITimeoutError):
         return ModelTimeoutError("Claude did not respond within the configured timeout")
     if isinstance(exc, anthropic.APIStatusError):

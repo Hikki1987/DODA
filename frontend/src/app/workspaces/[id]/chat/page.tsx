@@ -120,110 +120,132 @@ export default function ChatPage() {
     }
   }
 
+  // Every "pin"/"set"/"clear" preference handler below shares the same
+  // shape (skip if already in flight -> flip a busy flag -> await one
+  // call -> update local state, or fall back to a handler-specific error
+  // message -> always clear the busy flag) — consolidated so each handler
+  // states only what varies: the busy flag and the actual call.
+  async function runGuarded(
+    busy: boolean,
+    setBusy: (value: boolean) => void,
+    action: () => Promise<void>,
+    fallbackMessage: string,
+  ): Promise<void> {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await action();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : fallbackMessage);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handlePinProvider(event: FormEvent) {
     event.preventDefault();
-    if (sessionId === null || selectedId === null || pinning) return;
-    setPinning(true);
-    try {
-      const updated = await switchConversationProvider(
-        sessionId,
-        workspaceId,
-        selectedId,
-        pinProvider,
-        pinModel.trim().length > 0 ? pinModel.trim() : null,
-      );
-      setConversations((prev) => prev?.map((c) => (c.id === updated.id ? updated : c)) ?? null);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Provayderni o'rnatib bo'lmadi.");
-    } finally {
-      setPinning(false);
-    }
+    if (sessionId === null || selectedId === null) return;
+    await runGuarded(
+      pinning,
+      setPinning,
+      async () => {
+        const updated = await switchConversationProvider(
+          sessionId,
+          workspaceId,
+          selectedId,
+          pinProvider,
+          pinModel.trim().length > 0 ? pinModel.trim() : null,
+        );
+        setConversations((prev) => prev?.map((c) => (c.id === updated.id ? updated : c)) ?? null);
+      },
+      "Provayderni o'rnatib bo'lmadi.",
+    );
   }
 
   async function handlePinLanguage(event: FormEvent) {
     event.preventDefault();
-    if (sessionId === null || selectedId === null || pinningLanguage) return;
-    setPinningLanguage(true);
-    try {
-      const updated = await switchConversationLanguage(sessionId, workspaceId, selectedId, pinLanguage);
-      setConversations((prev) => prev?.map((c) => (c.id === updated.id ? updated : c)) ?? null);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Tilni o'rnatib bo'lmadi.");
-    } finally {
-      setPinningLanguage(false);
-    }
+    if (sessionId === null || selectedId === null) return;
+    await runGuarded(
+      pinningLanguage,
+      setPinningLanguage,
+      async () => {
+        const updated = await switchConversationLanguage(sessionId, workspaceId, selectedId, pinLanguage);
+        setConversations((prev) => prev?.map((c) => (c.id === updated.id ? updated : c)) ?? null);
+      },
+      "Tilni o'rnatib bo'lmadi.",
+    );
   }
 
   async function handleClearPinnedLanguage() {
-    if (sessionId === null || selectedId === null || pinningLanguage) return;
-    setPinningLanguage(true);
-    try {
-      const updated = await switchConversationLanguage(sessionId, workspaceId, selectedId, null);
-      setConversations((prev) => prev?.map((c) => (c.id === updated.id ? updated : c)) ?? null);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Tilni tozalab bo'lmadi.");
-    } finally {
-      setPinningLanguage(false);
-    }
+    if (sessionId === null || selectedId === null) return;
+    await runGuarded(
+      pinningLanguage,
+      setPinningLanguage,
+      async () => {
+        const updated = await switchConversationLanguage(sessionId, workspaceId, selectedId, null);
+        setConversations((prev) => prev?.map((c) => (c.id === updated.id ? updated : c)) ?? null);
+      },
+      "Tilni tozalab bo'lmadi.",
+    );
   }
 
   async function handleSetWorkspacePreference(event: FormEvent) {
     event.preventDefault();
-    if (sessionId === null || savingWorkspacePreference) return;
-    setSavingWorkspacePreference(true);
-    try {
-      const updated = await setWorkspaceAiPreference(
-        sessionId,
-        workspaceId,
-        workspaceProviderChoice,
-        workspaceModelChoice.trim().length > 0 ? workspaceModelChoice.trim() : null,
-      );
-      setWorkspacePreferenceState(updated);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Workspace AI afzalligini saqlab bo'lmadi.");
-    } finally {
-      setSavingWorkspacePreference(false);
-    }
+    if (sessionId === null) return;
+    await runGuarded(
+      savingWorkspacePreference,
+      setSavingWorkspacePreference,
+      async () => {
+        const updated = await setWorkspaceAiPreference(
+          sessionId,
+          workspaceId,
+          workspaceProviderChoice,
+          workspaceModelChoice.trim().length > 0 ? workspaceModelChoice.trim() : null,
+        );
+        setWorkspacePreferenceState(updated);
+      },
+      "Workspace AI afzalligini saqlab bo'lmadi.",
+    );
   }
 
   async function handleClearWorkspacePreference() {
-    if (sessionId === null || savingWorkspacePreference) return;
-    setSavingWorkspacePreference(true);
-    try {
-      await clearWorkspaceAiPreference(sessionId, workspaceId);
-      setWorkspacePreferenceState({ provider: null, model: null });
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Workspace AI afzalligini tozalab bo'lmadi.");
-    } finally {
-      setSavingWorkspacePreference(false);
-    }
+    if (sessionId === null) return;
+    await runGuarded(
+      savingWorkspacePreference,
+      setSavingWorkspacePreference,
+      async () => {
+        await clearWorkspaceAiPreference(sessionId, workspaceId);
+        setWorkspacePreferenceState({ provider: null, model: null });
+      },
+      "Workspace AI afzalligini tozalab bo'lmadi.",
+    );
   }
 
   async function handleSetWorkspaceLanguage(event: FormEvent) {
     event.preventDefault();
-    if (sessionId === null || savingWorkspaceLanguage) return;
-    setSavingWorkspaceLanguage(true);
-    try {
-      const updated = await setWorkspaceLanguageSetting(sessionId, workspaceId, workspaceLanguageChoice);
-      setWorkspaceLanguageSettingState(updated);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Workspace tilini saqlab bo'lmadi.");
-    } finally {
-      setSavingWorkspaceLanguage(false);
-    }
+    if (sessionId === null) return;
+    await runGuarded(
+      savingWorkspaceLanguage,
+      setSavingWorkspaceLanguage,
+      async () => {
+        const updated = await setWorkspaceLanguageSetting(sessionId, workspaceId, workspaceLanguageChoice);
+        setWorkspaceLanguageSettingState(updated);
+      },
+      "Workspace tilini saqlab bo'lmadi.",
+    );
   }
 
   async function handleClearWorkspaceLanguage() {
-    if (sessionId === null || savingWorkspaceLanguage) return;
-    setSavingWorkspaceLanguage(true);
-    try {
-      const updated = await setWorkspaceLanguageSetting(sessionId, workspaceId, null);
-      setWorkspaceLanguageSettingState(updated);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Workspace tilini tozalab bo'lmadi.");
-    } finally {
-      setSavingWorkspaceLanguage(false);
-    }
+    if (sessionId === null) return;
+    await runGuarded(
+      savingWorkspaceLanguage,
+      setSavingWorkspaceLanguage,
+      async () => {
+        const updated = await setWorkspaceLanguageSetting(sessionId, workspaceId, null);
+        setWorkspaceLanguageSettingState(updated);
+      },
+      "Workspace tilini tozalab bo'lmadi.",
+    );
   }
 
   async function handleSend(event: FormEvent) {

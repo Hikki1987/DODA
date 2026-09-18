@@ -18,13 +18,30 @@ export class ApiError extends Error {
   }
 }
 
+function authHeaders(sessionId: string): Record<string, string> {
+  return { Authorization: `Bearer ${sessionId}` };
+}
+
+// Every endpoint (plain JSON or streamConversationMessage's SSE POST) fails
+// with the same envelope shape — shared so a non-2xx response is always
+// turned into the same ApiError, whether or not the caller ever reads a body.
+async function throwApiError(response: Response): Promise<never> {
+  const body = await response.json().catch(() => ({}));
+  throw new ApiError(
+    response.status,
+    body.code ?? "UNKNOWN",
+    body.message ?? "Noma'lum xato yuz berdi",
+    body.trace_id ?? "",
+  );
+}
+
 async function apiFetch<T>(
   path: string,
   sessionId: string,
   init?: RequestInit & { idempotencyKey?: string },
 ): Promise<T> {
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${sessionId}`,
+    ...authHeaders(sessionId),
     ...(init?.body ? { "Content-Type": "application/json" } : {}),
     ...(init?.idempotencyKey ? { "Idempotency-Key": init.idempotencyKey } : {}),
   };
@@ -35,18 +52,11 @@ async function apiFetch<T>(
     return undefined as T;
   }
 
-  const body = await response.json();
-
   if (!response.ok) {
-    throw new ApiError(
-      response.status,
-      body.code ?? "UNKNOWN",
-      body.message ?? "Noma'lum xato yuz berdi",
-      body.trace_id ?? "",
-    );
+    await throwApiError(response);
   }
 
-  return body as T;
+  return (await response.json()) as T;
 }
 
 // ---- /v1/sessions — used only to validate a pasted dev session id ----
@@ -760,7 +770,7 @@ export async function* streamConversationMessage(
     `${API_BASE_URL}/v1/workspaces/${workspaceId}/conversations/${conversationId}/messages`,
     {
       method: "POST",
-      headers: { Authorization: `Bearer ${sessionId}`, "Content-Type": "application/json" },
+      headers: { ...authHeaders(sessionId), "Content-Type": "application/json" },
       body: JSON.stringify({ content, mode }),
       signal,
     },
@@ -769,13 +779,7 @@ export async function* streamConversationMessage(
   if (!response.ok) {
     // Pre-stream failure (budget/capability/provider error on round 0) —
     // a normal JSON error body, same shape as every other endpoint.
-    const body = await response.json().catch(() => ({}));
-    throw new ApiError(
-      response.status,
-      body.code ?? "UNKNOWN",
-      body.message ?? "Noma'lum xato yuz berdi",
-      body.trace_id ?? "",
-    );
+    await throwApiError(response);
   }
   if (response.body === null) return;
 
@@ -953,4 +957,21 @@ export interface AiBudgetStatusOut {
 // optional, role-gated section on this page (archived workspaces, audit).
 export function getAiBudgetStatus(sessionId: string, customerId: string): Promise<AiBudgetStatusOut> {
   return apiFetch(`/v1/customers/${customerId}/ai-budget`, sessionId);
+}
+
+// ---- browser-side download helper (FR-CTL-002 export, FR-AUD-005 evidence package) ----
+
+// Shared by sessions/page.tsx's "export my data" and customers/[id]/page.tsx's
+// "export evidence package" — both fetched a JSON payload and immediately
+// saved it as a file with the identical Blob/createObjectURL/anchor-click/
+// revokeObjectURL sequence; consolidated here so a third caller doesn't
+// have to copy it a third time.
+export function downloadJsonFile(filename: string, data: unknown): void {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }

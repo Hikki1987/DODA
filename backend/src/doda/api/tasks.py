@@ -33,7 +33,7 @@ from doda.application.task_service import (
     record_task_decision,
     request_reminder,
 )
-from doda.domain.task.models import Reminder, Task, TaskStatus
+from doda.domain.task.models import Reminder, Task, TaskDecision, TaskStatus
 
 router = APIRouter(tags=["tasks"])
 
@@ -143,6 +143,18 @@ async def get_task_history(
     ]
 
 
+def _to_task_decision_out(record: TaskDecision) -> TaskDecisionOut:
+    return TaskDecisionOut(
+        id=record.id,
+        actor_id=record.actor_id,
+        variant=record.variant,
+        tradeoff=record.tradeoff,
+        decision=record.decision,
+        reason=record.reason,
+        created_at=record.created_at,
+    )
+
+
 @router.post(
     "/v1/workspaces/{workspace_id}/tasks/{task_id}/decisions",
     response_model=TaskDecisionOut,
@@ -166,15 +178,7 @@ async def record_workspace_task_decision(
         decision=body.decision,
         reason=body.reason,
     )
-    return TaskDecisionOut(
-        id=record.id,
-        actor_id=record.actor_id,
-        variant=record.variant,
-        tradeoff=record.tradeoff,
-        decision=record.decision,
-        reason=record.reason,
-        created_at=record.created_at,
-    )
+    return _to_task_decision_out(record)
 
 
 @router.get(
@@ -186,18 +190,7 @@ async def get_task_decisions(
 ) -> list[TaskDecisionOut]:
     await _get_owned_task(ctx, task_id)  # 404s before revealing any decision exists
     decisions = await list_task_decisions(ctx.db, task_id)
-    return [
-        TaskDecisionOut(
-            id=record.id,
-            actor_id=record.actor_id,
-            variant=record.variant,
-            tradeoff=record.tradeoff,
-            decision=record.decision,
-            reason=record.reason,
-            created_at=record.created_at,
-        )
-        for record in decisions
-    ]
+    return [_to_task_decision_out(record) for record in decisions]
 
 
 def _to_reminder_out(reminder: Reminder) -> ReminderOut:
@@ -265,9 +258,7 @@ async def confirm_task_reminder(
     task = await _get_owned_task(ctx, task_id)
     authorize_task_mutation(ctx.workspace, task)
     reminder = await _get_owned_reminder(ctx, task_id, reminder_id)
-    reminder = await confirm_reminder(
-        ctx.db, reminder, remind_at=body.remind_at, actor_id=f"user:{ctx.workspace.user_id}"
-    )
+    reminder = await confirm_reminder(ctx.db, reminder, remind_at=body.remind_at)
     return _to_reminder_out(reminder)
 
 

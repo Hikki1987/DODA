@@ -214,9 +214,7 @@ async def request_reminder(
     return reminder
 
 
-async def confirm_reminder(
-    session: AsyncSession, reminder: Reminder, *, remind_at: datetime, actor_id: str
-) -> Reminder:
+async def confirm_reminder(session: AsyncSession, reminder: Reminder, *, remind_at: datetime) -> Reminder:
     if reminder.status is not ReminderStatus.PENDING_CONFIRMATION:
         raise ReminderNotPendingError(f"reminder {reminder.id} is {reminder.status.value}, not pending")
     if reminder.remind_at != remind_at:
@@ -260,9 +258,12 @@ async def fire_due_reminders(session: AsyncSession, *, now: datetime | None = No
         select(Reminder).where(Reminder.status == ReminderStatus.CONFIRMED, Reminder.remind_at <= now)
     )
     due = list(result.scalars())
+    tasks_by_id: dict[uuid.UUID, Task] = {}
+    if due:
+        task_rows = await session.execute(select(Task).where(Task.id.in_({r.task_id for r in due})))
+        tasks_by_id = {task.id: task for task in task_rows.scalars()}
     for reminder in due:
-        task = await session.get(Task, reminder.task_id)
-        assert task is not None  # FK guarantees this; RLS already scopes both to the same tenant
+        task = tasks_by_id[reminder.task_id]  # FK guarantees this; RLS already scopes both to the same tenant
         await create_notification(
             session,
             customer_id=reminder.customer_id,

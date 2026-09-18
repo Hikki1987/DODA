@@ -77,3 +77,23 @@ class OutboundContentBlockedError(ModelGatewayError):
     def __init__(self, message: str, *, label: str) -> None:
         super().__init__(message)
         self.label = label
+
+
+def parse_retry_after_header(exc: Exception) -> float | None:
+    """Extracts a provider SDK exception's own `retry-after` response
+    header as seconds, or None if there isn't one / it isn't a valid
+    number. Shared by every gateway adapter's `_translate_error` when
+    building a `ModelRateLimitedError` — the openai and anthropic SDKs
+    both expose the underlying HTTP response the same way
+    (`exc.response.headers`), so this one function serves both rather
+    than each adapter carrying its own identical copy."""
+    headers = getattr(getattr(exc, "response", None), "headers", None)
+    if headers is None:
+        return None
+    raw = headers.get("retry-after")
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None

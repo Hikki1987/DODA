@@ -209,6 +209,27 @@ async def switch_conversation_language(
     return conversation
 
 
+async def resolve_effective_language(
+    session: AsyncSession, conversation: Conversation, content: str, *, workspace_id: uuid.UUID
+) -> str | None:
+    """FR-CONV-001's three-tier language resolution, in priority order:
+    the conversation's own pin always wins over per-message detection.
+    FR-WKS-007 later added a workspace-level default language — that
+    fills in only when NEITHER the pin nor per-message detection has an
+    opinion (0019's docstring, written before FR-WKS-007 existed, said
+    there was no such tier; there is now). An ambiguous/undetected
+    message with no pin and no workspace default still means no
+    directive at all (None) rather than a guessed one — mirrors
+    `ai_preference_service.resolve_provider_choice`'s own tiered-fallback
+    shape, extracted the same way for the same reason: independently
+    testable without going through a full streamed turn."""
+    return (
+        conversation.pinned_language
+        or detect_language(content)
+        or await get_workspace_language(session, workspace_id=workspace_id)
+    )
+
+
 def _messages_to_history(messages: list[Message], *, max_chars: int) -> list[ChatTurn]:
     """ "tegishli va hajmi cheklangan kontekstni tanla" — most-recent
     messages first, up to a character budget, no summarization/retrieval
@@ -302,10 +323,8 @@ async def stream_message(
     # now). An ambiguous/undetected message with no pin and no workspace
     # default still means no directive at all (empty instructions)
     # rather than a guessed one.
-    effective_language = (
-        conversation.pinned_language
-        or detect_language(content)
-        or await get_workspace_language(session, workspace_id=workspace_context.workspace_id)
+    effective_language = await resolve_effective_language(
+        session, conversation, content, workspace_id=workspace_context.workspace_id
     )
     instructions = response_language_instruction(effective_language)
 
@@ -364,6 +383,44 @@ async def stream_message(
     gateway = get_gateway(choice.provider, settings)
     total_usage = GatewayUsage(input_tokens=0, output_tokens=0)
     final_assistant_message: Message | None = None
+
+    async def _reconcile_and_record(status: UsageEventStatus) -> None:
+        """Shared tail of both the success and failure paths below: turn
+        the reservation down to whatever was really incurred, and record
+        one FinOps (NFR-COST-001) usage-event row explaining it either
+        way — `status` is the only thing that differs (RECONCILED for a
+        normal completion, REFUNDED for a mid-turn failure/cancellation).
+        Reads `choice`/`model`/`total_usage` at call time (a closure, not
+        a snapshot), so it always reflects whichever provider/model the
+        turn actually ended up using, including after a fallback switch.
+        """
+        actual_cost_cents = estimate_cost_cents(
+            choice.provider,
+            model,
+            input_tokens=total_usage.input_tokens,
+            output_tokens=total_usage.output_tokens,
+        )
+        await ai_budget_service.reconcile_budget(
+            session,
+            customer_id=workspace_context.customer_id,
+            estimated_cost_cents=total_estimate_cents,
+            actual_cost_cents=actual_cost_cents,
+        )
+        await ai_budget_service.record_usage_event(
+            session,
+            customer_id=workspace_context.customer_id,
+            workspace_id=workspace_context.workspace_id,
+            conversation_id=conversation.id,
+            trace_id=trace_id,
+            actor_id=f"user:{workspace_context.user_id}",
+            provider=choice.provider,
+            model=model,
+            mode=mode,
+            usage=total_usage,
+            estimated_cost_cents=total_estimate_cents,
+            actual_cost_cents=actual_cost_cents,
+            status=status,
+        )
 
     try:
         fallback_attempted = False
@@ -565,63 +622,16 @@ async def stream_message(
         # generator must not swallow GeneratorExit), and `aclose()`
         # itself treats that as normal, clean termination — it does not
         # propagate to `api/conversations.py`'s caller.
-        actual_cost_cents = estimate_cost_cents(
-            choice.provider,
-            model,
-            input_tokens=total_usage.input_tokens,
-            output_tokens=total_usage.output_tokens,
-        )
-        await ai_budget_service.reconcile_budget(
-            session,
-            customer_id=workspace_context.customer_id,
-            estimated_cost_cents=total_estimate_cents,
-            actual_cost_cents=actual_cost_cents,
-        )
+        #
         # FinOps observability (NFR-COST-001) must cover failed turns too,
         # not just successful ones — otherwise a turn that billed some
         # real cost before failing (the mid-stream case) would move the
         # ledger's actual_cents with no corresponding AIUsageEvent row to
         # explain why, leaving a customer's itemized usage list silently
         # out of sync with their own monthly total.
-        await ai_budget_service.record_usage_event(
-            session,
-            customer_id=workspace_context.customer_id,
-            workspace_id=workspace_context.workspace_id,
-            conversation_id=conversation.id,
-            trace_id=trace_id,
-            actor_id=f"user:{workspace_context.user_id}",
-            provider=choice.provider,
-            model=model,
-            mode=mode,
-            usage=total_usage,
-            estimated_cost_cents=total_estimate_cents,
-            actual_cost_cents=actual_cost_cents,
-            status=UsageEventStatus.REFUNDED,
-        )
+        await _reconcile_and_record(UsageEventStatus.REFUNDED)
         raise
 
-    actual_cost_cents = estimate_cost_cents(
-        choice.provider, model, input_tokens=total_usage.input_tokens, output_tokens=total_usage.output_tokens
-    )
-    await ai_budget_service.reconcile_budget(
-        session,
-        customer_id=workspace_context.customer_id,
-        estimated_cost_cents=total_estimate_cents,
-        actual_cost_cents=actual_cost_cents,
-    )
-    await ai_budget_service.record_usage_event(
-        session,
-        customer_id=workspace_context.customer_id,
-        workspace_id=workspace_context.workspace_id,
-        conversation_id=conversation.id,
-        trace_id=trace_id,
-        actor_id=f"user:{workspace_context.user_id}",
-        provider=choice.provider,
-        model=model,
-        mode=mode,
-        usage=total_usage,
-        estimated_cost_cents=total_estimate_cents,
-        actual_cost_cents=actual_cost_cents,
-    )
+    await _reconcile_and_record(UsageEventStatus.RECONCILED)
 
     yield TurnChunk(kind="done", message=final_assistant_message)

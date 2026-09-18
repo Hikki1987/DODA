@@ -2,7 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ApiError, getMyDataExport, listMySessions, revokeSession, type SessionOut } from "@/lib/api";
+import {
+  ApiError,
+  downloadJsonFile,
+  getMyDataExport,
+  listMySessions,
+  revokeSession,
+  type SessionOut,
+} from "@/lib/api";
 import { useSession } from "@/lib/useSession";
 
 export default function SessionsPage() {
@@ -37,13 +44,7 @@ export default function SessionsPage() {
     setExporting(true);
     try {
       const data = await getMyDataExport(sessionId);
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `doda-export-${new Date().toISOString().slice(0, 10)}.json`;
-      link.click();
-      URL.revokeObjectURL(url);
+      downloadJsonFile(`doda-export-${new Date().toISOString().slice(0, 10)}.json`, data);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Ma'lumotlarni eksport qilib bo'lmadi.");
     } finally {

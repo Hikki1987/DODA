@@ -124,8 +124,12 @@ def detect_language(text: str) -> str | None:
     english_score = len(tokens & _ENGLISH_WORDS)
     if uzbek_score == 0 and english_score == 0:
         return None
+    # The guard above already rules out "both zero", so reaching this
+    # branch with uzbek_score >= english_score guarantees uzbek_score > 0
+    # (if it were 0, english_score would have to be positive for the
+    # guard to have passed, making this comparison false instead).
     if uzbek_score >= english_score:
-        return "UZ" if uzbek_score > 0 else None
+        return "UZ"
     return "EN"
 
 

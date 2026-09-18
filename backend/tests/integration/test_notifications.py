@@ -156,9 +156,7 @@ async def test_reminder_due_notification_fires_only_after_confirmation_and_firin
     async with tenant_scoped_session(member.customer_id) as session:
         reloaded = await session.get(type(reminder), reminder.id)
         assert reloaded is not None
-        await confirm_reminder(
-            session, reloaded, remind_at=reloaded.remind_at, actor_id=f"user:{member.user_id}"
-        )
+        await confirm_reminder(session, reloaded, remind_at=reloaded.remind_at)
         fired = await fire_due_reminders(session)
         assert len(fired) == 1
 

@@ -41,10 +41,28 @@ from doda.application.authz_service import (
     authorize_use_chat,
     authorize_view_ai_budget,
 )
-from doda.config import get_settings
+from doda.config import Settings, get_settings
+from doda.domain.ai_provider_settings.models import AIProviderVerification
 from doda.infrastructure.ai_pricing import CENTS_PER_DOLLAR
 
 router = APIRouter(tags=["ai-settings"])
+
+
+def _to_provider_status_out(
+    provider: Provider,
+    settings: Settings,
+    *,
+    enabled: bool,
+    verification: AIProviderVerification | None,
+) -> ProviderStatusOut:
+    return ProviderStatusOut(
+        provider=provider,
+        configured=is_provider_configured(provider, settings),
+        enabled=enabled,
+        verified_at=verification.last_verified_at if verification else None,
+        verified_ok=verification.last_verified_ok if verification else None,
+        verified_error=verification.last_error if verification else None,
+    )
 
 
 @router.get("/v1/customers/{customer_id}/ai-providers", response_model=list[ProviderStatusOut])
@@ -60,16 +78,7 @@ async def list_provider_statuses(
             ctx.db, customer_id=ctx.customer.customer_id, provider=provider
         )
         verification = await ai_provider_settings_service.get_verification_status(ctx.db, provider=provider)
-        out.append(
-            ProviderStatusOut(
-                provider=provider,
-                configured=is_provider_configured(provider, settings),
-                enabled=enabled,
-                verified_at=verification.last_verified_at if verification else None,
-                verified_ok=verification.last_verified_ok if verification else None,
-                verified_error=verification.last_error if verification else None,
-            )
-        )
+        out.append(_to_provider_status_out(provider, settings, enabled=enabled, verification=verification))
     return out
 
 
@@ -85,14 +94,7 @@ async def set_provider_enabled(
     )
     settings = get_settings()
     verification = await ai_provider_settings_service.get_verification_status(ctx.db, provider=provider)
-    return ProviderStatusOut(
-        provider=provider,
-        configured=is_provider_configured(provider, settings),
-        enabled=body.enabled,
-        verified_at=verification.last_verified_at if verification else None,
-        verified_ok=verification.last_verified_ok if verification else None,
-        verified_error=verification.last_error if verification else None,
-    )
+    return _to_provider_status_out(provider, settings, enabled=body.enabled, verification=verification)
 
 
 @router.post(

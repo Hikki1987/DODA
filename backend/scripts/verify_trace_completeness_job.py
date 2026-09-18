@@ -25,10 +25,11 @@ since existing tests only exercise one action/one request at a time.
 Same turkum as verify_audit_chain_job.py/find_stuck_running_actions.py:
 an independent script, not a pytest test (per this codebase's own
 convention for these — verified manually, see below), discovering
-customers via UserCustomerIndex (the RLS-exempt bootstrap table), and
-reporting violations to stderr with a non-zero exit code — there is no
-paging/alerting infrastructure yet, so the exit code + stderr output
-IS the alert, meant for a cron/systemd wrapper.
+customers via `customer_service.list_all_customer_ids` (the RLS-exempt
+UserCustomerIndex bootstrap table), and reporting violations to stderr
+with a non-zero exit code — there is no paging/alerting infrastructure
+yet, so the exit code + stderr output IS the alert, meant for a
+cron/systemd wrapper.
 """
 
 import asyncio
@@ -38,10 +39,10 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from doda.db import async_session_factory, tenant_scoped_session
+from doda.application.customer_service import list_all_customer_ids
+from doda.db import tenant_scoped_session
 from doda.domain.action.models import Action
 from doda.domain.audit.models import AuditEvent
-from doda.domain.customer.models import UserCustomerIndex
 
 
 async def check_customer_trace_completeness(session: AsyncSession, *, customer_id: uuid.UUID) -> list[str]:
@@ -70,12 +71,7 @@ async def check_customer_trace_completeness(session: AsyncSession, *, customer_i
 
 
 async def main() -> int:
-    # `get_session()` (db.py) is a bare async generator meant for FastAPI's
-    # `Depends(get_session)`, not `async with` — this job runs outside any
-    # request, so it goes straight to the session factory, same as
-    # verify_audit_chain_job.py does.
-    async with async_session_factory() as session:
-        customer_ids = (await session.scalars(select(UserCustomerIndex.customer_id).distinct())).all()
+    customer_ids = await list_all_customer_ids()
 
     exit_code = 0
     checked_customers = 0

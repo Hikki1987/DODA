@@ -117,6 +117,34 @@ async def propose_action(
     return action, True
 
 
+async def resolve_replay_approval(session: AsyncSession, action: Action, *, actor_id: str) -> Approval | None:
+    """When `propose_action` returns `created=False` (an idempotent
+    replay, FR-ACT-004), the caller must decide whether to also hand back
+    the action's pending `Approval` — and that decision is a security
+    rule, not a formatting detail: a pending `Approval.nonce` is a
+    one-time credential meant for the original proposer alone
+    (`ApprovalOut.nonce`'s own docstring), so it may only be returned to
+    the SAME actor who originally proposed the action, never to whoever
+    happens to replay a matching idempotency key (5th security-review
+    finding — `api/actions.py`'s caller-chosen uuid4() key and
+    `ai_tools.py`'s deterministic chat-derived key were each fixed with
+    an identical `action.actor_id == actor_id` check, independently, in
+    the same PR). Centralized here, at the one place a third future
+    replay caller would otherwise have to remember to copy that check
+    correctly, rather than duplicated per caller.
+
+    Returns None whenever the action isn't AWAITING_APPROVAL or the
+    caller isn't its original actor — the Action itself is already
+    visible to any workspace member via GET .../actions/{id}, only the
+    nonce is actor-scoped.
+    """
+    if action.status is not ActionStatus.AWAITING_APPROVAL or action.actor_id != actor_id:
+        return None
+    return await session.scalar(
+        select(Approval).where(Approval.action_id == action.id).order_by(Approval.created_at.desc()).limit(1)
+    )
+
+
 async def apply_transition(
     session: AsyncSession,
     action: Action,

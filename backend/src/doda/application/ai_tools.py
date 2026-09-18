@@ -40,15 +40,18 @@ import uuid
 from typing import Any
 
 import pydantic
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.ai.types import ToolSpec
-from doda.application.action_service import propose_action, submit_action_for_execution
+from doda.application.action_service import (
+    propose_action,
+    resolve_replay_approval,
+    submit_action_for_execution,
+)
 from doda.application.authz_service import WorkspaceContext
 from doda.application.task_service import list_tasks_for_workspace
 from doda.domain.action.approval import Approval
-from doda.domain.action.models import Action, ActionStatus, RiskLevel
+from doda.domain.action.models import Action, RiskLevel
 from doda.domain.task.models import TaskStatus
 
 
@@ -170,7 +173,18 @@ async def propose_write_tool_action(
     idempotency itself; `action_service`/`tool_policy` already do, and
     re-deciding any of that here would be the kind of authorization
     logic the AI/tool-registry layer must never own (6.2: "AI qatlami
-    authoritative avtorizatsiya qarorini chiqarmaydi")."""
+    authoritative avtorizatsiya qarorini chiqarmaydi").
+
+    `risk_level=RiskLevel.R0` below is not a real (under-)declaration —
+    `propose_action` immediately raises it to `action_tool_name`'s own
+    registered floor via `enforce_minimum_risk_level` (the SAME floor
+    `tool_policy.TOOL_MINIMUM_RISK_LEVEL` is the single source of truth
+    for). Passing R0 rather than hardcoding a specific tier here (e.g.
+    R3) means this module never needs its own, second copy of a write
+    tool's minimum risk — a future write tool registered only in
+    `TOOL_MINIMUM_RISK_LEVEL` picks up its correct floor automatically,
+    instead of this call site needing a matching, easy-to-forget update.
+    """
     _validate_arguments(tool_name, arguments_json, _WRITE_TOOL_ARGS)
     action_tool_name = _WRITE_TOOL_ACTION_NAME[tool_name]
     actor_id = f"user:{workspace_context.user_id}"
@@ -182,7 +196,7 @@ async def propose_write_tool_action(
         trace_id=trace_id,
         actor_id=actor_id,
         tool_name=action_tool_name,
-        risk_level=RiskLevel.R3,
+        risk_level=RiskLevel.R0,
         payload=json.loads(arguments_json),
         idempotency_key=idempotency_key,
     )
@@ -194,20 +208,12 @@ async def propose_write_tool_action(
     # lifecycle on the call this one is retrying, so re-running
     # validate_action here would attempt an illegal state transition
     # (e.g. AWAITING_APPROVAL -> VALIDATING). Hand back its current state
-    # instead of re-processing it.
-    #
-    # Security-review finding, same reasoning as api/actions.py's mirrored
-    # branch: this key is deterministic (f"chat:{conversation_id}:{call_id}")
-    # and both components are visible to every workspace member via GET
-    # /conversations + GET .../messages — so unlike a caller-chosen uuid4()
-    # key, it's realistically reconstructable by someone other than the
-    # original proposer. Only that original actor may see the nonce again.
-    approval: Approval | None = None
-    if action.status is ActionStatus.AWAITING_APPROVAL and action.actor_id == actor_id:
-        approval = await session.scalar(
-            select(Approval)
-            .where(Approval.action_id == action.id)
-            .order_by(Approval.created_at.desc())
-            .limit(1)
-        )
+    # instead of re-processing it. Whether the pending Approval's nonce
+    # may come along too is a security decision, not a formatting one —
+    # see action_service.resolve_replay_approval's own docstring. This
+    # matters especially here: this key is deterministic
+    # (f"chat:{conversation_id}:{call_id}") and both components are
+    # visible to every workspace member via GET /conversations + GET
+    # .../messages, unlike a caller-chosen uuid4() key.
+    approval = await resolve_replay_approval(session, action, actor_id=actor_id)
     return action, approval

@@ -18,11 +18,11 @@ verify_audit_chain_job.py, so an operator (or a future reconciliation
 job, once that design decision is made) has something to act on instead
 of a silently stuck Action.
 
-Iterates customer_ids from `UserCustomerIndex`, same pattern as
-verify_audit_chain_job.py. For each customer, an Action still in
-RUNNING is "stuck" once its own `action.running.v1` audit event (written
-by `apply_transition` at the moment it made that transition) is older
-than `threshold`.
+Discovers every customer to check via `customer_service.list_all_customer_ids`,
+same pattern as verify_audit_chain_job.py. For each customer, an Action
+still in RUNNING is "stuck" once its own `action.running.v1` audit event
+(written by `apply_transition` at the moment it made that transition) is
+older than `threshold`.
 """
 
 import asyncio
@@ -31,17 +31,16 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
-from doda.db import async_session_factory, tenant_scoped_session
+from doda.application.customer_service import list_all_customer_ids
+from doda.db import tenant_scoped_session
 from doda.domain.action.models import Action, ActionStatus
 from doda.domain.audit.models import AuditEvent
-from doda.domain.customer.models import UserCustomerIndex
 
 DEFAULT_STUCK_THRESHOLD = timedelta(minutes=15)
 
 
 async def main(threshold: timedelta = DEFAULT_STUCK_THRESHOLD) -> int:
-    async with async_session_factory() as session:
-        customer_ids = (await session.scalars(select(UserCustomerIndex.customer_id).distinct())).all()
+    customer_ids = await list_all_customer_ids()
 
     cutoff = datetime.now(UTC) - threshold
     exit_code = 0

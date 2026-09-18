@@ -274,6 +274,25 @@ async def customer_ids_for_user(user_id: uuid.UUID) -> Sequence[uuid.UUID]:
         ).all()
 
 
+async def list_all_customer_ids() -> Sequence[uuid.UUID]:
+    """Every customer that exists at all, user-agnostic — the ops/
+    monitoring-script counterpart to `customer_ids_for_user`'s "which
+    customers does THIS user belong to". Used exclusively by standalone
+    scripts (verify_audit_chain_job.py, find_stuck_running_actions.py,
+    fire_due_reminders_job.py, verify_trace_completeness_job.py,
+    backup_restore_drill.py) that need to discover "every customer" to
+    loop a per-customer, tenant_scoped_session check over — the same
+    RLS-free UserCustomerIndex bootstrap table `customer_ids_for_user`
+    reads, just without the `user_id` filter. Lived as five independent
+    copies of the identical `select(UserCustomerIndex.customer_id).
+    distinct()` query (each script's own docstring pointed at the others
+    as "same pattern") until a code-quality pass consolidated them here,
+    for the same reason `customer_ids_for_user` itself was consolidated.
+    """
+    async with async_session_factory() as db:
+        return (await db.scalars(select(UserCustomerIndex.customer_id).distinct())).all()
+
+
 async def list_my_customers(user_id: uuid.UUID) -> list[MyCustomerEntry]:
     """ "Which customers do I belong to, and as what" — the companion to
     workspace_service.list_my_workspaces, for everything that is

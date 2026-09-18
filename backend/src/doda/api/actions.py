@@ -7,7 +7,6 @@ rules and the master instruction.
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
-from sqlalchemy import select
 
 from doda.api.dependencies import RequestContext, get_request_context
 from doda.api.schemas import (
@@ -21,6 +20,7 @@ from doda.application.action_service import (
     consume_approval,
     list_actions_for_workspace,
     propose_action,
+    resolve_replay_approval,
     submit_action_for_execution,
 )
 from doda.application.authz_service import authorize_consume_approval, authorize_propose_action
@@ -88,26 +88,11 @@ async def propose_and_submit_action(
         # its lifecycle on the first call — re-running validate_action would
         # attempt an illegal transition from its current (non-DRAFT) status.
         # Just hand back its current state, instead of re-processing it.
-        #
-        # Security-review finding: the replay lookup above matches purely on
-        # (customer_id, workspace_id, idempotency_key) — it has no way to
-        # know who is asking. A pending Approval's nonce is a one-time
-        # credential meant for the original proposer alone (ApprovalOut.nonce's
-        # own docstring); handing it back to WHOEVER supplies a matching key
-        # would let any other workspace member who can reconstruct that key
-        # (e.g. a chat-derived key built from a conversation_id/call_id pair
-        # visible via GET /conversations) fetch a colleague's nonce and
-        # approve their action outright. Only the original actor may see it
-        # again here — everyone else gets the Action (already fully visible
-        # via GET .../actions/{id} to any workspace member) with no approval.
-        approval = None
-        if action.status is ActionStatus.AWAITING_APPROVAL and action.actor_id == actor_id:
-            approval = await ctx.db.scalar(
-                select(Approval)
-                .where(Approval.action_id == action.id)
-                .order_by(Approval.created_at.desc())
-                .limit(1)
-            )
+        # Whether the pending Approval's nonce may come along too is a
+        # security decision, not a formatting one — see
+        # action_service.resolve_replay_approval's own docstring (the
+        # nonce is a one-time credential for the original proposer alone).
+        approval = await resolve_replay_approval(ctx.db, action, actor_id=actor_id)
 
     return SubmitActionResponse(
         action=_to_action_out(action),

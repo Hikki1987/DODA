@@ -11,10 +11,13 @@ whole chain the architecture is built on — approval, idempotency key, outbox
 row, audit trail, and the state machine that records RUNNING/SUCCEEDED — and
 no amount of downstream checking could undo a request already sent.
 
-It holds today (only telegram_client.py and telegram_relay.py import httpx)
-and the point is to keep it holding as more connectors arrive: the next one
-has to be placed behind the relay, not wired into a request handler, and this
-test is what says so before the code review does.
+It holds today (ALLOWED below lists exactly which infrastructure modules
+may import httpx: the Telegram connector, the Google OIDC login client,
+and the three AI provider gateways — see each entry's own comment for
+why it's exempt) and the point is to keep it holding as more connectors
+arrive: the next one has to be placed behind the relay, not wired into a
+request handler, and this test is what says so before the code review
+does.
 """
 
 import ast
