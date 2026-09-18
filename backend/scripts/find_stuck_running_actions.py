@@ -29,12 +29,11 @@ import asyncio
 import sys
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from _ops_lib import find_actions_stuck_in_status
 
 from doda.application.customer_service import list_all_customer_ids
 from doda.db import tenant_scoped_session
-from doda.domain.action.models import Action, ActionStatus
-from doda.domain.audit.models import AuditEvent
+from doda.domain.action.models import ActionStatus
 
 DEFAULT_STUCK_THRESHOLD = timedelta(minutes=15)
 
@@ -46,26 +45,11 @@ async def main(threshold: timedelta = DEFAULT_STUCK_THRESHOLD) -> int:
     exit_code = 0
     for customer_id in customer_ids:
         async with tenant_scoped_session(customer_id) as db:
-            running_actions = (
-                await db.scalars(select(Action).where(Action.status == ActionStatus.RUNNING))
-            ).all()
-            if not running_actions:
-                continue
+            pairs = await find_actions_stuck_in_status(
+                db, status=ActionStatus.RUNNING, entered_status_event_type="action.running.v1"
+            )
 
-            # One query per customer rather than per action: a JSONB ->>
-            # match on safe_metadata has no precedent (or index) in this
-            # codebase yet, and the realistic number of `action.running.v1`
-            # events per customer is small enough that filtering in Python
-            # is simpler and just as correct.
-            running_events = (
-                await db.scalars(select(AuditEvent).where(AuditEvent.event_type == "action.running.v1"))
-            ).all()
-            running_since_by_action_id = {
-                event.safe_metadata.get("action_id"): event.occurred_at for event in running_events
-            }
-
-        for action in running_actions:
-            running_since = running_since_by_action_id.get(str(action.id))
+        for action, running_since in pairs:
             if running_since is None:
                 # Shouldn't happen — apply_transition always records this
                 # event on the RUNNING transition. Report it rather than

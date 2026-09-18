@@ -35,12 +35,11 @@ import asyncio
 import sys
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from _ops_lib import find_actions_stuck_in_status
 
 from doda.application.customer_service import list_all_customer_ids
 from doda.db import tenant_scoped_session
-from doda.domain.action.models import Action, ActionStatus
-from doda.domain.audit.models import AuditEvent
+from doda.domain.action.models import ActionStatus
 
 DEFAULT_STUCK_THRESHOLD = timedelta(hours=1)
 
@@ -52,25 +51,11 @@ async def main(threshold: timedelta = DEFAULT_STUCK_THRESHOLD) -> int:
     exit_code = 0
     for customer_id in customer_ids:
         async with tenant_scoped_session(customer_id) as db:
-            compensating_actions = (
-                await db.scalars(select(Action).where(Action.status == ActionStatus.COMPENSATING))
-            ).all()
-            if not compensating_actions:
-                continue
+            pairs = await find_actions_stuck_in_status(
+                db, status=ActionStatus.COMPENSATING, entered_status_event_type="action.compensating.v1"
+            )
 
-            # One query per customer rather than per action — same
-            # rationale as find_stuck_running_actions.py: no precedent
-            # (or index) for a JSONB ->> match here, and the realistic
-            # event count per customer is small.
-            compensating_events = (
-                await db.scalars(select(AuditEvent).where(AuditEvent.event_type == "action.compensating.v1"))
-            ).all()
-            compensating_since_by_action_id = {
-                event.safe_metadata.get("action_id"): event.occurred_at for event in compensating_events
-            }
-
-        for action in compensating_actions:
-            compensating_since = compensating_since_by_action_id.get(str(action.id))
+        for action, compensating_since in pairs:
             if compensating_since is None:
                 # Shouldn't happen — apply_transition always records this
                 # event on the COMPENSATING transition. Report it rather

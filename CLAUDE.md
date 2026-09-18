@@ -6133,3 +6133,31 @@ funksiyasi orqali) haqiqiy ishga tushirilib tasdiqlandi.
 
 Kod bazasi o'zgarmadi (yangi mustaqil skript qo'shildi) — 473 test
 o'zgarishsiz, `ruff`/`mypy src/doda` toza.
+
+**Darhol o'zi topilgan takroriylik tuzatildi: `find_stuck_running_
+actions.py` va yangi `find_stuck_compensating_actions.py` deyarli
+so'z-so'zma-so'z bir xil so'rov mantig'ini mustaqil yozgan edi** —
+ikkalasi ham "shu customer'ning shu holatdagi Action'lari, ularning
+holatga kirgan audit yozuvi bilan juftlashtirilgan" so'rovini takrorlar
+edi. `scripts/_ops_lib.py` (bu papkaning ichki, ommaviy application-
+qatlam moduli EMAS — faqat shu ikkita mustaqil monitoring skripti
+o'rtasidagi mahalliy qayta ishlatish) ga `find_actions_stuck_in_status`
+chiqarildi, ikkalasi ham endi shu funksiyani (o'z status/event_type
+argumentlari bilan) chaqiradi — faqat natijani chop etish uslubi
+(o'zgaruvchi nomlari, standart chegara) alohida qoladi.
+
+Import naqshi ataylab tekshirildi: bu skriptlar `python scripts/foo.py`
+sifatida to'g'ridan-to'g'ri ishga tushiriladi (paket sifatida emas —
+`scripts/`da `__init__.py` yo'q), demak Python `sys.path[0]`ni skript
+papkasining o'ziga o'rnatadi — `from ._ops_lib import ...` (nisbiy
+import) BU HOLDA ISHLAMAYDI ("attempted relative import with no known
+parent package"). To'g'ri shakl — oddiy `from _ops_lib import ...`
+(paket prefiksisiz, chunki `_ops_lib.py` xuddi shu papkada, sys.path'da).
+Bu taxmin emas — ikkala skript ham AYNAN haqiqiy chaqiruv shakli bilan
+(`python scripts/find_stuck_running_actions.py`,
+`python scripts/find_stuck_compensating_actions.py`) qayta ishga
+tushirilib tasdiqlandi: birinchisi ushbu sessiyada avvalroq qoldirilgan
+haqiqiy qotib qolgan action'ni hamon to'g'ri topdi, ikkinchisi esa
+o'zining test action'ini "compensating_ok" deb to'g'ri belgiladi.
+
+473 test o'zgarishsiz, `ruff` toza.
