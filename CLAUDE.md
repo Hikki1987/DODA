@@ -6161,3 +6161,45 @@ haqiqiy qotib qolgan action'ni hamon to'g'ri topdi, ikkinchisi esa
 o'zining test action'ini "compensating_ok" deb to'g'ri belgiladi.
 
 473 test o'zgarishsiz, `ruff` toza.
+
+**Yangi TRD gap qidirilganda ko'rib chiqilgan, lekin ATAYLAB
+QURILMAGAN nomzodlar (traceability auditning "41 ta"sidan tashqari,
+bu safar aniq tekshirilib rad etilgan):**
+- `FR-TASK-006` (task'ni evidence/fayl bilan bog'lash) — Knowledge/fayl
+  domeni hali yo'q, bloklangan.
+- `FR-ADM-002..006` (admin panel: rol-permission matritsa tahrirlagichi,
+  konnektor boshqaruvi, ABAC policy versiyalash) — yangi Product Owner
+  qarorini talab qiladi.
+- `FR-KNW-001..009` (butun Knowledge/RAG domeni) — hali boshlanmagan.
+- `NFR-DATA-001a..d`/`NFR-DATA-002` (data residency, retention) — TRD
+  13.1'ning o'z ogohlantirishi bo'yicha "yakuniy arxitektura qarori
+  qabul qilinishidan oldin yurist tasdiqlashi shart" — OD-005 hosting
+  qaroriga (hozircha Render, VPS so'ralmagan) bog'liq, bloklangan.
+- `NFR-REL-002` (error budget, SRE dashboard) — real infra monitoring
+  stack talab qiladi, bloklangan.
+- `FR-AUTH-003`/`FR-AUTH-004`ning "eskirgan MFA" (time-based freshness)
+  qismi — `Session.auth_strength` allaqachon bor va policy'da o'qiladi
+  (`authorize_consume_approval`), lekin "eskirgan" uchun aniq TTL raqami
+  TRD'ning hech qayerida (9.1/9.2) berilmagan, va haqiqiy step-up
+  (AAL1→AAL2 qayta tasdiqlash) oqimi hali yo'q (FR-AUTH-002 MFA
+  enrollment — hal qilinmagan Product Owner qarori). Bu yerda o'zboshimchalik
+  bilan TTL o'ylab topish QOIDA 2'ni buzardi — shuning uchun ataylab
+  qurilmadi.
+
+**Buning o'rniga FR-AUTH-005'ning o'z qabul mezoni — "Revoke qilingan
+sessiya keyingi so'rovda 401 oladi (<=5s)" — birinchi marta haqiqatda
+o'lchandi, kill switch/customer-kill-switch drill'lari bilan bir xil
+uslubda ("taxmin qilmasdan o'lchash").** Mavjud
+`test_revoking_a_session_makes_it_unusable` faqat to'g'rilikni (401
+qaytishi) tekshirar edi, vaqtni emas. Yangi
+`test_session_revocation_drill_blocks_within_sla`
+(`test_sessions_api.py`) `time.monotonic()` bilan revoke so'rovidan
+keyingi so'rov 401 qaytarguncha bo'lgan real vaqtni o'lchaydi va
+`SESSION_REVOKE_SLA_SECONDS = 5.0`dan past ekanini tasdiqlaydi — xuddi
+`test_kill_switch_api.py`ning `KILL_SWITCH_SLA_SECONDS` naqshi. Bu
+kutilganidek sinxron (session har bir so'rovda to'g'ridan-to'g'ri DB'dan
+tekshiriladi, oraliq keshlash qatlami yo'q), lekin bu aynan shu SLA'ning
+ORQASIDA HECH QANDAY yashirin keshlash/kechikish yo'qligini isbotlaydi —
+kill switch drill'ining o'zi ham xuddi shu sababdan qurilgan edi.
+
+474 test, barchasi real Postgres'da; `ruff`/`mypy src/doda` toza.

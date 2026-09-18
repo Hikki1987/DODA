@@ -4,6 +4,7 @@ last_seen_at touch (FR-AUTH-006 idle timeout reset) was silently never
 persisting.
 """
 
+import time
 import uuid
 from datetime import timedelta
 
@@ -16,6 +17,11 @@ from doda.domain.base import utcnow
 from doda.domain.identity.models import Session
 from doda.main import app
 from tests.integration.conftest import seed_workspace_member
+
+# FR-AUTH-005's own acceptance criterion: "Revoke qilingan sessiya keyingi
+# so'rovda 401 oladi (<=5s)" — same measured-not-assumed drill pattern as
+# the kill switch SLA (test_kill_switch_api.py's KILL_SWITCH_SLA_SECONDS).
+SESSION_REVOKE_SLA_SECONDS = 5.0
 
 
 @pytest.fixture
@@ -78,6 +84,26 @@ async def test_revoking_a_session_makes_it_unusable(client: AsyncClient, db_avai
     response = await client.get("/v1/sessions", headers=_auth_headers(member.session_id))
     assert response.status_code == 401
     assert response.json()["code"] == "UNAUTHENTICATED"
+
+
+async def test_session_revocation_drill_blocks_within_sla(client: AsyncClient, db_available: bool) -> None:
+    """FR-AUTH-005's own acceptance criterion is a timing SLA, not just
+    "eventually rejected" — measures actual revoke-to-401 latency rather
+    than assuming it, the same drill pattern as
+    test_kill_switch_api.py's KILL_SWITCH_SLA_SECONDS measurements."""
+    member = await seed_workspace_member()
+
+    revoke_started_at = time.monotonic()
+    revoke = await client.delete(
+        f"/v1/sessions/{member.session_id}", headers=_auth_headers(member.session_id)
+    )
+    assert revoke.status_code == 204
+
+    rejected = await client.get("/v1/sessions", headers=_auth_headers(member.session_id))
+    elapsed = time.monotonic() - revoke_started_at
+
+    assert rejected.status_code == 401
+    assert elapsed < SESSION_REVOKE_SLA_SECONDS
 
 
 async def test_cannot_revoke_someone_elses_session(client: AsyncClient, db_available: bool) -> None:
