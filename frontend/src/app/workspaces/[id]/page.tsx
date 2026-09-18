@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import {
   ApiError,
   archiveWorkspace,
+  cancelAction,
   cancelTaskReminder,
   changeTaskStatus,
   changeWorkspaceMemberRole,
@@ -92,6 +93,7 @@ export default function WorkspacePage() {
   const [requestingReminderFor, setRequestingReminderFor] = useState<string | null>(null);
   const [traceIdInput, setTraceIdInput] = useState("");
   const [appliedTraceId, setAppliedTraceId] = useState("");
+  const [cancellingActionId, setCancellingActionId] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     if (sessionId === null) return;
@@ -140,6 +142,19 @@ export default function WorkspacePage() {
       setError(err instanceof ApiError ? err.message : "Task yaratib bo'lmadi.");
     } finally {
       setCreatingTask(false);
+    }
+  }
+
+  async function handleCancelAction(action: ActionOut) {
+    if (sessionId === null || cancellingActionId !== null) return;
+    setCancellingActionId(action.id);
+    try {
+      await cancelAction(sessionId, workspaceId, action.id);
+      refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Action'ni bekor qilib bo'lmadi.");
+    } finally {
+      setCancellingActionId(null);
     }
   }
 
@@ -640,7 +655,22 @@ export default function WorkspacePage() {
                   <span>{action.tool_name}</span>
                   <span className="text-xs text-gray-500">risk: {action.risk_level}</span>
                 </div>
-                <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{action.status}</span>
+                <div className="flex items-center gap-2">
+                  <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{action.status}</span>
+                  {/* FR-ACT-009: READY cancels outright, RUNNING requests a
+                      reversal (COMPENSATING) — the backend decides which,
+                      this button just calls the one cancel endpoint. */}
+                  {(action.status === "READY" || action.status === "RUNNING") && (
+                    <button
+                      type="button"
+                      onClick={() => handleCancelAction(action)}
+                      disabled={cancellingActionId === action.id}
+                      className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                    >
+                      Bekor qilish
+                    </button>
+                  )}
+                </div>
               </div>
               {/* FR-ACT-002: dry-run preview shown for every action, R3+ included. */}
               <p className="mt-1 text-xs text-gray-500">{action.preview}</p>

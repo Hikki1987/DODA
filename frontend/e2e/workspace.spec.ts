@@ -76,6 +76,28 @@ test("login, workspace, task, notification, action, audit flow", async ({ page }
     await expect(page.getByText("AWAITING_APPROVAL", { exact: true })).toBeVisible();
   });
 
+  await test.step("cancelling a READY action (FR-ACT-009) removes it from the pending list", async () => {
+    // Proposing an action isn't exposed in the UI (see the app's own
+    // README for why), so this creates one directly against the backend
+    // — the same page.request.post pattern workspace-kill-switch.spec.ts
+    // uses — then drives the rest through the real page.
+    const response = await page.request.post(`http://localhost:8000/v1/workspaces/${WORKSPACE_ID}/actions`, {
+      headers: { Authorization: `Bearer ${SESSION_ID}`, "Idempotency-Key": "e2e-cancel-action-1" },
+      data: { tool_name: "knowledge.read", risk_level: "R0", payload: { query: "e2e" } },
+    });
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body.action.status).toBe("READY");
+
+    await page.reload();
+    const row = page.locator("li", { hasText: "knowledge.read" });
+    await expect(row.getByText("READY", { exact: true })).toBeVisible();
+
+    await row.getByRole("button", { name: "Bekor qilish" }).click();
+    await expect(row.getByText("CANCELLED", { exact: true })).toBeVisible();
+    await expect(row.getByRole("button", { name: "Bekor qilish" })).toHaveCount(0);
+  });
+
   await test.step("create a task and advance its status", async () => {
     await page.fill('input[placeholder="Yangi task nomi"]', "E2E test task");
     await page.click("button:has-text(\"Qo'shish\")");

@@ -676,3 +676,211 @@ async def test_unregistered_tools_action_response_still_includes_a_preview(
     )
     preview = submit.json()["action"]["preview"]
     assert "knowledge.read" in preview
+
+
+# FR-ACT-009 (Should): "Action bekor qilish va compensating amal" over HTTP —
+# test_action_lifecycle.py already covers the application-layer functions
+# directly; this proves the authoritative chain (authz, workspace scoping)
+# actually gates the two new endpoints.
+
+
+async def _two_members_in_one_workspace(
+    *, role_a: str = "member", role_b: str = "member", auth_a: AuthStrength = AuthStrength.AAL1
+) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]:
+    """Two independent identities sharing one workspace — seed_workspace_
+    member always creates a fresh workspace per call, so this (like
+    test_workspace_admin_can_approve_a_members_action above) builds the
+    scenario by hand. Returns (customer_id, workspace_id, session_a_id,
+    session_b_id).
+    """
+    import doda.db as doda_db
+    from doda.application.session_service import create_session
+    from doda.application.workspace_service import create_workspace
+    from doda.domain.customer.models import Customer, CustomerMembership
+    from doda.domain.identity.models import User
+    from doda.domain.workspace.models import WorkspaceMembership
+
+    customer_id = uuid.uuid4()
+    async with doda_db.tenant_scoped_session(customer_id) as db:
+        user_a = User(oidc_subject_hash=str(uuid.uuid4()), display_name="A")
+        user_b = User(oidc_subject_hash=str(uuid.uuid4()), display_name="B")
+        db.add_all([user_a, user_b])
+        await db.flush()
+
+        db.add(Customer(id=customer_id, name="Shared Customer"))
+        await db.flush()
+
+        membership_a = CustomerMembership(customer_id=customer_id, user_id=user_a.id, role="member")
+        membership_b = CustomerMembership(customer_id=customer_id, user_id=user_b.id, role="member")
+        db.add_all([membership_a, membership_b])
+        await db.flush()
+
+        workspace = await create_workspace(db, customer_id=customer_id, name="Shared Workspace")
+        db.add_all(
+            [
+                WorkspaceMembership(
+                    customer_id=customer_id,
+                    customer_membership_id=membership_a.id,
+                    workspace_id=workspace.id,
+                    role=role_a,
+                ),
+                WorkspaceMembership(
+                    customer_id=customer_id,
+                    customer_membership_id=membership_b.id,
+                    workspace_id=workspace.id,
+                    role=role_b,
+                ),
+            ]
+        )
+        await db.flush()
+
+        session_a = await create_session(db, user_id=user_a.id, auth_strength=auth_a)
+        session_b = await create_session(db, user_id=user_b.id, auth_strength=AuthStrength.AAL1)
+
+    return customer_id, workspace.id, session_a.id, session_b.id
+
+
+async def _drive_action_to_running(*, customer_id: uuid.UUID, action_id: uuid.UUID) -> None:
+    """RUNNING has no HTTP path (only a relay worker reaches it, via
+    apply_transition directly) — set up that precondition the same way
+    test_action_lifecycle.py's own _running_action helper does."""
+    import doda.db as doda_db
+    from doda.application.action_service import apply_transition
+    from doda.domain.action.models import Action, ActionStatus
+
+    async with doda_db.tenant_scoped_session(customer_id) as db:
+        action = await db.get(Action, action_id)
+        assert action is not None
+        await apply_transition(db, action, ActionStatus.RUNNING, actor_id="worker:test")
+
+
+async def test_cancel_a_ready_action_over_http(client: AsyncClient, db_available: bool) -> None:
+    member = await seed_workspace_member()
+
+    submit = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/actions",
+        json={"tool_name": "knowledge.read", "risk_level": "R0", "payload": {"query": "hi"}},
+        headers=_auth_headers(member.session_id, "e2e-cancel-ready-1"),
+    )
+    action_id = submit.json()["action"]["id"]
+
+    response = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/actions/{action_id}/cancel",
+        headers=_auth_headers(member.session_id),
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "CANCELLED"
+
+
+async def test_cancelling_an_already_terminal_action_returns_409(
+    client: AsyncClient, db_available: bool
+) -> None:
+    member = await seed_workspace_member()
+
+    submit = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/actions",
+        json={"tool_name": "knowledge.read", "risk_level": "R0", "payload": {"query": "hi"}},
+        headers=_auth_headers(member.session_id, "e2e-cancel-twice-1"),
+    )
+    action_id = submit.json()["action"]["id"]
+    first = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/actions/{action_id}/cancel",
+        headers=_auth_headers(member.session_id),
+    )
+    assert first.status_code == 200
+
+    second = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/actions/{action_id}/cancel",
+        headers=_auth_headers(member.session_id),
+    )
+    assert second.status_code == 409
+    assert second.json()["code"] == "ACTION_NOT_CANCELLABLE"
+    # The rejected second attempt must not have touched the terminal action.
+    fetched = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/actions/{action_id}",
+        headers=_auth_headers(member.session_id),
+    )
+    assert fetched.json()["status"] == "CANCELLED"
+
+
+async def test_a_different_plain_member_cannot_cancel_someone_elses_action(
+    client: AsyncClient, db_available: bool
+) -> None:
+    _, workspace_id, actor_session, bystander_session = await _two_members_in_one_workspace()
+
+    submit = await client.post(
+        f"/v1/workspaces/{workspace_id}/actions",
+        json={"tool_name": "knowledge.read", "risk_level": "R0", "payload": {"query": "hi"}},
+        headers=_auth_headers(actor_session, "e2e-cancel-deny-1"),
+    )
+    action_id = submit.json()["action"]["id"]
+
+    response = await client.post(
+        f"/v1/workspaces/{workspace_id}/actions/{action_id}/cancel",
+        headers=_auth_headers(bystander_session),
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "DENY"
+
+
+async def test_workspace_admin_can_cancel_a_running_action_and_complete_its_compensation(
+    client: AsyncClient, db_available: bool
+) -> None:
+    customer_id, workspace_id, actor_session, admin_session = await _two_members_in_one_workspace(
+        role_b="workspace_admin", auth_a=AuthStrength.AAL1
+    )
+
+    submit = await client.post(
+        f"/v1/workspaces/{workspace_id}/actions",
+        json={"tool_name": "knowledge.read", "risk_level": "R0", "payload": {"query": "hi"}},
+        headers=_auth_headers(actor_session, "e2e-cancel-running-1"),
+    )
+    action_id = uuid.UUID(submit.json()["action"]["id"])
+    await _drive_action_to_running(customer_id=customer_id, action_id=action_id)
+
+    cancel = await client.post(
+        f"/v1/workspaces/{workspace_id}/actions/{action_id}/cancel",
+        headers=_auth_headers(admin_session),
+    )
+    assert cancel.status_code == 200
+    assert cancel.json()["status"] == "COMPENSATING"
+
+    complete = await client.post(
+        f"/v1/workspaces/{workspace_id}/actions/{action_id}/compensate/complete",
+        json={"outcome": "COMPENSATED"},
+        headers=_auth_headers(admin_session),
+    )
+    assert complete.status_code == 200
+    assert complete.json()["status"] == "COMPENSATED"
+
+
+async def test_complete_compensation_requires_workspace_admin(
+    client: AsyncClient, db_available: bool
+) -> None:
+    customer_id, workspace_id, actor_session, bystander_session = await _two_members_in_one_workspace()
+
+    submit = await client.post(
+        f"/v1/workspaces/{workspace_id}/actions",
+        json={"tool_name": "knowledge.read", "risk_level": "R0", "payload": {"query": "hi"}},
+        headers=_auth_headers(actor_session, "e2e-complete-deny-1"),
+    )
+    action_id = uuid.UUID(submit.json()["action"]["id"])
+    await _drive_action_to_running(customer_id=customer_id, action_id=action_id)
+
+    cancel = await client.post(
+        f"/v1/workspaces/{workspace_id}/actions/{action_id}/cancel",
+        headers=_auth_headers(actor_session),
+    )
+    assert cancel.status_code == 200
+    assert cancel.json()["status"] == "COMPENSATING"
+
+    # bystander_session is a plain member, not the action's own actor and
+    # not a WorkspaceAdmin — authorize_complete_compensation denies before
+    # even looking at the action's current status.
+    response = await client.post(
+        f"/v1/workspaces/{workspace_id}/actions/{action_id}/compensate/complete",
+        json={"outcome": "COMPENSATED"},
+        headers=_auth_headers(bystander_session),
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "DENY"

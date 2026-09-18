@@ -153,6 +153,27 @@ def authorize_consume_approval(
         raise AuthorizationError(Decision.STEP_UP_REQUIRED, "R3+ approval requires fresh MFA (FR-AUTH-004)")
 
 
+def authorize_cancel_action(context: WorkspaceContext, action: Action) -> None:
+    """FR-ACT-009: the same audience as approving it — the action's own
+    actor, or a WorkspaceAdmin acting on their behalf (mirrors
+    authorize_consume_approval's supervisor-override shape). No step-up
+    requirement: stopping an action is strictly less dangerous than
+    approving one."""
+    is_own_action = action.actor_id == f"user:{context.user_id}"
+    if not is_own_action and context.role not in ROLES_THAT_MAY_APPROVE_ANOTHER_ACTORS_ACTION:
+        raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not cancel this action")
+
+
+def authorize_complete_compensation(context: WorkspaceContext) -> None:
+    """FR-ACT-009: attesting that a running action's external effect was
+    manually reversed is unverified by the system (see action_service.
+    complete_compensation's own docstring) — a higher-trust act than
+    proposing or cancelling one, so it is WorkspaceAdmin-only rather than
+    actor-or-admin."""
+    if context.role is not WorkspaceRole.WORKSPACE_ADMIN:
+        raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not complete a compensation")
+
+
 def authorize_create_task(context: WorkspaceContext) -> None:
     """10.2 'Chat va task' row: Member/WorkspaceAdmin/CustomerOwner = Ha.
     Written as an explicit check (not a no-op) so a future third

@@ -41,6 +41,21 @@ class MissingProviderReceiptError(Exception):
         super().__init__(f"cannot mark action {action_id} SUCCEEDED without a provider receipt (FR-ACT-007)")
 
 
+class ActionNotCancellableError(Exception):
+    """FR-ACT-009: raised when cancellation is requested for an action
+    that is neither READY (cancels outright) nor RUNNING (requests a
+    reversal instead — see request_cancellation). TRD 4.2's own state
+    table gives no CANCELLED/COMPENSATING edge from any other status,
+    including AWAITING_APPROVAL: "changed my mind before approval" is
+    already covered by letting the approval expire or rejecting it, not
+    by a separate cancel path."""
+
+    def __init__(self, action_id: uuid.UUID, status: ActionStatus) -> None:
+        self.action_id = action_id
+        self.status = status
+        super().__init__(f"action {action_id} in status {status.value} cannot be cancelled")
+
+
 async def propose_action(
     session: AsyncSession,
     *,
@@ -245,6 +260,49 @@ async def apply_transition(
             safe_metadata={"tool_name": action.tool_name},
         )
     return action
+
+
+async def request_cancellation(session: AsyncSession, action: Action, *, actor_id: str) -> Action:
+    """FR-ACT-009 ("Action bekor qilish"): a READY action (validated,
+    queued, but not yet picked up by a relay worker) cancels outright. A
+    RUNNING action is already mid-flight — cancelling it means requesting
+    a reversal instead, which the state machine models as RUNNING ->
+    COMPENSATING, not a direct CANCELLED (see ActionNotCancellableError's
+    own docstring for why no other status is accepted here). Rejecting
+    those up front, before calling apply_transition, gives the caller a
+    specific ActionNotCancellableError instead of the generic
+    InvalidActionTransition apply_transition would otherwise raise.
+    """
+    if action.status is ActionStatus.READY:
+        return await apply_transition(session, action, ActionStatus.CANCELLED, actor_id=actor_id)
+    if action.status is ActionStatus.RUNNING:
+        return await apply_transition(session, action, ActionStatus.COMPENSATING, actor_id=actor_id)
+    raise ActionNotCancellableError(action.id, action.status)
+
+
+async def complete_compensation(
+    session: AsyncSession, action: Action, *, outcome: ActionStatus, actor_id: str
+) -> Action:
+    """FR-ACT-009's other half: COMPENSATING -> COMPENSATED, or ->
+    FAILED if the reversal itself could not be carried out. There is no
+    automated reversal to run here — Telegram's Bot API (the only
+    connector today) exposes no message-delete/undo call this codebase's
+    minimal client (infrastructure/telegram_client.py) uses, so
+    completing a compensation is a human attesting they reversed the
+    effect some other way (e.g. contacting the recipient directly). This
+    is the same "no automated action, only a human-attested state
+    change" honesty already applied elsewhere in this codebase
+    (FR-ACT-007's receipt requirement, FR-TASK-005's reminder
+    confirmation) rather than a fake automated "undo".
+
+    `outcome` must be COMPENSATED or FAILED — checked here for a clear
+    error message; apply_transition's own state-machine check would
+    reject anything else anyway, since COMPENSATING has no other
+    outgoing edge (TRD 4.2).
+    """
+    if outcome not in (ActionStatus.COMPENSATED, ActionStatus.FAILED):
+        raise ValueError(f"complete_compensation outcome must be COMPENSATED or FAILED, got {outcome.value}")
+    return await apply_transition(session, action, outcome, actor_id=actor_id)
 
 
 async def validate_action(session: AsyncSession, action: Action, *, actor_id: str) -> Action:

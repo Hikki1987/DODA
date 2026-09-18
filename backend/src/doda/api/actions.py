@@ -12,18 +12,26 @@ from doda.api.dependencies import RequestContext, get_request_context
 from doda.api.schemas import (
     ActionOut,
     ApprovalOut,
+    CompleteCompensationRequest,
     ConsumeApprovalRequest,
     ProposeActionRequest,
     SubmitActionResponse,
 )
 from doda.application.action_service import (
+    complete_compensation,
     consume_approval,
     list_actions_for_workspace,
     propose_action,
+    request_cancellation,
     resolve_replay_approval,
     submit_action_for_execution,
 )
-from doda.application.authz_service import authorize_consume_approval, authorize_propose_action
+from doda.application.authz_service import (
+    authorize_cancel_action,
+    authorize_complete_compensation,
+    authorize_consume_approval,
+    authorize_propose_action,
+)
 from doda.domain.action.approval import Approval
 from doda.domain.action.models import Action, ActionStatus
 from doda.domain.action.tool_policy import describe_action_preview
@@ -141,5 +149,45 @@ async def consume_action_approval(
         approval,
         approver_id=f"user:{ctx.workspace.user_id}",
         nonce=body.nonce,
+    )
+    return _to_action_out(action)
+
+
+@router.post("/v1/workspaces/{workspace_id}/actions/{action_id}/cancel", response_model=ActionOut)
+async def cancel_action(
+    action_id: uuid.UUID, ctx: RequestContext = Depends(get_request_context)
+) -> ActionOut:
+    """FR-ACT-009: cancels a READY action outright, or requests a
+    reversal (RUNNING -> COMPENSATING) for one already in flight — see
+    action_service.request_cancellation's own docstring for why no other
+    status is accepted."""
+    action = await ctx.db.get(Action, action_id)
+    if action is None or action.workspace_id != ctx.workspace.workspace_id:
+        raise HTTPException(status_code=404, detail="action not found")
+
+    authorize_cancel_action(ctx.workspace, action)
+    action = await request_cancellation(ctx.db, action, actor_id=f"user:{ctx.workspace.user_id}")
+    return _to_action_out(action)
+
+
+@router.post(
+    "/v1/workspaces/{workspace_id}/actions/{action_id}/compensate/complete", response_model=ActionOut
+)
+async def complete_action_compensation(
+    action_id: uuid.UUID,
+    body: CompleteCompensationRequest,
+    ctx: RequestContext = Depends(get_request_context),
+) -> ActionOut:
+    """FR-ACT-009's other half — WorkspaceAdmin-only, since this is a
+    human attesting a manual reversal happened (see action_service.
+    complete_compensation's own docstring for why nothing here is
+    verified automatically)."""
+    action = await ctx.db.get(Action, action_id)
+    if action is None or action.workspace_id != ctx.workspace.workspace_id:
+        raise HTTPException(status_code=404, detail="action not found")
+
+    authorize_complete_compensation(ctx.workspace)
+    action = await complete_compensation(
+        ctx.db, action, outcome=body.outcome, actor_id=f"user:{ctx.workspace.user_id}"
     )
     return _to_action_out(action)

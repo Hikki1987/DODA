@@ -11,12 +11,15 @@ import pytest
 from sqlalchemy import select
 
 from doda.application.action_service import (
+    ActionNotCancellableError,
     ApprovalInvalidError,
     MissingProviderReceiptError,
     apply_transition,
+    complete_compensation,
     consume_approval,
     propose_action,
     request_approval,
+    request_cancellation,
     validate_action,
 )
 from doda.application.hashing import hash_payload
@@ -314,3 +317,102 @@ async def test_succeeded_with_a_receipt_records_it_on_the_audit_event(tenant_ses
         )
     ).scalar_one()
     assert event.safe_metadata["provider_receipt"] == {"message_id": 42}
+
+
+# FR-ACT-009 (Should): "Action bekor qilish va compensating amal" —
+# "COMPENSATING -> COMPENSATED oqimi test bilan qoplangan".
+
+
+async def _ready_action(tenant_session, *, idempotency_key: str) -> tuple[uuid.UUID, object, Action]:
+    customer_id, session = tenant_session
+    workspace_id, trace_id = uuid.uuid4(), uuid.uuid4()
+    action, _ = await propose_action(
+        session,
+        customer_id=customer_id,
+        workspace_id=workspace_id,
+        trace_id=trace_id,
+        actor_id="user:alice",
+        tool_name="knowledge.read",
+        risk_level=RiskLevel.R0,
+        payload={"query": "hi"},
+        idempotency_key=idempotency_key,
+    )
+    await validate_action(session, action, actor_id="user:alice")
+    assert action.status is ActionStatus.READY
+    return customer_id, session, action
+
+
+async def test_cancelling_a_ready_action_moves_it_straight_to_cancelled(tenant_session) -> None:
+    _, session, action = await _ready_action(tenant_session, idempotency_key="idem-cancel-ready")
+
+    await request_cancellation(session, action, actor_id="user:alice")
+
+    assert action.status is ActionStatus.CANCELLED
+
+
+async def test_cancelling_a_running_action_requests_compensation_instead(tenant_session) -> None:
+    _, session, action = await _ready_action(tenant_session, idempotency_key="idem-cancel-running")
+    await apply_transition(session, action, ActionStatus.RUNNING, actor_id="worker:test")
+
+    await request_cancellation(session, action, actor_id="user:alice")
+
+    # RUNNING has no direct CANCELLED edge (TRD 4.2) — cancelling an
+    # in-flight action means requesting its reversal, not pretending it
+    # never happened.
+    assert action.status is ActionStatus.COMPENSATING
+
+
+async def test_cancelling_an_already_terminal_action_is_rejected(tenant_session) -> None:
+    customer_id, session, action = await _running_action(tenant_session)
+    await apply_transition(
+        session, action, ActionStatus.SUCCEEDED, actor_id="worker:test", receipt={"message_id": 1}
+    )
+
+    with pytest.raises(ActionNotCancellableError):
+        await request_cancellation(session, action, actor_id="user:alice")
+
+    # The rejected attempt must not have silently touched the action.
+    assert action.status is ActionStatus.SUCCEEDED
+
+
+async def test_compensation_completes_to_compensated(tenant_session) -> None:
+    customer_id, session, action = await _ready_action(tenant_session, idempotency_key="idem-compensate-ok")
+    await apply_transition(session, action, ActionStatus.RUNNING, actor_id="worker:test")
+    await request_cancellation(session, action, actor_id="user:alice")
+    assert action.status is ActionStatus.COMPENSATING
+
+    await complete_compensation(session, action, outcome=ActionStatus.COMPENSATED, actor_id="admin:bob")
+
+    assert action.status is ActionStatus.COMPENSATED
+    event = (
+        await session.execute(
+            select(AuditEvent).where(
+                AuditEvent.customer_id == customer_id,
+                AuditEvent.event_type == "action.compensated.v1",
+            )
+        )
+    ).scalar_one()
+    assert event.safe_metadata["from"] == "COMPENSATING"
+    assert event.safe_metadata["to"] == "COMPENSATED"
+
+
+async def test_compensation_can_also_end_in_failed_if_the_reversal_could_not_be_done(tenant_session) -> None:
+    _, session, action = await _ready_action(tenant_session, idempotency_key="idem-compensate-fail")
+    await apply_transition(session, action, ActionStatus.RUNNING, actor_id="worker:test")
+    await request_cancellation(session, action, actor_id="user:alice")
+
+    await complete_compensation(session, action, outcome=ActionStatus.FAILED, actor_id="admin:bob")
+
+    assert action.status is ActionStatus.FAILED
+
+
+async def test_complete_compensation_rejects_any_other_outcome(tenant_session) -> None:
+    _, session, action = await _ready_action(tenant_session, idempotency_key="idem-compensate-bad-outcome")
+    await apply_transition(session, action, ActionStatus.RUNNING, actor_id="worker:test")
+    await request_cancellation(session, action, actor_id="user:alice")
+
+    with pytest.raises(ValueError, match="COMPENSATED or FAILED"):
+        await complete_compensation(session, action, outcome=ActionStatus.READY, actor_id="admin:bob")
+
+    # The rejected attempt must not have silently touched the action.
+    assert action.status is ActionStatus.COMPENSATING

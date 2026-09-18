@@ -5928,3 +5928,82 @@ bu ham xuddi shu sessiyada bir necha marta hujjatlashtirilgan
 qoldiq qatorlaridan ta'sirlanadi" flake sinfi (yolg'iz ishga tushirilganda
 va butun suite ikkinchi marta ishga tushirilganda ikkalasida ham yashil
 edi) — kod bilan bog'liq emas, tasdiqlangan.
+
+**FR-ACT-009 (Action bekor qilish va compensating amal, Should) qurildi —
+traceability auditda "hech qanday kod yo'li hech qachon apply_transition'ni
+COMPENSATING/COMPENSATED bilan chaqirmaydi" deb qayd etilgan bo'shliq.**
+Qabul mezoni aniq bitta narsani talab qiladi: "COMPENSATING → COMPENSATED
+oqimi test bilan qoplangan" — domain state machine (`state_machine.py`)
+allaqachon TRD 4.2'ning o'z jadvaliga aynan mos edi (READY→CANCELLED,
+RUNNING→COMPENSATING, COMPENSATING→COMPENSATED/FAILED), lekin hech qanday
+application-layer funksiya yoki HTTP endpoint bu o'tishlarni hech qachon
+ishga tushirmasdi.
+
+`application/action_service.py`ga ikkita yangi funksiya qo'shildi,
+ikkalasi ham mavjud `apply_transition` chokepoint'ini qayta ishlatib
+(qulflash/audit/bildirishnoma mantig'ini takrorlamasdan):
+- `request_cancellation` — READY'ni to'g'ridan-to'g'ri CANCELLED'ga
+  o'tkazadi; RUNNING'ni esa COMPENSATING'ga (TRD 4.2'ning o'z jadvalida
+  RUNNING'dan CANCELLED'ga to'g'ridan-to'g'ri yo'l yo'q — allaqachon
+  ishlab turgan action'ni bekor qilish demak uni "hech bo'lmagandek"
+  qilib qo'yish emas, uning qaytarilishini so'rash). Boshqa har qanday
+  holat (AWAITING_APPROVAL ham — TRD jadvalida bu holatga ataylab
+  CANCELLED chetlanmasi yo'q, "tasdiqlashdan oldin fikrimni
+  o'zgartirdim" holati allaqachon approval eskirishi/rad etilishi orqali
+  qamrab olingan) yangi `ActionNotCancellableError` bilan rad etiladi.
+- `complete_compensation` — COMPENSATING'ni COMPENSATED yoki FAILED'ga
+  o'tkazadi. **Ataylab avtomatlashtirilmagan**: Telegram Bot API'sining
+  bu kod bazasidagi minimal klienti (`telegram_client.py`) xabarni
+  o'chirish/qaytarib olish uchun hech qanday chaqiruv taklif qilmaydi —
+  demak bu yerda ishga tushiradigan haqiqiy "qaytarish" yo'q. Kompensatsiya
+  yakunlanishi inson attestatsiyasi: kimdir (haqiqiy ta'sirni boshqa yo'l
+  bilan — masalan qabul qiluvchiga to'g'ridan-to'g'ri murojaat qilib —
+  qaytarganini tasdiqlaydi. Bu FR-ACT-007'ning receipt talabi va
+  FR-TASK-005'ning reminder-tasdiqlash bilan bir xil "avtomatlashtirilgan
+  amal emas, faqat inson attestatsiya qilgan holat o'zgarishi" halolligi.
+
+Avtorizatsiya: `authorize_cancel_action` (action'ning o'z actor'i yoki
+workspace_admin — `authorize_consume_approval`bilan bir xil "supervisor
+override" shakli, step-up talabisiz — action'ni to'xtatish uni
+tasdiqlashdan qat'iy ravishda xavfsizroq) va `authorize_complete_
+compensation` (faqat workspace_admin — bu yerda hech narsa avtomatik
+tekshirilmaydi, shuning uchun proposal/cancel'dan yuqori ishonch talab
+qiladi).
+
+`POST /v1/workspaces/{id}/actions/{action_id}/cancel` va `POST .../
+compensate/complete` qo'shildi. `ActionNotCancellableError` → 409
+`ACTION_NOT_CANCELLABLE` (`api/errors.py`ning mavjud bitta-konvert
+naqshiga).
+
+11 ta yangi test: 6 tasi `test_action_lifecycle.py`da (application-layer,
+`tenant_session` bilan — READY→CANCELLED, RUNNING→COMPENSATING,
+terminal action'ni bekor qilish rad etilishi, COMPENSATING→COMPENSATED,
+COMPENSATING→FAILED, `complete_compensation`ning noto'g'ri outcome'ni
+rad etishi), 5 tasi `test_actions_api.py`da (HTTP, real authz zanjiri
+orqali — o'z READY action'ini bekor qilish, ikkinchi marta bekor qilish
+409 qaytarishi, boshqa oddiy a'zoning bekor qilish urinishi 403,
+workspace_admin RUNNING action'ni bekor qilib COMPENSATING'ga
+o'tkazishi va kompensatsiyani yakunlashi, oddiy a'zoning kompensatsiyani
+yakunlash urinishi 403). RUNNING holatiga HTTP orqali yetib bo'lmaydi
+(faqat relay worker `apply_transition`ni to'g'ridan-to'g'ri chaqiradi) —
+`test_action_lifecycle.py`ning o'z `_running_action` naqshi bilan bir
+xil, HTTP testlarida ham bu holat qo'lda (`apply_transition`ni
+to'g'ridan-to'g'ri chaqirib) tayyorlab qo'yildi.
+
+Frontend: workspace sahifasining Actions bo'limiga "Bekor qilish" tugmasi
+qo'shildi — faqat status READY yoki RUNNING bo'lganda ko'rinadi.
+Kompensatsiyani yakunlash (WorkspaceAdmin-only, inson-attestatsiya)
+UI'si ATAYLAB qurilmadi — RUNNING holati kamdan-kam uchraydi (faqat
+relay worker yetadi), maxsus admin forma qurish hozircha bu chekka holat
+uchun erta bo'lar edi; backend endpoint allaqachon mavjud/testlangan.
+Yangi E2E qadam (`workspace.spec.ts`) — propose formasi UI'da yo'qligi
+sababli `page.request.post` orqali to'g'ridan-to'g'ri backend'ga R0
+action yaratib (workspace-kill-switch.spec.ts'ning o'zi ishlatgan
+naqsh), "Bekor qilish" bosilganda status CANCELLED'ga o'tishi va tugma
+yo'qolishini tekshiradi.
+
+Real backend+production frontend'ga qarshi (barcha 14 E2E spec, jumladan
+accessibility skaneri — yangi tugma hech qanday WCAG buzilishi
+keltirmadi) tasdiqlandi. 473 test (backend, 462+11), barchasi real
+Postgres+Redis'da; `ruff`/`mypy src/doda` toza; frontend `tsc`/ESLint/
+production build toza.

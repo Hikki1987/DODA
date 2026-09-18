@@ -22,7 +22,7 @@ from doda.ai.errors import (
     OutboundContentBlockedError,
 )
 from doda.api.middleware import TRACE_ID_HEADER
-from doda.application.action_service import ApprovalInvalidError
+from doda.application.action_service import ActionNotCancellableError, ApprovalInvalidError
 from doda.application.ai_provider_settings_service import ProviderDisabledError
 from doda.application.authz_service import AuthorizationError
 from doda.application.conversation_service import DeepRequestCostCeilingExceededError
@@ -163,6 +163,18 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=_envelope(
                 code="APPROVAL_INVALID",
                 message="Approval qabul qilinmadi.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(ActionNotCancellableError)
+    async def _action_not_cancellable(request: Request, exc: ActionNotCancellableError) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content=_envelope(
+                code="ACTION_NOT_CANCELLABLE",
+                message="Action bu holatda bekor qilinmaydi.",
                 trace_id=_trace_id(request),
                 retryable=False,
             ),

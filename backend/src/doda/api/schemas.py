@@ -52,3 +52,11 @@ class SubmitActionResponse(BaseModel):
 
 class ConsumeApprovalRequest(BaseModel):
     nonce: str
+
+
+class CompleteCompensationRequest(BaseModel):
+    outcome: ActionStatus
+    """FR-ACT-009: must be COMPENSATED (the reversal was carried out) or
+    FAILED (it could not be) — a human's attestation, not a system
+    verification; see application.action_service.complete_compensation's
+    own docstring for why there is nothing automated to check here."""

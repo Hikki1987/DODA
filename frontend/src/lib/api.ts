@@ -317,6 +317,19 @@ export function listActions(sessionId: string, workspaceId: string): Promise<Act
   return apiFetch(`/v1/workspaces/${workspaceId}/actions`, sessionId);
 }
 
+// FR-ACT-009: cancels a READY action outright, or (for one already
+// RUNNING) requests its reversal — the backend resolves which, the
+// caller doesn't need to. Completing a compensation (COMPENSATING ->
+// COMPENSATED/FAILED) is WorkspaceAdmin-only and human-attested — not
+// exposed here yet, since a RUNNING action is rare enough (only a relay
+// worker reaches it) that a dedicated admin form would be premature UI
+// for an edge case; the backend endpoint exists and is tested.
+export function cancelAction(sessionId: string, workspaceId: string, actionId: string): Promise<ActionOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/actions/${actionId}/cancel`, sessionId, {
+    method: "POST",
+  });
+}
+
 // ---- /v1/workspaces/{id}/notifications ----
 
 export interface NotificationOut {
