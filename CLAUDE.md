@@ -6056,3 +6056,40 @@ natija, zo'rma-zo'raki chegara-usti topilma ham yo'q edi.
 
 473 test, barchasi real Postgres+Redis'da (kod o'zgarmadi — sof
 tekshiruv).
+
+**FR-CTL-005 (Undo: oxirgi qaytariladigan action'ni bekor qilish, Should)
+yopildi — FR-ACT-009'ning o'zi qurgan qoidaning aynan o'zi bu talabning
+qabul mezoni ekani aniqlandi, yangi kod talab qilinmadi.** Talabning qabul
+mezoni aniq: "Qaytarib bo'lmaydigan action uchun undo tugmasi
+ko'rsatilmaydi". FR-ACT-009'ning frontend "Bekor qilish" tugmasi allaqachon
+ANIQ shu qoida bilan qurilgan edi — faqat status READY yoki RUNNING
+(qaytarib bo'ladigan holatlar) bo'lganda ko'rinadi, boshqa har qanday
+holatda (AWAITING_APPROVAL, SUCCEEDED, FAILED, DENIED, REJECTED, EXPIRED,
+CANCELLED, COMPENSATED — barchasi qaytarib bo'lmaydigan yoki allaqachon
+qaytarilgan) yo'q. Ya'ni "Undo"ning bu talab nazarda tutgan ma'nosi
+(Action domenida) FR-ACT-009 qurilganda tasodifan emas, aynan shu
+tamoyil asosida allaqachon to'g'ri qurilgan edi — faqat bu talab bilan
+ID orqali hech qachon bog'lanmagan edi.
+
+**Ataylab tor talqin**: bu yopilish faqat Action domenidagi "undo"ga
+tegishli — "oxirgi qilingan ISH nima bo'lishidan qat'iy nazar uni bekor
+qilish" (masalan task status o'zgarishini yoki chat xabarini "undo"
+qilish) degan kengroq, umumiy funksiya emas. FR-CTL bo'limining o'zida
+FR-CTL-005 aynan FR-CTL-003 (kill switch) va FR-ACT-larning yonida
+turadi, umumiy "har qanday amalni bekor qilish" tizimi emas — shuning
+uchun bu talqin o'zboshimchalik bilan tanlangan emas, hujjatning o'z
+tuzilishiga mos.
+
+Buni ISBOTLASH uchun (yangi kod emas, mavjud qoidaning to'g'ri ekanini
+ko'rsatish uchun) `workspace.spec.ts`ga aniq assertion qo'shildi: seed
+qilingan R3 `send_email` action'i (AWAITING_APPROVAL — qaytarib
+bo'lmaydigan/hali hal qilinmagan holat) uchun "Bekor qilish" tugmasi
+UMUMAN yo'qligi tekshiriladi — bu paytgacha bu holat uchun tugma
+yo'qligiga hech qanday aniq test yo'q edi (faqat READY holatidagi
+tugmaning ko'rinishi va bosilgandan keyin yo'qolishi testlangan edi).
+Mavjud CANCELLED holatidagi tekshiruv (o'sha spec'ning FR-ACT-009 qadami)
+bilan birga endi ikkita alohida "qaytarib bo'lmaydigan holat" (kutilayotgan
+va allaqachon yakunlangan) ham qamrab olindi.
+
+Real backend+production frontend'ga qarshi (barcha 14 E2E spec) tasdiqlandi.
+Backend o'zgarmadi, 473 test o'zgarishsiz.

@@ -74,6 +74,14 @@ test("login, workspace, task, notification, action, audit flow", async ({ page }
     // case-insensitive substring match of the audit section's own
     // "action.awaiting_approval.v1" event further down the same page.
     await expect(page.getByText("AWAITING_APPROVAL", { exact: true })).toBeVisible();
+
+    // FR-CTL-005 ("Undo... qaytarib bo'lmaydigan action uchun undo tugmasi
+    // ko'rsatilmaydi"): an AWAITING_APPROVAL action isn't one the Cancel
+    // button's READY/RUNNING visibility rule covers, so it must not show
+    // one — the rule from FR-ACT-009 IS this requirement's acceptance
+    // criterion for the Action domain, not a separate feature.
+    const sendEmailRow = page.locator("li", { hasText: "send_email" });
+    await expect(sendEmailRow.getByRole("button", { name: "Bekor qilish" })).toHaveCount(0);
   });
 
   await test.step("cancelling a READY action (FR-ACT-009) removes it from the pending list", async () => {
