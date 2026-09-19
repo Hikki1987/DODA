@@ -6852,3 +6852,39 @@ toza natija, hatto chegara-usti nomzod ham yo'q edi.
 
 491 test, barchasi real Postgres+Redis'da (kod o'zgarmadi — sof
 tekshiruv).
+
+**NFR-I18N-001 (lokalizatsiya, "uz/ru/en stringlar externalized;
+hardcode yo'q", tekshiruv — "Lint qoidasi") tekshirildi va ATAYLAB
+QURILMADI — bu safar shunchaki qayta belgilash emas, haqiqiy hajm
+o'lchandi.** `docs/risk-register.md`ning RISK-010 qatorida bu allaqachon
+bilingan bo'shliq sifatida qayd etilgan edi. Bu safar frontend'ning
+BARCHA 11 sahifa/komponent fayli (`~2700 qator`) o'qib chiqildi va har
+bir hardcoded UI matni sanaldi — natija: ~180-220 alohida satr, ko'plari
+oddiy literal emas, dinamik shablon ifodalari ichida (`{NEXT_STATUS[...]}
+qilish`, `{OTHER_ROLE[...]} qilish`, `Mening AI afzalligim ({...}):`
+kabi).
+
+**Xulosa: bu butun frontend'ni qayta yozadigan mexanik ish bo'lardi —
+Lint qoidasi acceptance mezoni faqat BARCHA mavjud stringlarni bir
+yo'la ko'chirib bo'lgandan keyin qondirilishi mumkin (qisman migratsiya
+lint gate'ni yo yopilmagan yarmida qizartiradi, yo umuman hech narsani
+majburlamaydi) — "yarim tugallangan implementatsiya yo'q" qoidasiga
+to'g'ridan-to'g'ri zid.** Bu xarajatga qarshi: OD-001'ning o'z qarori —
+"hozircha shaxsiy foydalanish uchun, lekin kelajakda boshqalarga taqdim
+eta olish qobiliyati bilan" — DODA bugun shaxsiy, o'zbek tilida
+foydalanish uchun qurilayotganini, faqat pastki multi-tenant qobiliyat
+kelajak uchun ochiq qoldirilganini aytadi, HAR BIR kelajakdagi funksiya
+(shu jumladan ko'p tillilik) oldindan spekulyativ qurilishi kerak emas.
+Hech qanday ru/en tarjima matni yo'q va so'ralmagan — locale-almashtirish
+mexanizmini haqiqiy ikkinchi til mazmuni bo'lmasdan o'ylab topish aynan
+TRD'ning o'zi ogohlantirgan "texnik jamoa taxmin qiladi" naqshi bo'lardi.
+
+`docs/risk-register.md`ning RISK-010 qatoriga bu tekshiruv (hajm,
+sabab, qaror) to'liq yozildi — bu yopiq savol emas, faqat bu sessiyaning
+o'zi majburlab hal qilishi kerak bo'lgan narsa emas: haqiqiy ikkinchi til
+ehtiyoji paydo bo'lganda yoki UI'ning o'zi kattalashib (Knowledge/RAG)
+buni keyinroq qilish hozirgidan qimmatroq bo'lib qolganda qayta ko'rib
+chiqilishi kerak.
+
+Kod o'zgarmadi (faqat tekshiruv+hujjatlashtirish) — 491 test
+o'zgarishsiz.
