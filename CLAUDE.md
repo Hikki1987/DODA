@@ -6460,3 +6460,32 @@ open-decisions'dagi ESKI, boshqa vaqtda yozilgan qatorlar orqaga qaytib
 tekshirilmagan. Kelajakda shunga o'xshash drift yana yuzaga kelishi
 mumkin — bu turdagi hujjatlarni davriy ravishda to'liq qayta o'qish
 (faqat yangi yozuv qo'shish emas) qimmatli ekanini ko'rsatadi.
+
+**Xuddi shu drift naqshining eng katta nusxasi — `frontend/README.md`
+— ham topildi va tuzatildi.** Bu fayl sarlavhada o'zini "S3 shell" deb
+ataydi va "Qamrov" bo'limi Chat (FR-CONV)ni "backend'da ham hali yo'q,
+shuning uchun bu yerda ham yo'q" deb yozardi — bu ikkalasi ham HAQIQATDA
+noto'g'ri edi: shu sessiyaning o'zida to'liq multi-provider AI chat
+(uchta real provayder), task qarorlari/eslatmalari/rejasi, action
+preview/bekor qilish tugmasi, AI provayder sozlamalari+byudjet banneri,
+va evidence eksport — barchasi qurilgan, lekin bu README hech biriga
+qaytib tegilmagan edi (faqat backend/CLAUDE.md yangilangan). E2E spec
+ro'yxati ham eskirgan edi: "8 ta spec"/"6 ta seed" deb yozgan, aslida
+9 ta spec/9 ta seed bor (`chat.spec.ts` va `E2E_CHAT_`/`E2E_AUTHCALLBACK_`
+umuman tilga olinmagan edi).
+
+To'liq qayta yozildi: sarlavha ("S3 shell" olib tashlandi — frontend
+endi bir bosqichga sig'maydi), seed/spec ro'yxatlari to'g'rilandi (9/9),
+"Qamrov" bo'limiga chat sahifasi (suhbatlar, qidiruv, cancel, provayder/
+til pin), task'larning uchta yangi bo'limi (Qarorlar/Eslatmalar/Reja),
+action preview+bekor qilish, va customer sahifasining AI provayderlar
+bo'limi (fallback, afzallik, byudjet banneri, evidence eksport)
+qo'shildi — hammasi haqiqiy sahifa kodidan (`grep -n "h[23]"`) tasdiqlab,
+xotiradan yozilmagan.
+
+Ikkinchi drift — `README.md`ning "Struktura" daraxti — allaqachon shu
+sessiyada tuzatilgan edi (yuqoriga qarang); bu ikkinchi topilma shu
+darsning o'zi qayta tasdiqlanishi: "faqat yangi yozuv qo'sh" odati
+davom etayotgan ekan, "current-state" hujjatlarning HAMMASI (backend
+uchun ikkitasi, frontend uchun bittasi) shu bir xil sababdan eskirib
+qolgan.
