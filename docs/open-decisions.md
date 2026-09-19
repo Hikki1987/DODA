@@ -31,13 +31,20 @@ this decision has, in terms of actual work done, already been passed.
 
 ## What "overdue" actually means here
 
-Three items (OD-003, OD-005, OD-008) have passed the stage gate the TRD
-assigned them, purely because this project's actual build order didn't
-wait for them — none of the three have caused a real defect yet, because
-the work that depends on them (AI/prompt calls, real infrastructure
-deployment, budget enforcement) hasn't started. They are listed as
-overdue so they get closed *before* that dependent work starts, not
-discovered as a blocker in the middle of it.
+A decision can pass the stage gate the TRD assigned it purely because
+this project's actual build order didn't wait for it — the dependent
+work (AI/prompt calls, real infrastructure deployment, budget
+enforcement) starting before the decision was made. That's why "overdue"
+is tracked here at all: to get such a decision closed *before* the work
+it gates starts, not discovered as a blocker in the middle of it.
+
+OD-003, OD-005, and OD-008 all went through exactly this — each passed
+its stage gate first, then was actually resolved by the Product Owner
+afterward (see the table above; none are open any longer). The pattern
+held: none caused a real defect in the gap between "overdue" and
+"resolved", because in each case the dependent work genuinely hadn't
+started yet either. OD-006 and OD-007 remain the ones still open, and
+neither is overdue yet (their stages, S6 and S4, haven't started).
 
 ## Ownership
 

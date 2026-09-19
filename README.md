@@ -633,17 +633,30 @@ tekshiradigan test qo'shildi — shu sinf xatoni endi CI har safar ushlaydi.
 ```
 backend/
   src/doda/
-    domain/        # Identity, Customer, Workspace, Audit (modular monolith, 6-bo'lim)
+    domain/         # Identity, Customer, Workspace, Task, Action, Audit, Conversation... (6-bo'lim)
+    application/    # Servislar — authz, action/task/customer/workspace, AI budget/preference, export...
+    ai/             # Provider-neutral gateway porti, xato tiplari, til aniqlash, outbound guard (ADR-004)
+    infrastructure/ # Tashqi dunyo bilan gaplashadigan yagona qatlam: telegram/google-oidc client'lari,
+                    # relay worker'lar (outbox_relay.py, telegram_relay.py), gateway adapterlari
     api/            # Experience qatlami (FastAPI routerlar)
     config.py, db.py, main.py
   migrations/       # Alembic
-  scripts/          # seed_e2e_demo.py — frontend E2E suite uchun demo ma'lumot
+  scripts/          # seed_e2e_demo.py (E2E demo ma'lumot) + mustaqil ops skriptlari — hech biri
+                    # pytest orqali emas, qo'lda real Postgres(+Redis)'ga qarshi ishga tushiriladi:
+                    # verify_audit_chain_job.py, verify_trace_completeness_job.py,
+                    # find_stuck_running_actions.py, find_stuck_compensating_actions.py,
+                    # fire_due_reminders_job.py, backup_restore_drill.py, load_test_api.py,
+                    # load_test_ai_chat.py, run_ai_eval_suite.py
+  Dockerfile, docker-entrypoint.sh  # production konteyner (Render/VPS) — api/outbox-relay/
+                                     # telegram-relay uchtasi ham shu bir image'dan, faqat command farqli
   tests/
 frontend/
   src/
-    app/            # Next.js App Router sahifalari (login, workspaces, workspace/[id], customers/[id])
+    app/            # Next.js App Router sahifalari (login, workspaces, workspace/[id]/chat, customers/[id],
+                    # sessions, auth/callback)
     lib/            # api.ts (backend client), session.ts, useSession.ts
-  e2e/              # Playwright — real backend+frontend'ga qarshi, CI'da ishlaydi
+  e2e/              # Playwright — real backend+frontend'ga qarshi (production build), CI'da ishlaydi
+  Dockerfile        # production konteyner — Next.js standalone output (DOCKER_BUILD=1 orqali)
 infra/
   postgres-init/    # doda_app (huquqi cheklangan) rolini yaratuvchi bootstrap skript
 deploy/

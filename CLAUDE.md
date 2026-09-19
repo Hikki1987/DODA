@@ -6423,3 +6423,40 @@ gateway'i (83-89%) hamon real provider tarmoq murojaatini talab qiladi.
 485 test, barchasi real Postgres+Redis'da (ikki marta ketma-ket ishga
 tushirilib barqarorligi tasdiqlandi); `ruff`/`mypy src/doda` toza;
 umumiy backend qamrov 99% (55 qatordan 45ga).
+
+**Uchta nuqtai-vaqt hujjat (README'ning "Struktura" bo'limi, `docs/
+open-decisions.md`, `docs/risk-register.md`) eskirgan bo'lib qolganini
+topib tuzatdim — kod o'zgarmadi, sof hujjat aniqligi.** Bu ADR'lar uchun
+allaqachon o'rnatilgan tamoyilning takrori ("ADR'lar nuqtai-vaqt hujjat
+bo'lishi kerak, xronologik log emas") — CLAUDE.md/README'ning tarixiy
+qismlari xronologik log bo'lib qolishi to'g'ri, lekin bu uchtasi ATAYLAB
+"joriy holat" hujjatlari, shuning uchun eskirib qolishi haqiqiy xato:
+
+1. **README'ning "Struktura" daraxti** hali faqat `scripts/seed_e2e_demo.py`
+   bitta faylni tilga olardi — o'nta mustaqil ops-skript (`verify_audit_
+   chain_job.py`, `find_stuck_running_actions.py`, va h.k.), ikkita
+   Dockerfile, `docker-entrypoint.sh` esa umuman ko'rsatilmagan edi.
+   Haqiqiy `ls` natijasi bilan solishtirib to'liq yangilandi.
+2. **`docs/open-decisions.md`ning "What overdue actually means" bo'limi**
+   OD-003/005/008ni HALI "overdue" deb yozgan edi — bu paragraf o'sha
+   uchtasi hali hal qilinmagan vaqtda yozilgan, lekin ular keyinroq
+   HAQIQATDA hal qilingandan keyin ham qaytib tahrirlanmagan edi (jadval
+   ustunlari to'g'ri yangilangan, lekin bu tushuntirish paragrafi
+   unutilgan). Endi ikkalasi mos: uchtasi "resolved" ekanini aniq aytadi,
+   faqat OD-006/007 hamon ochiq.
+3. **`docs/risk-register.md`ning RISK-002/007/009 qatorlari** FR-ACT-002
+   (dry-run preview), FR-CTL-005 (undo/cancel) va FR-AUD-005 (evidence
+   package)ni "hech qanday implementatsiya yo'q" deb yozgan edi — bu
+   uchtasi ham shu sessiyaning o'zida keyinroq qurilgan edi, lekin risk
+   register ularga qaytib yangilanmagan edi. RISK-009 esa OD-005'ni hamon
+   "Open, overdue" deb yozardi — OD-005 allaqachon hal qilingan (Render
+   qarori). Uchtasi ham haqiqiy joriy holatga (mitigated/resolved,
+   qolgan aniq chegaralari bilan) yangilandi.
+
+Bu topilma shu sessiyaning o'z ish uslubiga ("build qilib, keyin
+hujjatni yangila") tabiiy oqibat: har bir yangi FR/OD yopilganda faqat
+CLAUDE.md/o'zining tegishli qatori yangilangan, lekin risk-register/
+open-decisions'dagi ESKI, boshqa vaqtda yozilgan qatorlar orqaga qaytib
+tekshirilmagan. Kelajakda shunga o'xshash drift yana yuzaga kelishi
+mumkin — bu turdagi hujjatlarni davriy ravishda to'liq qayta o'qish
+(faqat yangi yozuv qo'shish emas) qimmatli ekanini ko'rsatadi.
