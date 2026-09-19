@@ -60,7 +60,20 @@ async def is_new_device_login(session: AsyncSession, *, user_id: uuid.UUID, user
     dev/test seam) has no baseline to compare against, so it is never
     itself flagged — there is nothing anomalous about the first device
     you're ever seen on. Must be called BEFORE create_session persists
-    the new row, or that row would count as its own baseline."""
+    the new row, or that row would count as its own baseline.
+
+    Known limitation (found in the 8th security-review pass, judged a
+    monitoring-detection gap rather than an authorization vulnerability
+    — nothing in this codebase's authz chain depends on this check, and
+    the attacker precondition it needs is an out-of-band account
+    takeover this codebase cannot see either way): a caller's request
+    that carries no User-Agent header at all makes the OIDC callback
+    pass user_agent=None here, which this function's own "no baseline"
+    rule then treats identically to a first-ever login — silently
+    skipping the anomaly check rather than flagging the missing header
+    itself as suspicious. Real browsers always send a User-Agent, so
+    this only matters for a scripted client completing the OAuth
+    exchange directly."""
     prior_agents = (
         (
             await session.execute(

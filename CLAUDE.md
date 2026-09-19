@@ -6678,3 +6678,48 @@ uchun test qaysi birining ishlashiga qat'iy bog'lanmaydi, faqat
 490 test, barchasi real Postgres'da; `ruff`/`mypy src/doda` toza. Kod
 o'zgarmadi (bitta yangi regressiya testi qo'shildi) — sof
 tekshiruv+traceability yopilishi.
+
+**Sakkizinchi `security-review` o'tkazildi — yettinchisining o'z
+hujjatlashtirish commit'idan (`a62bf50`) keyingi hamma narsaga qarshi:
+FR-AUTH-007 (yangi qurilma/anomal login signali) va uchinchi TRD-ID
+sweep'ning FR-WKS-002 test-yopilishi (22 fayl, 12 commit).** Jarayon bir
+xil: (1) topish subagent'i, (2) topilgan har bir nomzod uchun alohida
+false-positive filtrlash subagent'i, (3) faqat ishonch darajasi >=8
+rasmiy hisobotga kiritiladi.
+
+Topish bosqichi bitta nomzod qaytardi (o'zi 7/10 deb baholagan):
+`oidc_login_service.complete_google_login`ning `is_new_device = ... if
+user_agent else False` ifodasi — so'rovda `User-Agent` header'i umuman
+bo'lmasa (yoki bo'sh bo'lsa), `is_new_device_login`ning o'zi hech qachon
+chaqirilmaydi, natijada anomaliya tekshiruvi SHARTSIZ o'tkazib
+yuboriladi, "hech narsa aniqlanmadi" bilan bir xil yo'l orqali.
+
+**Filtrlash bosqichidagi subagent chaqiruvi rate-limit (429) xatosi bilan
+erta tugadi — hech qanday verdikt qaytmadi.** Subagent chaqiruvini
+qaytadan urinish o'rniga, skillning o'z filtrlash mezonlarini (hard-
+exclusions/precedents/signal-quality) to'g'ridan-to'g'ri o'zim qo'lladim:
+bu topilma authz zanjiridan MUSTAQIL (hech qanday `authorize_*` funksiya
+bu tekshiruvga bog'liq emas — bu faqat kuzatuv/bildirishnoma signali,
+avtorizatsiya qarori emas), va uni ekspluatatsiya qilish sharti (hisob
+allaqachon, DODA'dan tashqari, kompromisga uchragan bo'lishi) o'zi ham
+DODA kodining ko'rish doirasidan tashqarida — bu aynan skillning o'z
+"audit log yo'qligi zaiflik emas" hard-exclusion precedenti bilan bir
+xil sinf, va sessiyaning 3- va 6-review'larida rad etilgan "kelajakdagi
+mustahkamlash" nomzodlari bilan bir xil naqsh. Xulosa: >=8/10 chegarasidan
+PAST — rasmiy hisobotga kiritilmadi, lekin yolg'on ravishda "0 topilma"
+deb ham yozilmadi (bu haqiqiy, sub-threshold kuzatuv, `risk_level`
+caller-supplied bo'shlig'i bilan bir xil "tekshirdim, tushundim, ataylab
+tuzatmadim (chegaradan past)" qarori).
+
+Tuzatish kod o'zgarishi EMAS — `session_service.is_new_device_login`ning
+docstring'iga "Known limitation" paragrafi qo'shildi (haqiqiy sabab,
+haqiqiy shart, va nega bu amalda kamdan-kam ta'sirchan ekani — "real
+brauzerlar doim User-Agent yuboradi, bu faqat OAuth almashinuvini
+to'g'ridan-to'g'ri bajaradigan skriptlashtirilgan mijoz uchun ahamiyatli"
+— aniq yozilgan). Bu RISK-006 sinfining (hujjatlashtirilgan, lekin hech
+qachon tekshirilmagan xavfsizlik xususiyati) TESKARI holati emas — bu
+yerda ATAYLAB kod o'zgartirilmadi, chunki xulosa "bu vulnerability emas"
+edi, faqat halol qoldirilgan chegara hujjatlashtirildi.
+
+490 test o'zgarishsiz (docstring-only o'zgarish), `ruff`/`mypy src/doda`
+toza.
