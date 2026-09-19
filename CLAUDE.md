@@ -6311,3 +6311,35 @@ tasdiqlangan mantiqning bir nusxasi.
 
 476 test, barchasi real Postgres+Redis'da (ikki marta ketma-ket ishga
 tushirilib barqarorligi tasdiqlandi); `ruff`/`mypy src/doda` toza.
+
+**Coverage'ni qayta o'lchashda `telegram_relay.py`ning `main()`idagi
+"bot token sozlanmagan" ogohlantirish filiali (281-qator) hech qachon
+bosib o'tilmagani aniqlandi — sabab shu sessiyada allaqachon
+hujjatlashtirilgan: Product Owner haqiqiy Telegram bot tokenini
+`.env`ga taqdim etganidan beri (OD-002), `main()`ning mavjud yagona
+testi (`test_main_stops_cleanly_on_sigterm`) doim boshqa filialni
+(token BOR) bosib o'tgan.** Bu `outbox_relay.py`ning o'z egizagi 98%
+qamrovga ega bo'lgani (faqat ikkita, ilgari qabul qilingan qatori
+qolgan) holda `telegram_relay.py` 97%da qolgan sababi edi.
+
+Yangi `test_main_starts_and_warns_when_no_bot_token_is_configured`
+`telegram_relay_module.get_settings`ni monkeypatch qilib
+(`get_settings().model_copy(update={"telegram_bot_token": None})`)
+`main()`ning o'zini haqiqiy shu holatda ishga tushiradi — real Redis
+ulanishi, real signal handler'lar bilan, faqat token yo'q. Tasdiqlaydi:
+jarayon qulamaydi, ogohlantiradi va ishlashda davom etadi (backlog'dagi
+har qanday telegram action'ni allaqachon isbotlangan `bot_token=None`
+yo'li — `test_missing_bot_token_drives_action_to_failed_without_
+calling_telegram` — orqali FAILED'ga hal qiladi, faqat qulagan jarayon
+orqali emas), keyin toza SIGTERM bilan to'xtaydi.
+
+Testning o'zi (`--cov=doda.infrastructure.telegram_relay` bilan yolg'iz
+ishga tushirib) aniq 281-qatorni qoplashi tasdiqlandi. `telegram_relay.py`:
+97% → **98%** — endi `outbox_relay.py`ning egizagi bilan bir darajada,
+qolgan ikki qator (109 — BUSYGROUP bo'lmagan Redis xatosini qayta
+ko'tarish, 299 — `if __name__ == "__main__"` qatori) allaqachon
+CLAUDE.md'da "qolgan 10 qator" ro'yxatida hujjatlashtirilgan, ataylab
+qoldirilgan qatorlar bilan bir xil.
+
+477 test, barchasi real Postgres+Redis'da (ikki marta ketma-ket ishga
+tushirilib barqarorligi tasdiqlandi); `ruff`/`mypy src/doda` toza.

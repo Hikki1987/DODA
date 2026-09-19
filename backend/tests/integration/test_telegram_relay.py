@@ -34,6 +34,7 @@ from doda.db import async_session_factory, tenant_scoped_session
 from doda.domain.action.models import Action, ActionStatus, RiskLevel
 from doda.domain.audit.models import AuditEvent
 from doda.domain.outbox.models import OutboxMessage
+from doda.infrastructure import telegram_relay as telegram_relay_module
 from doda.infrastructure.outbox_relay import relay_once as outbox_relay_once
 from doda.infrastructure.telegram_relay import (
     CONSUMER_GROUP,
@@ -670,6 +671,29 @@ async def test_main_stops_cleanly_on_sigterm(db_available: bool, redis_client: R
     test_outbox_relay.py's identical test for the sibling worker."""
     task = asyncio.create_task(main())
     await asyncio.sleep(0.3)  # let it start and register the signal handlers
+    assert_worker_still_running_before_signaling(task)
+    os.kill(os.getpid(), signal.SIGTERM)
+    await asyncio.wait_for(task, timeout=10)
+
+
+async def test_main_starts_and_warns_when_no_bot_token_is_configured(
+    db_available: bool, redis_client: Redis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """main()'s own "no bot token" branch has never run in this session:
+    a real Telegram bot token has been in backend/.env since OD-002, so
+    every prior test_main_stops_cleanly_on_sigterm run took the OTHER
+    branch of `if settings.telegram_bot_token is None:`. This proves the
+    entrypoint itself degrades gracefully on a real misconfiguration
+    (warns, keeps polling, never crashes at startup) rather than assuming
+    it — any backlog telegram action it picks up during the run still
+    resolves to FAILED via the already-proven bot_token=None path (see
+    test_missing_bot_token_drives_action_to_failed_without_calling_
+    telegram), it just never gets there through a crashed process."""
+    unconfigured = get_settings().model_copy(update={"telegram_bot_token": None})
+    monkeypatch.setattr(telegram_relay_module, "get_settings", lambda: unconfigured)
+
+    task = asyncio.create_task(main())
+    await asyncio.sleep(0.3)
     assert_worker_still_running_before_signaling(task)
     os.kill(os.getpid(), signal.SIGTERM)
     await asyncio.wait_for(task, timeout=10)
