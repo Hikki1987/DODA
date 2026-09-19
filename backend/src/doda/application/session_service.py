@@ -1,10 +1,13 @@
 """Session lifecycle — FR-AUTH-003/005/006.
 
-KNOWN LIMITATION: `create_session` is a dev/test seam standing in for the
-real OIDC login callback (FR-AUTH-001), which belongs to S3 (Web product
-shell) and requires an actual external provider. Everything downstream of
-session creation here — idle/absolute timeout enforcement, revoke — is the
-real thing, not a stub.
+`create_session` is called both by the real Google OIDC login callback
+(`doda.application.oidc_login_service`, FR-AUTH-001) and by a dev/test
+seam used directly by tests and seed scripts, which never have a real
+HTTP request to pull a user_agent from — that path passes none, and
+`is_new_device_login` (FR-AUTH-007) treats "no user_agent" as "no
+evidence", never as anomalous. Everything downstream of session
+creation — idle/absolute timeout enforcement, revoke — is the real
+thing either way, not a stub.
 """
 
 import uuid
@@ -30,7 +33,11 @@ class SessionInvalidError(Exception):
 
 
 async def create_session(
-    session: AsyncSession, *, user_id: uuid.UUID, auth_strength: AuthStrength
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    auth_strength: AuthStrength,
+    user_agent: str | None = None,
 ) -> Session:
     now = utcnow()
     record = Session(
@@ -38,10 +45,34 @@ async def create_session(
         auth_strength=auth_strength,
         last_seen_at=now,
         expires_at=now + ABSOLUTE_TIMEOUT,
+        user_agent=user_agent,
     )
     session.add(record)
     await session.flush()
     return record
+
+
+async def is_new_device_login(session: AsyncSession, *, user_id: uuid.UUID, user_agent: str) -> bool:
+    """FR-AUTH-007: true iff this exact user_agent has never appeared on
+    any of this user's PRIOR sessions, AND the user has at least one
+    prior session whose user_agent is known. A first-ever login (or a
+    user whose only prior sessions predate this column / came through the
+    dev/test seam) has no baseline to compare against, so it is never
+    itself flagged — there is nothing anomalous about the first device
+    you're ever seen on. Must be called BEFORE create_session persists
+    the new row, or that row would count as its own baseline."""
+    prior_agents = (
+        (
+            await session.execute(
+                select(Session.user_agent).where(Session.user_id == user_id, Session.user_agent.is_not(None))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not prior_agents:
+        return False
+    return user_agent not in prior_agents
 
 
 async def resolve_session(session: AsyncSession, session_id: uuid.UUID) -> Session:

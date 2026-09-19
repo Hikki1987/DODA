@@ -11,10 +11,10 @@ from datetime import timedelta
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from doda.application.session_service import IDLE_TIMEOUT
+from doda.application.session_service import IDLE_TIMEOUT, create_session, is_new_device_login
 from doda.db import async_session_factory
 from doda.domain.base import utcnow
-from doda.domain.identity.models import Session
+from doda.domain.identity.models import AuthStrength, Session, User
 from doda.main import app
 from tests.integration.conftest import seed_workspace_member
 
@@ -245,3 +245,47 @@ async def test_idle_session_past_the_idle_timeout_is_rejected(
     response = await client.get("/v1/sessions", headers=_auth_headers(member.session_id))
     assert response.status_code == 401
     assert response.json()["code"] == "UNAUTHENTICATED"
+
+
+async def test_is_new_device_login_ignores_a_bare_first_login(db_available: bool) -> None:
+    """FR-AUTH-007: a user with no prior sessions at all has no baseline
+    to compare against, so their very first login is never itself
+    flagged as anomalous — there is nothing suspicious about the first
+    device you're ever seen on."""
+    async with async_session_factory() as db, db.begin():
+        user = User(oidc_subject_hash=str(uuid.uuid4()), display_name="New Device Probe")
+        db.add(user)
+        await db.flush()
+
+        assert await is_new_device_login(db, user_id=user.id, user_agent="Mozilla/BrowserA") is False
+
+
+async def test_is_new_device_login_ignores_sessions_with_no_known_user_agent(db_available: bool) -> None:
+    """Same "no baseline" rule applies when the only prior sessions came
+    through the dev/test seam (create_session's default user_agent=None)
+    — an unknown device is neither confirmed familiar nor confirmed new,
+    so it must not count as evidence either way."""
+    async with async_session_factory() as db, db.begin():
+        user = User(oidc_subject_hash=str(uuid.uuid4()), display_name="Unknown Device Probe")
+        db.add(user)
+        await db.flush()
+        await create_session(db, user_id=user.id, auth_strength=AuthStrength.AAL1)  # no user_agent
+
+        assert await is_new_device_login(db, user_id=user.id, user_agent="Mozilla/BrowserC") is False
+
+
+async def test_is_new_device_login_flags_a_genuinely_new_device_once_a_baseline_exists(
+    db_available: bool,
+) -> None:
+    async with async_session_factory() as db, db.begin():
+        user = User(oidc_subject_hash=str(uuid.uuid4()), display_name="Known Device Probe")
+        db.add(user)
+        await db.flush()
+        await create_session(
+            db, user_id=user.id, auth_strength=AuthStrength.AAL1, user_agent="Mozilla/BrowserA"
+        )
+
+        # The exact same device is never "new".
+        assert await is_new_device_login(db, user_id=user.id, user_agent="Mozilla/BrowserA") is False
+        # A genuinely different device now has a real baseline to differ from.
+        assert await is_new_device_login(db, user_id=user.id, user_agent="Mozilla/BrowserB") is True

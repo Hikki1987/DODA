@@ -13,9 +13,11 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
+from doda.application.customer_service import create_customer_with_owner, invite_customer_member
 from doda.config import Settings
-from doda.db import async_session_factory
+from doda.db import async_session_factory, tenant_scoped_session
 from doda.domain.identity.models import Session, User
+from doda.domain.security.roles import CustomerRole
 from doda.infrastructure.google_oidc_client import GoogleOidcError, GoogleUserInfo
 from doda.main import app
 
@@ -158,3 +160,84 @@ async def test_callback_provider_error_returns_502(
 
     assert response.status_code == 502
     assert response.json()["code"] == "OIDC_PROVIDER_ERROR"
+
+
+async def test_a_new_device_login_creates_exactly_one_security_alert_per_customer(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, db_available: bool
+) -> None:
+    """FR-AUTH-007 end to end: first-ever login (no baseline) is quiet, a
+    genuinely new device fires a SECURITY_ALERT in every customer the user
+    belongs to, and a repeat of that same device never fires a second one.
+    """
+    monkeypatch.setattr("doda.api.auth.get_settings", lambda: _configured_settings())
+    subject = str(uuid.uuid4())
+
+    async def fake_login_with_google(**kwargs: object) -> GoogleUserInfo:
+        return GoogleUserInfo(subject=subject, display_name="Device Test User")
+
+    monkeypatch.setattr("doda.application.oidc_login_service.login_with_google", fake_login_with_google)
+
+    async def _google_login(*, code: str, user_agent: str) -> uuid.UUID:
+        login_response = await client.get("/v1/auth/google/login")
+        state = parse_qs(urlparse(login_response.headers["location"]).query)["state"][0]
+        callback_response = await client.get(
+            "/v1/auth/google/callback",
+            params={"code": code, "state": state},
+            headers={"User-Agent": user_agent},
+        )
+        assert callback_response.status_code == 307
+        query = parse_qs(urlparse(callback_response.headers["location"]).query)
+        return uuid.UUID(query["session_id"][0])
+
+    # First-ever login: no prior session to compare against, so this must
+    # not be flagged even though there's no customer to notify yet either.
+    session1_id = await _google_login(code="code-1", user_agent="Mozilla/BrowserA")
+
+    async with async_session_factory() as db:
+        session1 = await db.get(Session, session1_id)
+        assert session1 is not None
+        user_id = session1.user_id
+
+    customer_id = uuid.uuid4()
+    async with tenant_scoped_session(customer_id) as tdb:
+        await create_customer_with_owner(
+            tdb,
+            customer_id=customer_id,
+            name="Device Test Customer",
+            owner_user_id=uuid.uuid4(),
+            actor_id="user:bootstrap",
+        )
+        await invite_customer_member(
+            tdb,
+            customer_id=customer_id,
+            user_id=user_id,
+            role=CustomerRole.MEMBER,
+            actor_id="user:bootstrap",
+        )
+
+    # Second login, a genuinely different device — now there's a baseline.
+    session2_id = await _google_login(code="code-2", user_agent="Mozilla/BrowserB")
+
+    notifications = (
+        await client.get(
+            f"/v1/customers/{customer_id}/notifications",
+            headers={"Authorization": f"Bearer {session2_id}"},
+        )
+    ).json()
+    alerts = [n for n in notifications if n["notification_type"] == "SECURITY_ALERT"]
+    assert len(alerts) == 1
+    assert alerts[0]["reference_type"] == "session"
+    assert alerts[0]["reference_id"] == str(session2_id)
+
+    # Third login, SAME device as session2 — already-known, no new alert.
+    session3_id = await _google_login(code="code-3", user_agent="Mozilla/BrowserB")
+
+    notifications_after_third = (
+        await client.get(
+            f"/v1/customers/{customer_id}/notifications",
+            headers={"Authorization": f"Bearer {session3_id}"},
+        )
+    ).json()
+    alerts_after_third = [n for n in notifications_after_third if n["notification_type"] == "SECURITY_ALERT"]
+    assert len(alerts_after_third) == 1
+    assert alerts_after_third[0]["reference_id"] == str(session2_id)

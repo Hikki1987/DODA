@@ -37,13 +37,10 @@ class AuthStrength(enum.StrEnum):
 
 
 class Session(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
-    """FR-AUTH-003/005/006. KNOWN LIMITATION: created directly by
-    doda.application.session_service.create_session rather than by a real
-    OIDC login callback — FR-AUTH-001's actual provider exchange is S3
-    scope (Web product shell). This table and its idle/absolute timeout and
-    revoke semantics are real; only the "how a session is born" step is a
-    stand-in.
-    """
+    """FR-AUTH-003/005/006. Created either by the real Google OIDC login
+    callback (doda.application.oidc_login_service, FR-AUTH-001) or by
+    doda.application.session_service.create_session's dev/test seam,
+    used directly by tests and seed scripts without a real browser login."""
 
     __tablename__ = "identity_sessions"
 
@@ -56,3 +53,7 @@ class Session(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     """Absolute timeout (FR-AUTH-006: 12h default) — independent of idle
     timeout, which is enforced by comparing last_seen_at at resolve time."""
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    user_agent: Mapped[str | None] = mapped_column(String(512), default=None)
+    """FR-AUTH-007's device signal. NULL for the dev/test seam and any
+    session predating this column — session_service.is_new_device_login
+    treats NULL as "no evidence", never as anomalous."""

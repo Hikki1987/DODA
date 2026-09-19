@@ -6489,3 +6489,117 @@ darsning o'zi qayta tasdiqlanishi: "faqat yangi yozuv qo'sh" odati
 davom etayotgan ekan, "current-state" hujjatlarning HAMMASI (backend
 uchun ikkitasi, frontend uchun bittasi) shu bir xil sababdan eskirib
 qolgan.
+
+**FR-AUTH-007 (Anomal login signali: "Yangi qurilmadan login... security
+notification hosil qiladi", Should) qisman qurildi — qurilma qismi,
+geografiya emas.** Bu ID ikkinchi TRD qayta ko'rib chiqishda "yangi PO
+qarorini talab qiladi" deb noto'g'ri belgilangan edi — tekshirilganda
+aniqlandi: talab bitta o'lchov (qurilma) uchun aniq va deterministik,
+faqat "geografiya" qismi yangi tashqi bog'liqlik (geo-IP ma'lumotlar
+bazasi/xizmati — bu muhitning tarmoq siyosati va'da qilingan
+provayderlardan tashqari deyarli har qanday tashqi xizmatni bloklaydi,
+Telegram/Google integratsiyalarida allaqachon uch marta tasdiqlangan
+cheklov) talab qiladi. Shuning uchun faqat qurilma (User-Agent) qismi
+qurildi, geografiya ochiq bo'shliq sifatida aniq qoldirildi — FR-CONV-001
+(til aniqlash) va FR-TASK-005 (reminder)ning "bir aniq, taxmin qilinmaydigan
+o'lchovga cheklash" tamoyilining takrori.
+
+`identity_sessions`ga `user_agent` ustuni qo'shildi (0023-migratsiya,
+nullable — `NULL` "noma'lum qurilma" degani, dev/test seam va bu
+migratsiyadan oldingi qatorlar uchun). `session_service.is_new_device_
+login(session, user_id, user_agent)`: chaqiruvchining shu ANIQ
+user_agent'i shu foydalanuvchining oldingi (`user_agent IS NOT NULL`)
+sessiyalarida hech qachon ko'rinmagan bo'lsa VA kamida bitta shunday
+baza (baseline) mavjud bo'lsa — `True`. Ikkita ataylab qilingan holat
+hech qachon anomal deb belgilanmaydi: (1) birinchi-marta login (hech
+qanday oldingi sessiya yo'q — solishtirish uchun baza yo'q, demak
+"birinchi qurilma" tabiiy ravishda anomal emas); (2) barcha oldingi
+sessiyalar `user_agent=NULL` (noma'lum qurilma — na tasdiqlangan tanish,
+na tasdiqlangan yangi, shuning uchun dalil sifatida ishlatilmaydi).
+Tekshiruv ANIQ `create_session`dan OLDIN chaqirilishi shart — aks holda
+yangi qator o'zining bazasiga aylanib qolardi.
+
+`oidc_login_service.complete_google_login` endi `user_agent` parametrini
+qabul qiladi (real callback'dan — `api/auth.py` `request.headers.get(
+"user-agent")`ni uzatadi) va `GoogleLoginResult(session, is_new_device)`
+qaytaradi. Bildirishnoma yozish `api/auth.py`ning o'z darajasida
+qolgan — sabab aniq: `Notification` tenant-scoped jadval (customer_id
+majburiy), lekin butun login oqimi (`identity_sessions`/`identity_users`)
+tenant-scoped EMAS (Identity — customer chegarasidan yuqoridagi yagona
+domain). Foydalanuvchi darajasidagi "inbox" mavjud emas (FR-NTF'ning
+"customer-lararo global inbox ataylab qurilmagan" bilingan cheklovining
+o'zi) — shuning uchun `_notify_new_device_login` `customer_ids_for_user`
+orqali foydalanuvchi a'zo bo'lgan HAR BIR customer uchun alohida
+`tenant_scoped_session(customer_id)` ochib, SECURITY_ALERT bildirishnomasi
+yozadi (`reference_type="session"`, `safe_metadata={"reason":
+"new_device_login"}` — bu kalit `test_notifications.py`ning
+`ALLOWED_METADATA_KEYS[SECURITY_ALERT]`da ALLAQACHON bor edi, kill
+switch'ning o'z SECURITY_ALERT'lari bilan bir xil naqsh, yangi istisno
+kerak bo'lmadi). Hech qanday customer'ga a'zo bo'lmagan foydalanuvchi
+(nazariy jihatdan mumkin, lekin kamdan-kam — odatda oldingi sessiya
+mavjud bo'lgan paytda allaqachon kamida bitta a'zolik bor) uchun hech
+narsa yozilmaydi — bu bo'shliq emas, ATAYLAB shunday (yozadigan tenant
+yo'q).
+
+Bildirishnoma yozish "best-effort": login o'zi allaqachon commit
+bo'lgandan KEYIN ishga tushadi, shuning uchun undagi har qanday xato
+`try/except Exception: logger.exception(...)` bilan tutiladi — muvaffaqiyatli
+login'ni ikkinchi darajali bildirishnoma yozuvi xatosi tufayli 500'ga
+aylantirmaslik uchun (frontend'ning `logOut()`i o'z revoke-so'rovi
+xatosini yutgani bilan bir xil "best-effort side action" pozitsiyasi).
+
+Testlar audit-zanjiri uslubida isbotlandi: uchta `is_new_device_login`
+semantika testi (`test_sessions_api.py`) — birinchi login baza yo'qligi
+sababli belgilanmasligi, faqat noma'lum (NULL) qurilmali baza ham
+belgilamasligi, haqiqiy baza mavjud bo'lganda aniq yangi qurilma
+belgilanishi. Bitta to'liq end-to-end integratsiya testi
+(`test_auth_api.py`, real HTTP orqali, `login_with_google`ning o'zi
+mock qilingan — mavjud OIDC test naqshining aynan o'zi): birinchi login
+(BrowserA, jim — baza yo'q) → customer'ga a'zo qilish → ikkinchi login
+(BrowserB, YANGI qurilma) → `GET /v1/customers/{id}/notifications`
+orqali aynan bitta SECURITY_ALERT, `reference_id` == ikkinchi
+sessiyaning ID'siga teng ekanini tasdiqlash → uchinchi login (yana
+BrowserB, ALLAQACHON tanish) → hali ham aynan bitta alert (ikkinchisi
+qo'shilmagan). Isbotlash uchun `is_new_device` hisoblashni vaqtincha
+`False`ga qattiq bog'lab, test aynan kutilgan tarzda (`assert 0 == 1`
+— hech qanday alert topilmay) muvaffaqiyatsiz bo'lishini ko'rsatdim,
+keyin faylni zaxira nusxadan tiklab (`diff` bilan 0 farq tasdiqlab)
+qaytadan yashil ekanini ko'rsatdim.
+
+Frontend'ga hech narsa qo'shilmadi — bildirishnomalar ro'yxati
+(workspace/customer sahifalarida) allaqachon generik render qiladi
+(`{notification_type} — {reference_type}`, turga xos switch yo'q),
+shuning uchun bu yangi SECURITY_ALERT hech qanday yangi kod talab
+qilmasdan mavjud ro'yxatda to'g'ri ko'rinadi. Yangi E2E test ham
+qurilmadi/qurilishi mumkin emas — bu funksiya faqat HAQIQIY Google OIDC
+callback orqali ishlaydi (dev/test session-ID kirish o'zining sun'iy
+seam'i, User-Agent header'i haqiqiy brauzer-Google round trip'ining bir
+qismi emas), va bu muhitning tarmoq siyosati Google'ga chiqishni
+bloklaydi — bu FR-AUTH-001'ning o'zi qurilganda allaqachon
+hujjatlashtirilgan xuddi shu chegara.
+
+Bu ishni qilish jarayonida ikkita, aloqasi bo'lmagan joyda eski
+("KNOWN LIMITATION: create_session dev/test seam, real OIDC yo'q")
+docstring qoldiqi topildi va tuzatildi (`session_service.py`ning modul
+docstring'i, `Session` model docstring'i) — bu haqiqatda OIDC login
+qurilgandan (shu sessiyaning ancha oldingi qismi) beri eskirib qolgan
+edi, lekin hech qachon qaytib tekshirilmagan: `create_session` endi
+IKKALA yo'ldan (real OIDC callback VA dev/test seam) chaqiriladi.
+Xuddi shu "current-state docstring, faqat yangi yozuv qo'shilganda emas,
+davriy ravishda qayta o'qilishi kerak" darsining yana bir, kod
+docstring'lari darajasidagi nusxasi — README/open-decisions/risk-register
+darajasida allaqachon ikki marta topilgan naqsh.
+
+489 test (485 + 4 yangi: 3 unit — `test_sessions_api.py`, 1 integration
+— `test_auth_api.py`), barchasi real Postgres'da; `ruff`/`mypy src/doda`
+toza; migratsiya round-trip (0022→0023→0022→0023) qo'lda tekshirildi.
+
+**Ataylab ochiq qoldirilgan bo'shliq**: geografiya (FR-AUTH-007'ning o'z
+nomi "yangi qurilma/geografiya" deydi) — yangi geo-IP dependency/xizmat
+talab qiladi, bu muhitda tekshirib bo'lmaydi va yangi tashqi bog'liqlik
+qo'shish bo'lardi. `docs/risk-register.md`/`docs/open-decisions.md`ga
+yozilmadi — bu FR-AUTH-002/008/009 kabi "yangi Product Owner qarorini
+talab qiladi" toifasidagi bo'shliq emas (aniq texnik sabab: dependency
+yo'q, PO qarori emas), balki `telegram_relay.py`ning "RUNNING'da qotib
+qolish" kabi allaqachon shu faylning o'zida (funksiya docstring'ida)
+ochiq yozilgan, torroq amalga oshirilgan qism.
