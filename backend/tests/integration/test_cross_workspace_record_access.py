@@ -288,3 +288,58 @@ async def test_an_approval_cannot_be_consumed_through_a_sibling_workspace(
         headers=_auth_headers(seeded["session_b"]),
     )
     assert still_pending.json()["status"] == "AWAITING_APPROVAL"
+
+
+async def test_a_sibling_workspaces_action_cannot_be_cancelled(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """FR-ACT-009's cancel endpoint has the same workspace-scoping guard as
+    every other single-action route above, but was added after this file's
+    own survey and had never been exercised against the sibling-workspace
+    case — coverage showed its 404 line as dead."""
+    seeded = await _seed_two_workspaces_one_customer()
+
+    proposed = await client.post(
+        f"/v1/workspaces/{seeded['workspace_b']}/actions",
+        json={"tool_name": "knowledge.read", "risk_level": "R0", "payload": {}},
+        headers={**_auth_headers(seeded["session_b"]), "Idempotency-Key": f"sibling-cancel-{uuid.uuid4()}"},
+    )
+    action_id = proposed.json()["action"]["id"]
+
+    response = await client.post(
+        f"/v1/workspaces/{seeded['workspace_a']}/actions/{action_id}/cancel",
+        headers=_auth_headers(seeded["session_a"]),
+    )
+    assert response.status_code == 404
+
+    # Untouched: B can still cancel their own action through their own workspace.
+    own_cancel = await client.post(
+        f"/v1/workspaces/{seeded['workspace_b']}/actions/{action_id}/cancel",
+        headers=_auth_headers(seeded["session_b"]),
+    )
+    assert own_cancel.status_code == 200
+    assert own_cancel.json()["status"] == "CANCELLED"
+
+
+async def test_a_sibling_workspaces_action_compensation_cannot_be_completed(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """The compensate/complete endpoint's own workspace guard fires before
+    authorize_complete_compensation or the action's current status are even
+    looked at — an action doesn't need to be RUNNING/COMPENSATING to prove
+    this 404, since the check is purely on workspace_id."""
+    seeded = await _seed_two_workspaces_one_customer()
+
+    proposed = await client.post(
+        f"/v1/workspaces/{seeded['workspace_b']}/actions",
+        json={"tool_name": "knowledge.read", "risk_level": "R0", "payload": {}},
+        headers={**_auth_headers(seeded["session_b"]), "Idempotency-Key": f"sibling-complete-{uuid.uuid4()}"},
+    )
+    action_id = proposed.json()["action"]["id"]
+
+    response = await client.post(
+        f"/v1/workspaces/{seeded['workspace_a']}/actions/{action_id}/compensate/complete",
+        json={"outcome": "COMPENSATED"},
+        headers=_auth_headers(seeded["session_a"]),
+    )
+    assert response.status_code == 404

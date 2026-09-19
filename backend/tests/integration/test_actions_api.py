@@ -853,6 +853,20 @@ async def test_workspace_admin_can_cancel_a_running_action_and_complete_its_comp
     assert complete.status_code == 200
     assert complete.json()["status"] == "COMPENSATED"
 
+    # Completing an already-COMPENSATED action's compensation again has no
+    # allowed outgoing edge from COMPENSATED (TRD 4.2) — apply_transition's
+    # own state-machine check raises InvalidActionTransition, which nothing
+    # here catches, so it must reach api/errors.py's registered handler
+    # (409 INVALID_STATE) rather than an unhandled 500. This handler had
+    # never actually fired over HTTP before — coverage showed its line dead.
+    complete_again = await client.post(
+        f"/v1/workspaces/{workspace_id}/actions/{action_id}/compensate/complete",
+        json={"outcome": "COMPENSATED"},
+        headers=_auth_headers(admin_session),
+    )
+    assert complete_again.status_code == 409
+    assert complete_again.json()["code"] == "INVALID_STATE"
+
 
 async def test_complete_compensation_requires_workspace_admin(
     client: AsyncClient, db_available: bool

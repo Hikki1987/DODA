@@ -6343,3 +6343,83 @@ qoldirilgan qatorlar bilan bir xil.
 
 477 test, barchasi real Postgres+Redis'da (ikki marta ketma-ket ishga
 tushirilib barqarorligi tasdiqlandi); `ruff`/`mypy src/doda` toza.
+
+**Coverage hisobotini birinchi marta TO'LIQ (kesilmagan) o'qib chiqishda —
+avvalgi safar faqat `tail` bilan pastki qismini ko'rgan edim — to'rtta
+haqiqiy, ilgari ko'zdan qochgan bo'shliq topildi va yopildi; qolganlari
+allaqachon qabul qilingan sabablar bilan mos keldi.**
+
+1. **FR-ACT-009'ning ikkita YANGI endpoint'i (`.../cancel`,
+   `.../compensate/complete`) o'zining per-record tenancy 404 qo'riqchisi
+   bilan `test_cross_workspace_record_access.py`ning umumiy naqshiga
+   HECH QACHON qo'shilmagan edi** — bu fayl aynan shu turdagi qo'riqchini
+   (`record.workspace_id != ctx.workspace.workspace_id`) boshqa har bir
+   bitta-ID endpoint uchun tekshiradi, lekin FR-ACT-009 undan KEYIN
+   qo'shilgani uchun bu ikkisi hech qachon o'z navbatini olmagan edi.
+   Ikkita yangi test: qo'shni workspace'dagi action'ni bekor qilishga
+   urinish 404 (va B o'zi hamon bekor qila oladi), qo'shni workspace'dagi
+   action'ning kompensatsiyasini "yakunlash"ga urinish 404 — ikkinchisi
+   uchun action RUNNING/COMPENSATING bo'lishi shart emas, chunki
+   qo'riqchi faqat workspace_id'ga qarab ishlaydi, holatga emas.
+2. **`api/errors.py`ning `InvalidActionTransition` handler'i (409
+   `INVALID_STATE`) hech qachon HTTP orqali haqiqatda ishga tushmagan
+   edi** — mavjud izoh "HTTP chaqiruvchisi bu holatni yarata olmaydi"
+   deb yozgan edi, lekin FR-ACT-009 buni o'zgartirgan: `complete_
+   compensation` chaqiruvchi statusni oldindan tekshirmaydi, to'g'ridan-
+   to'g'ri `apply_transition`ga uzatadi — demak ALLAQACHON COMPENSATED
+   bo'lgan action'ga ikkinchi marta "yakunlash" chaqirilsa,
+   `apply_transition`ning o'z state-machine tekshiruvi (COMPENSATED'dan
+   chiqish yo'li yo'q) `InvalidActionTransition` ko'taradi va bu HTTP
+   javobiga aynan shu handler orqali yetib boradi. Audit-zanjiri uslubida
+   isbotlandi: handler'ning dekoratorini vaqtincha `KeyError`ga
+   almashtirib (funksiya nomini o'zgartirish YETARLI EMAS edi — dekorator
+   ro'yxatga olishni funksiya nomiga bog'lamaydi, buni birinchi
+   urinishda noto'g'ri qilib, keyin to'g'ri usulga o'tdim), test aynan
+   kutilgan tarzda (409 o'rniga xom 500, catch-all handler orqali)
+   muvaffaqiyatsiz bo'lishini ko'rsatdim, keyin qaytarib (`git diff` bilan
+   0 farq tasdiqlab) yashil ekanini ko'rsatdim.
+3. **`ai/errors.py`ning `parse_retry_after_header` (bir nechta gateway
+   adapterlari o'rtasida umumiy, dedup qilingan sof funksiya) hech qachon
+   o'z alohida testiga ega bo'lmagan edi** — mavjud rate-limit testlari
+   (openai/claude gateway'larda) faqat "baxtli yo'l"ni (haqiqiy raqamli
+   header mavjud) sinardi. Yangi `tests/unit/test_ai_errors.py` (5 test)
+   qolgan har bir erta-qaytish filialini alohida sinaydi: `response`
+   atributi umuman yo'q, `headers` yo'q, `retry-after` kaliti yo'q,
+   qiymat raqam emas — hammasi `None` qaytarishi, va haqiqiy raqamli
+   qiymat to'g'ri ayrilib olinishi.
+4. **`customer_service.list_all_customer_ids()` (to'rtta mustaqil
+   ops-skriptining umumiy yordamchisi) hech qachon pytest orqali
+   chaqirilmagan edi** — bu funksiya faqat qo'lda ishga tushiriladigan
+   monitoring skriptlaridan foydalanadi, konventsiyaga ko'ra pytest
+   ularni chaqirmaydi, lekin funksiyaning O'ZI (oddiy DB so'rovi) buning
+   qurboni bo'lib qolgan edi. Yangi
+   `test_list_all_customer_ids_includes_a_freshly_created_customer`
+   yangi customer yaratib, uning ID'si natijada borligini tasdiqlaydi —
+   aniq to'plamni emas (bu bo'lishilgan DB butun sessiya davomida
+   to'plangan minglab customer'ni saqlaydi), faqat yangi yozuv
+   ko'rinishini.
+
+**Ataylab tegilmagan, aynan shu sababi bilan qoldirilgan qatorlar**
+(barchasi avvalgi "qolgan 10 qator" precedentining bir xil sinfidagi
+nusxalari, faqat qator raqamlari fayl o'sishi bilan siljigan):
+`authz_service.py` 135/183/193 (WorkspaceRole'da faqat ikki qiymat bor,
+ikkalasi ham ruxsat etilgan — strukturaviy yetib bo'lmas), `action_
+service.py:351` (`request_approval`ning ichki invarianti, HTTP orqali
+yaratib bo'lmaydi), `export_service.py:69` (0012-migratsiya unique
+constraint'i tufayli endi erishilmas dedupe), `workspace_service.py:74`
+(cross-customer holat — RLS allaqachon bloklaydi, ikkinchi mudofaa
+qatlami), `config.py:44` (non-str qiymat — pydantic `mode="before"`
+validatorining umumiy himoya shakli, sun'iy input talab qiladi),
+`ai_tools.py:150` (`dispatch_read_tool`ning yakuniy `raise` — bugungi
+kunda `_READ_TOOL_ARGS`da FAQAT bitta yozuv borligi va `_validate_
+arguments` xuddi shu lug'atga qarab birinchi bo'lib tekshirgani uchun
+bu qator yetib bo'lmas, kelajakda ikkinchi read-tool qo'shilib shu
+if/elif zanjiriga unutilib qo'yilmasligi uchun ataylab aniq yozilgan),
+`api/conversations.py:231` (`stream_message` nol marta yield qilib
+tugashi — bugungi barcha oldindan-tekshirish xatolari yield'dan OLDIN
+ko'tariladi, demak bu holat hozircha sun'iy bo'lardi). Uch provayder
+gateway'i (83-89%) hamon real provider tarmoq murojaatini talab qiladi.
+
+485 test, barchasi real Postgres+Redis'da (ikki marta ketma-ket ishga
+tushirilib barqarorligi tasdiqlandi); `ruff`/`mypy src/doda` toza;
+umumiy backend qamrov 99% (55 qatordan 45ga).

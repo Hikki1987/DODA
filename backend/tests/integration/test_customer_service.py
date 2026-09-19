@@ -12,6 +12,7 @@ from doda.application.customer_service import (
     change_customer_member_role,
     create_customer_with_owner,
     invite_customer_member,
+    list_all_customer_ids,
     remove_customer_member,
 )
 from doda.application.workspace_service import (
@@ -194,3 +195,26 @@ async def test_cannot_add_the_same_workspace_member_twice(db_available: bool) ->
                 role="workspace_admin",
                 actor_id="user:bootstrap",
             )
+
+
+async def test_list_all_customer_ids_includes_a_freshly_created_customer(db_available: bool) -> None:
+    """list_all_customer_ids() is the ops-script counterpart of
+    customer_ids_for_user — used exclusively by standalone monitoring
+    scripts (verify_audit_chain_job.py and its siblings), never through
+    pytest, so it had never actually been called in this test suite.
+    Doesn't assert an exact set (this shared DB accumulates customers
+    across the whole session) — only that a customer created just now is
+    among the ones it reports, proving it reads real, current data rather
+    than a stale or empty result."""
+    customer_id = uuid.uuid4()
+    async with tenant_scoped_session(customer_id) as session:
+        await create_customer_with_owner(
+            session,
+            customer_id=customer_id,
+            name="List-All Probe",
+            owner_user_id=uuid.uuid4(),
+            actor_id="user:bootstrap",
+        )
+
+    all_ids = await list_all_customer_ids()
+    assert customer_id in all_ids
