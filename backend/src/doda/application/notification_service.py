@@ -14,6 +14,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.application.audit_service import record_audit_event
+from doda.application.customer_service import customer_ids_for_user
+from doda.db import tenant_scoped_session
 from doda.domain.base import utcnow
 from doda.domain.notification.models import Notification, NotificationPreference, NotificationType
 
@@ -201,3 +203,35 @@ async def mark_notification_read(session: AsyncSession, notification: Notificati
         notification.read_at = utcnow()
         await session.flush()
     return notification
+
+
+async def notify_new_device_login(*, user_id: uuid.UUID, session_id: uuid.UUID) -> None:
+    """FR-AUTH-007: one SECURITY_ALERT notification per customer the user
+    belongs to — Notification is a tenant-scoped table (no user-level
+    inbox exists, same reason FR-CTL-002's export iterates customers
+    rather than reading one global row), so a user-level event fans out
+    to every customer context it could be relevant in. Lives here, at the
+    application layer, rather than in api/auth.py — same placement as
+    export_service.export_my_data's identical customer_ids_for_user +
+    tenant_scoped_session fan-out, kept sequential (not parallelized) for
+    the same reason every other multi-tenant iterator in this codebase
+    (export_my_data, the ops scripts) is: consistency with that
+    established pattern outweighs shaving a few milliseconds off a login
+    that, in practice, touches at most one or two customers.
+
+    A user with no customer membership yet (rare once a prior session
+    exists at all, but possible) simply gets no notification — there is
+    no tenant to attach one to, not a bug. The caller (api/auth.py) is
+    responsible for catching and logging any failure here rather than
+    turning an already-successful login into a 500 for the user."""
+    for customer_id in await customer_ids_for_user(user_id):
+        async with tenant_scoped_session(customer_id) as db:
+            await create_notification(
+                db,
+                customer_id=customer_id,
+                recipient_id=f"user:{user_id}",
+                notification_type=NotificationType.SECURITY_ALERT,
+                reference_type="session",
+                reference_id=session_id,
+                safe_metadata={"reason": "new_device_login"},
+            )

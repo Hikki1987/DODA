@@ -6723,3 +6723,99 @@ edi, faqat halol qoldirilgan chegara hujjatlashtirildi.
 
 490 test o'zgarishsiz (docstring-only o'zgarish), `ruff`/`mypy src/doda`
 toza.
+
+**To'rtinchi `/simplify` ko'rib chiqish o'tkazildi — uchinchisidan (`a7e6e7f`)
+keyingi barcha commit'larga qarshi (15 commit: FR-ACT-009, FR-CTL-005
+hujjatlashtirish-only yopilishi, ikkita qotib qolish monitoring skripti +
+ularning o'z dedup'i, NFR-SCL-001 Telegram relay concurrency testi,
+FR-ACT-008 crash-recovery tuzatishi, coverage-driven test yopilishlari,
+uchta eskirgan hujjat, va FR-AUTH-007+FR-WKS-002).** Jarayon bir xil:
+reuse/simplification/efficiency/altitude — 4 ta parallel subagent, har
+biri o'z burchagidan topilmalarini qaytardi, dublikatlar olib tashlanib,
+xavfsizlari to'g'ridan-to'g'ri tuzatildi.
+
+**Topildi va tuzatildi:**
+1. **`complete_compensation`ning noto'g'ri `outcome` uchun bare `ValueError`
+   ko'targani — hech qanday ro'yxatga olingan handler yo'q edi, demak
+   `api/errors.py`ning umumiy 500 catch-all'iga tushib qolardi** (altitude
+   topilmasi) — uning aynan bir xil PR'da qo'shilgan jarayondoshi
+   `ActionNotCancellableError` esa allaqachon o'z 409 handler'iga ega edi:
+   bir xil funksiya, bir xil "state-transition funksiyasiga noto'g'ri
+   input" shakli, ikki xil chuqurlik. Yangi `InvalidCompensationOutcomeError`
+   qo'shildi (`action_service.py`) va `api/errors.py`da 400
+   `INVALID_COMPENSATION_OUTCOME` handler'i ro'yxatga olindi. Audit-zanjiri
+   uslubida isbotlandi: yangi test (`test_completing_compensation_with_
+   an_invalid_outcome_is_rejected`) avval yashil edi, keyin `raise`ni
+   vaqtincha eski `ValueError`ga qaytarib test aynan kutilgan tarzda (xom
+   500, to'liq traceback bilan) muvaffaqiyatsiz bo'lishi ko'rsatildi, so'ng
+   qaytarib (`diff` bilan 0 farq tasdiqlab) yashil ekani ko'rsatildi.
+   Mavjud `test_complete_compensation_rejects_any_other_outcome`
+   (application-layer) ham yangi aniq exception turini kutishga
+   yangilandi — `pytest.raises(ValueError, ...)` `InvalidCompensationOutcomeError`
+   `ValueError`dan meros olmagani uchun endi mos kelmasdi.
+2. **`api/auth.py`ning `_notify_new_device_login`i (FR-AUTH-007) noto'g'ri
+   qatlamda edi** (altitude topilmasi) — bu API router'ining o'zi
+   to'g'ridan-to'g'ri `tenant_scoped_session` sikli ochib, customer'lar
+   bo'ylab fan-out qilardi, holbuki kod bazasida bu ANIQ naqsh allaqachon
+   application qatlamida (`export_service.export_my_data`, xuddi shu
+   `customer_ids_for_user`+`tenant_scoped_session` sikli, faqat audit
+   yozib) o'rnatilgan edi — boshqa hech qanday `api/*.py` fayl bunday
+   sikl ochmaydi. Funksiya `application/notification_service.py`ga
+   `notify_new_device_login` sifatida ko'chirildi, `api/auth.py` endi
+   uni chaqiradi va faqat xato tutish/loglashni (haqiqiy "best-effort
+   side action" pozitsiyasi) o'z darajasida ushlab qoladi.
+3. **Xuddi shu funksiya sekvensial (parallel emas) qoldirildi — ataylab**
+   (efficiency topilmasi taklif qilgan `asyncio.gather`ga qarshi qaror):
+   `export_my_data`ning o'zi ham, barcha ops-skriptlar ham xuddi shu
+   customer-bo'ylab siklni HAR DOIM sekvensial bajaradi — faqat shu yangi
+   funksiya uchun parallellashtirish bu o'rnatilgan konventsiyadan
+   og'ish bo'lardi, foydasi (odatda 1-2 customer, login yo'lida bir
+   necha millisekund) ushbu nomuvofiqlik narxiga arzimaydi.
+4. **`session_service.is_new_device_login` foydalanuvchining BUTUN
+   sessiya tarixidagi `user_agent`larini Python ro'yxatiga yuklab, keyin
+   `in` bilan tekshirardi** (efficiency topilmasi) — sessiyalar hech
+   qachon o'chirilmaydi (faqat revoke qilinadi), demak bu ro'yxat
+   foydalanuvchi umri davomida cheksiz o'sadi va HAR BIR login'da to'liq
+   qayta o'qiladi, faqat ikkita boolean savolga javob berish uchun. Ikkita
+   indekslangan `LIMIT 1` so'roviga o'zgartirildi — Postgres birinchi
+   moslikda to'xtay oladi, butun tarixni materializatsiya qilmasdan.
+   Xatti-harakat o'zgarmadi (mavjud uchta test o'zgarishsiz yashil qoldi).
+5. **`find_stuck_running_actions.py` va `find_stuck_compensating_
+   actions.py`ning `main()` tanalari — avvalgi dedup faqat so'rovni
+   (`_ops_lib.find_actions_stuck_in_status`) chiqargan edi, lekin
+   ikkalasining natijani chop etish/exit-code mantig'i deyarli so'z-
+   so'zma-so'z bir xil qolgan edi** (simplification topilmasi) —
+   `_ops_lib.py`ga `report_stuck_actions` qo'shildi, ikkala skript ham
+   endi shuni chaqiradi, faqat o'z status/label/threshold'larini
+   uzatadi. Ikkalasi ham qo'lda, real Postgres'ga qarshi qayta ishga
+   tushirilib, avvalgi sessiyada topilgan haqiqiy qotib qolgan action'larni
+   (RUNNING va COMPENSATING) hamon to'g'ri topishi tasdiqlandi.
+6. **`api/actions.py`ning to'rtta handler'i bir xil "Action'ni yuklash,
+   workspace_id'ni tekshirish, aks holda 404" uch qatorli blokini
+   mustaqil takrorlagan edi** (simplification topilmasi) — yangi
+   `_get_workspace_action(ctx, action_id)` yordamchisiga chiqarildi,
+   to'rttasi ham (shu jumladan `consume_action_approval`ning approval
+   orqali action topish yo'li) endi shuni chaqiradi.
+
+**Ataylab o'tkazib yuborildi** (skill'ning "false positive yoki doirasiz
+bo'lsa o'tkazib yubor" qoidasiga ko'ra):
+- `test_actions_api.py`da `_two_members_in_one_workspace` yordamchisi
+  qo'shilgandan keyin, undan OLDIN yozilgan ikkita deyarli bir xil inline
+  ikkita-foydalanuvchi qurilish bloki (`test_workspace_admin_can_approve_
+  a_members_action` va yana bittasi) hamon mustaqil qolmoqda —
+  simplification agent'i buni qayd etdi, lekin eski blok approver'ga
+  AAL2 beradi, yangi yordamchi esa faqat `auth_a`ni parametrlaydi
+  (`session_b` doim AAL1) — bevosita almashtirish uchun yordamchining
+  imzosini kengaytirish kerak bo'lardi, bu boshqa chaqiruvchilarga ta'sir
+  qiladi. Test-only, past qiymatli, ~35 qatorlik takrorlanish uchun bu
+  xavf-foyda nisbati mos emas.
+- `test_telegram_relay.py`ning yangi concurrency testidagi bespoke drain
+  sikli mavjud `_drain_until_resolved` yordamchisini umumlashtirish
+  o'rniga o'z siklini yozgan — bu ham test-only, kichik miqdordagi
+  takrorlanish, va concurrency testining nozik vaqt sinxronizatsiyasini
+  qayta yozish xavfi foydadan ko'proq.
+
+Tuzatishlardan keyin: 491 test (backend, real Postgres+Redis'da,
+`test_completing_compensation_with_an_invalid_outcome_is_rejected`
+qo'shilgani uchun +1) yashil; `ruff format`/`ruff check`/`mypy src/doda`
+toza.

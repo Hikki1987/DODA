@@ -22,7 +22,11 @@ from doda.ai.errors import (
     OutboundContentBlockedError,
 )
 from doda.api.middleware import TRACE_ID_HEADER
-from doda.application.action_service import ActionNotCancellableError, ApprovalInvalidError
+from doda.application.action_service import (
+    ActionNotCancellableError,
+    ApprovalInvalidError,
+    InvalidCompensationOutcomeError,
+)
 from doda.application.ai_provider_settings_service import ProviderDisabledError
 from doda.application.authz_service import AuthorizationError
 from doda.application.conversation_service import DeepRequestCostCeilingExceededError
@@ -175,6 +179,20 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=_envelope(
                 code="ACTION_NOT_CANCELLABLE",
                 message="Action bu holatda bekor qilinmaydi.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(InvalidCompensationOutcomeError)
+    async def _invalid_compensation_outcome(
+        request: Request, exc: InvalidCompensationOutcomeError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=400,
+            content=_envelope(
+                code="INVALID_COMPENSATION_OUTCOME",
+                message="Kompensatsiya natijasi COMPENSATED yoki FAILED bo'lishi kerak.",
                 trace_id=_trace_id(request),
                 retryable=False,
             ),

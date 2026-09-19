@@ -9,7 +9,9 @@ the audit event that recorded entering that status, and flag any whose
 event is older than a threshold.
 """
 
-from datetime import datetime
+import sys
+import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,3 +42,44 @@ async def find_actions_stuck_in_status(
     ).all()
     since_by_action_id = {event.safe_metadata.get("action_id"): event.occurred_at for event in events}
     return [(action, since_by_action_id.get(str(action.id))) for action in actions]
+
+
+def report_stuck_actions(
+    pairs: list[tuple[Action, datetime | None]],
+    *,
+    customer_id: uuid.UUID,
+    cutoff: datetime,
+    since_label: str,
+    missing_reason: str,
+    ok_label: str,
+) -> bool:
+    """Prints one line per Action in `pairs` (STUCK ones to stderr, OK
+    ones to stdout) and returns whether any were STUCK — the shared body
+    of find_stuck_running_actions.py's and find_stuck_compensating_
+    actions.py's `main()` loops, which were otherwise near-identical
+    beyond their status/event-type/threshold/labels."""
+    any_stuck = False
+    for action, since in pairs:
+        if since is None:
+            # Shouldn't happen — apply_transition always records this
+            # event on the corresponding transition. Report it rather
+            # than silently skip, since it means this script's own
+            # assumption about how the Action reached this status is
+            # wrong.
+            any_stuck = True
+            print(
+                f"customer={customer_id} action={action.id} tool={action.tool_name} "
+                f"STUCK reason={missing_reason}",
+                file=sys.stderr,
+            )
+        elif since < cutoff:
+            any_stuck = True
+            age = datetime.now(UTC) - since
+            print(
+                f"customer={customer_id} action={action.id} tool={action.tool_name} "
+                f"STUCK {since_label}={since.isoformat()} age={age}",
+                file=sys.stderr,
+            )
+        else:
+            print(f"customer={customer_id} action={action.id} tool={action.tool_name} {ok_label}")
+    return any_stuck

@@ -58,6 +58,19 @@ def _to_approval_out(approval: Approval) -> ApprovalOut:
     )
 
 
+async def _get_workspace_action(ctx: RequestContext, action_id: uuid.UUID) -> Action:
+    """Every single-action endpoint in this file needs the same lookup:
+    404 on a missing action OR one from a different workspace, before
+    authorization even runs (10.1: don't reveal whether an action exists
+    in a workspace the caller can't see) — same "404 before authorize"
+    per-record tenancy guard test_cross_workspace_record_access.py checks
+    for every other bitta-ID endpoint in the codebase."""
+    action = await ctx.db.get(Action, action_id)
+    if action is None or action.workspace_id != ctx.workspace.workspace_id:
+        raise HTTPException(status_code=404, detail="action not found")
+    return action
+
+
 @router.post("/v1/workspaces/{workspace_id}/actions", response_model=SubmitActionResponse)
 async def propose_and_submit_action(
     request: Request,
@@ -110,9 +123,7 @@ async def propose_and_submit_action(
 
 @router.get("/v1/workspaces/{workspace_id}/actions/{action_id}", response_model=ActionOut)
 async def get_action(action_id: uuid.UUID, ctx: RequestContext = Depends(get_request_context)) -> ActionOut:
-    action = await ctx.db.get(Action, action_id)
-    if action is None or action.workspace_id != ctx.workspace.workspace_id:
-        raise HTTPException(status_code=404, detail="action not found")
+    action = await _get_workspace_action(ctx, action_id)
     return _to_action_out(action)
 
 
@@ -138,10 +149,7 @@ async def consume_action_approval(
     if approval is None or approval.customer_id != ctx.workspace.customer_id:
         raise HTTPException(status_code=404, detail="approval not found")
 
-    action = await ctx.db.get(Action, approval.action_id)
-    if action is None or action.workspace_id != ctx.workspace.workspace_id:
-        raise HTTPException(status_code=404, detail="action not found")
-
+    action = await _get_workspace_action(ctx, approval.action_id)
     authorize_consume_approval(ctx.workspace, action, auth_strength=ctx.auth_strength)
     action = await consume_approval(
         ctx.db,
@@ -161,10 +169,7 @@ async def cancel_action(
     reversal (RUNNING -> COMPENSATING) for one already in flight — see
     action_service.request_cancellation's own docstring for why no other
     status is accepted."""
-    action = await ctx.db.get(Action, action_id)
-    if action is None or action.workspace_id != ctx.workspace.workspace_id:
-        raise HTTPException(status_code=404, detail="action not found")
-
+    action = await _get_workspace_action(ctx, action_id)
     authorize_cancel_action(ctx.workspace, action)
     action = await request_cancellation(ctx.db, action, actor_id=f"user:{ctx.workspace.user_id}")
     return _to_action_out(action)
@@ -182,10 +187,7 @@ async def complete_action_compensation(
     human attesting a manual reversal happened (see action_service.
     complete_compensation's own docstring for why nothing here is
     verified automatically)."""
-    action = await ctx.db.get(Action, action_id)
-    if action is None or action.workspace_id != ctx.workspace.workspace_id:
-        raise HTTPException(status_code=404, detail="action not found")
-
+    action = await _get_workspace_action(ctx, action_id)
     authorize_complete_compensation(ctx.workspace)
     action = await complete_compensation(
         ctx.db, action, outcome=body.outcome, actor_id=f"user:{ctx.workspace.user_id}"

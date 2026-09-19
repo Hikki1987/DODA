@@ -73,19 +73,22 @@ async def is_new_device_login(session: AsyncSession, *, user_id: uuid.UUID, user
     skipping the anomaly check rather than flagging the missing header
     itself as suspicious. Real browsers always send a User-Agent, so
     this only matters for a scripted client completing the OAuth
-    exchange directly."""
-    prior_agents = (
-        (
-            await session.execute(
-                select(Session.user_agent).where(Session.user_id == user_id, Session.user_agent.is_not(None))
-            )
-        )
-        .scalars()
-        .all()
+    exchange directly.
+
+    Two indexed LIMIT-1 existence checks rather than one query that
+    fetches every prior user_agent into Python and does an `in` check
+    there — sessions are never deleted (only revoked), so that list grows
+    unboundedly over a user's lifetime and would otherwise be refetched
+    in full on every single login just to answer two booleans."""
+    has_any_known_device = await session.scalar(
+        select(Session.id).where(Session.user_id == user_id, Session.user_agent.is_not(None)).limit(1)
     )
-    if not prior_agents:
+    if has_any_known_device is None:
         return False
-    return user_agent not in prior_agents
+    matches_a_known_device = await session.scalar(
+        select(Session.id).where(Session.user_id == user_id, Session.user_agent == user_agent).limit(1)
+    )
+    return matches_a_known_device is None
 
 
 async def resolve_session(session: AsyncSession, session_id: uuid.UUID) -> Session:

@@ -25,22 +25,19 @@ silently break the CSRF check.
 """
 
 import secrets
-import uuid
 
 import structlog
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import RedirectResponse
 
-from doda.application.customer_service import customer_ids_for_user
-from doda.application.notification_service import create_notification
+from doda.application.notification_service import notify_new_device_login
 from doda.application.oidc_login_service import (
     GoogleLoginSettings,
     OidcNotConfiguredError,
     complete_google_login,
 )
 from doda.config import get_settings
-from doda.db import async_session_factory, tenant_scoped_session
-from doda.domain.notification.models import NotificationType
+from doda.db import async_session_factory
 from doda.infrastructure.google_oidc_client import build_authorization_url
 
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
@@ -106,39 +103,19 @@ async def google_login_callback(
         )
 
     if result.is_new_device:
-        await _notify_new_device_login(user_id=result.session.user_id, session_id=result.session.id)
+        # The login already committed above — any failure here is caught
+        # and logged rather than turning an already-successful login into
+        # a 500 for the user (same "best-effort side action" posture as
+        # the frontend's logOut() swallowing a failed revoke-session
+        # call). notify_new_device_login itself lives in the application
+        # layer (notification_service.py), not here — see its docstring.
+        try:
+            await notify_new_device_login(user_id=result.session.user_id, session_id=result.session.id)
+        except Exception:
+            logger.exception("auth.new_device_notification_failed", user_id=str(result.session.user_id))
 
     redirect = RedirectResponse(
         f"{get_settings().frontend_base_url}/auth/callback?session_id={result.session.id}"
     )
     redirect.delete_cookie(STATE_COOKIE_NAME, path=STATE_COOKIE_PATH)
     return redirect
-
-
-async def _notify_new_device_login(*, user_id: uuid.UUID, session_id: uuid.UUID) -> None:
-    """FR-AUTH-007: one SECURITY_ALERT notification per customer the user
-    belongs to — Notification is a tenant-scoped table (no user-level
-    inbox exists, same reason FR-CTL-002's export iterates customers
-    rather than reading one global row), so a user-level event fans out
-    to every customer context it could be relevant in. A user with no
-    customer membership yet (rare once a prior session exists at all, but
-    possible) simply gets no notification — there is no tenant to attach
-    one to, not a bug. The login itself already committed by the time
-    this runs, so any failure here is caught and logged rather than
-    turning an already-successful login into a 500 for the user — same
-    "best-effort side action" posture as the frontend's logOut()
-    swallowing a failed revoke-session call."""
-    try:
-        for customer_id in await customer_ids_for_user(user_id):
-            async with tenant_scoped_session(customer_id) as db:
-                await create_notification(
-                    db,
-                    customer_id=customer_id,
-                    recipient_id=f"user:{user_id}",
-                    notification_type=NotificationType.SECURITY_ALERT,
-                    reference_type="session",
-                    reference_id=session_id,
-                    safe_metadata={"reason": "new_device_login"},
-                )
-    except Exception:
-        logger.exception("auth.new_device_notification_failed", user_id=str(user_id))

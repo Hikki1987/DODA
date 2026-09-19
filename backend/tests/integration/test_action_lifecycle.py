@@ -13,6 +13,7 @@ from sqlalchemy import select
 from doda.application.action_service import (
     ActionNotCancellableError,
     ApprovalInvalidError,
+    InvalidCompensationOutcomeError,
     MissingProviderReceiptError,
     apply_transition,
     complete_compensation,
@@ -411,7 +412,7 @@ async def test_complete_compensation_rejects_any_other_outcome(tenant_session) -
     await apply_transition(session, action, ActionStatus.RUNNING, actor_id="worker:test")
     await request_cancellation(session, action, actor_id="user:alice")
 
-    with pytest.raises(ValueError, match="COMPENSATED or FAILED"):
+    with pytest.raises(InvalidCompensationOutcomeError, match="COMPENSATED or FAILED"):
         await complete_compensation(session, action, outcome=ActionStatus.READY, actor_id="admin:bob")
 
     # The rejected attempt must not have silently touched the action.

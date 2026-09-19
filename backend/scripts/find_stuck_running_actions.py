@@ -29,7 +29,7 @@ import asyncio
 import sys
 from datetime import UTC, datetime, timedelta
 
-from _ops_lib import find_actions_stuck_in_status
+from _ops_lib import find_actions_stuck_in_status, report_stuck_actions
 
 from doda.application.customer_service import list_all_customer_ids
 from doda.db import tenant_scoped_session
@@ -48,29 +48,15 @@ async def main(threshold: timedelta = DEFAULT_STUCK_THRESHOLD) -> int:
             pairs = await find_actions_stuck_in_status(
                 db, status=ActionStatus.RUNNING, entered_status_event_type="action.running.v1"
             )
-
-        for action, running_since in pairs:
-            if running_since is None:
-                # Shouldn't happen — apply_transition always records this
-                # event on the RUNNING transition. Report it rather than
-                # silently skip, since it means this script's own
-                # assumption about how an Action reaches RUNNING is wrong.
-                exit_code = 1
-                print(
-                    f"customer={customer_id} action={action.id} tool={action.tool_name} "
-                    "STUCK reason=no_running_audit_event",
-                    file=sys.stderr,
-                )
-            elif running_since < cutoff:
-                exit_code = 1
-                age = datetime.now(UTC) - running_since
-                print(
-                    f"customer={customer_id} action={action.id} tool={action.tool_name} "
-                    f"STUCK running_since={running_since.isoformat()} age={age}",
-                    file=sys.stderr,
-                )
-            else:
-                print(f"customer={customer_id} action={action.id} tool={action.tool_name} running_ok")
+        if report_stuck_actions(
+            pairs,
+            customer_id=customer_id,
+            cutoff=cutoff,
+            since_label="running_since",
+            missing_reason="no_running_audit_event",
+            ok_label="running_ok",
+        ):
+            exit_code = 1
 
     return exit_code
 

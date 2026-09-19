@@ -868,6 +868,49 @@ async def test_workspace_admin_can_cancel_a_running_action_and_complete_its_comp
     assert complete_again.json()["code"] == "INVALID_STATE"
 
 
+async def test_completing_compensation_with_an_invalid_outcome_is_rejected(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """A bare ValueError from complete_compensation used to have no
+    registered handler and would fall through to api/errors.py's generic
+    500 catch-all — unlike its sibling ActionNotCancellableError, which
+    already had one. Confirms the dedicated InvalidCompensationOutcomeError
+    now reaches its own 400 handler instead."""
+    customer_id, workspace_id, actor_session, admin_session = await _two_members_in_one_workspace(
+        role_b="workspace_admin", auth_a=AuthStrength.AAL1
+    )
+
+    submit = await client.post(
+        f"/v1/workspaces/{workspace_id}/actions",
+        json={"tool_name": "knowledge.read", "risk_level": "R0", "payload": {"query": "hi"}},
+        headers=_auth_headers(actor_session, "e2e-compensation-invalid-outcome-1"),
+    )
+    action_id = uuid.UUID(submit.json()["action"]["id"])
+    await _drive_action_to_running(customer_id=customer_id, action_id=action_id)
+
+    cancel = await client.post(
+        f"/v1/workspaces/{workspace_id}/actions/{action_id}/cancel",
+        headers=_auth_headers(admin_session),
+    )
+    assert cancel.status_code == 200
+    assert cancel.json()["status"] == "COMPENSATING"
+
+    response = await client.post(
+        f"/v1/workspaces/{workspace_id}/actions/{action_id}/compensate/complete",
+        json={"outcome": "DRAFT"},
+        headers=_auth_headers(admin_session),
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "INVALID_COMPENSATION_OUTCOME"
+
+    # Rejected outright — the action must still be COMPENSATING, not moved.
+    fetched = await client.get(
+        f"/v1/workspaces/{workspace_id}/actions/{action_id}",
+        headers=_auth_headers(admin_session),
+    )
+    assert fetched.json()["status"] == "COMPENSATING"
+
+
 async def test_complete_compensation_requires_workspace_admin(
     client: AsyncClient, db_available: bool
 ) -> None:

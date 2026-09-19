@@ -41,6 +41,19 @@ class MissingProviderReceiptError(Exception):
         super().__init__(f"cannot mark action {action_id} SUCCEEDED without a provider receipt (FR-ACT-007)")
 
 
+class InvalidCompensationOutcomeError(Exception):
+    """FR-ACT-009: raised when complete_compensation is given an `outcome`
+    other than COMPENSATED or FAILED. A bare ValueError here would fall
+    through to api/errors.py's generic 500 catch-all — unlike its sibling
+    ActionNotCancellableError (same feature, same "invalid input to a
+    state-transition function" shape), which already gets a registered
+    404/409-style handler. This gives it the same treatment."""
+
+    def __init__(self, outcome: ActionStatus) -> None:
+        self.outcome = outcome
+        super().__init__(f"complete_compensation outcome must be COMPENSATED or FAILED, got {outcome.value}")
+
+
 class ActionNotCancellableError(Exception):
     """FR-ACT-009: raised when cancellation is requested for an action
     that is neither READY (cancels outright) nor RUNNING (requests a
@@ -301,7 +314,7 @@ async def complete_compensation(
     outgoing edge (TRD 4.2).
     """
     if outcome not in (ActionStatus.COMPENSATED, ActionStatus.FAILED):
-        raise ValueError(f"complete_compensation outcome must be COMPENSATED or FAILED, got {outcome.value}")
+        raise InvalidCompensationOutcomeError(outcome)
     return await apply_transition(session, action, outcome, actor_id=actor_id)
 
 
