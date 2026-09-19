@@ -6819,3 +6819,36 @@ Tuzatishlardan keyin: 491 test (backend, real Postgres+Redis'da,
 `test_completing_compensation_with_an_invalid_outcome_is_rejected`
 qo'shilgani uchun +1) yashil; `ruff format`/`ruff check`/`mypy src/doda`
 toza.
+
+**To'qqizinchi `security-review` o'tkazildi — sakkizinchisining o'z
+hujjatlashtirish commit'idan (`753e22c`) keyingi hamma narsaga qarshi:
+to'rtinchi `/simplify` pass (12 fayl, ~300 qator).** Diapazon kichik
+bo'lsa ham, `api/actions.py`ning avtorizatsiya zanjiriga bevosita tegadigan
+o'zgarish (`_get_workspace_action` yordamchisi to'rtta endpoint uchun)
+bo'lgani uchun ko'rib chiqishga arzigan edi.
+
+Topish subagent'i diff'ning to'liq matnini VA joriy manba kodini
+(`api/actions.py`, `authz_service.py`, `api/auth.py`, `api/errors.py`,
+`action_service.py`, `notification_service.py`, `session_service.py`)
+o'qib chiqib, **0 topilma** qaytardi — bu safar filtrlash bosqichiga
+o'tadigan hech qanday nomzod yo'q edi. Aniq tekshirilgan va to'g'ri
+ekani tasdiqlangan nuqtalar: (1) `_get_workspace_action`ning o'zi
+almashtirgan to'rtta inline blok bilan bayt-baytiga bir xil mantiqqa
+ega, va har bir chaqiruv nuqtasida mos `authorize_*` funksiya hamon
+yordamchidan QAT'IY KEYIN ishga tushadi, hech qachon oldin emas; (2)
+`consume_action_approval`ning ikki bosqichli qidiruvi (approval'ning
+`customer_id`si, keyin action'ning `workspace_id`si) o'zgarishsiz
+qolgan — hech qanday tekshiruv birlashtirilib yo'qolmagan; (3)
+`notify_new_device_login`ning ko'chirilishi xuddi shu fan-out'ni,
+xuddi shu `safe_metadata`ni saqlab qolgan — try/except+log wrapper
+faqat chaqiruv nuqtasiga ko'chgan, xulq o'zgarmagan; (4) yangi 400
+handler xato xabarida hech narsa (exception ichki tafsilotlari, action
+ma'lumoti, xom `outcome` qiymati) sizib chiqarmaydi; (5) `_ops_lib.py`ning
+`report_stuck_actions` chiqarilishi sof formatlash dedup'i, xulq
+o'zgarishsiz.
+
+Bu to'rtinchi safar (4-, 6-, 7-review'lar bilan bir xil) — chindan ham
+toza natija, hatto chegara-usti nomzod ham yo'q edi.
+
+491 test, barchasi real Postgres+Redis'da (kod o'zgarmadi — sof
+tekshiruv).
