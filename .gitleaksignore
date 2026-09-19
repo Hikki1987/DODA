@@ -1,0 +1,13 @@
+# Fingerprints for known-fake, high-entropy-shaped credential fixtures in
+# tests/unit/test_outbound_guard.py and tests/integration/test_conversations_api.py
+# (doda.ai.outbound_guard's own test suite needs realistic-looking fake
+# secrets to prove the pattern scanner actually matches real credential
+# shapes). These were flagged in commit 6f11cf7, before the follow-up
+# commit added inline `gitleaks:allow` comments — this file suppresses
+# the already-published, historical findings from that exact commit;
+# the inline comments cover the current/future tree state. See
+# https://github.com/gitleaks/gitleaks#gitleaksignore for the format.
+6f11cf762672b4927c90f4c1a35682a5fcc58fdd:backend/tests/integration/test_conversations_api.py:generic-api-key:886
+6f11cf762672b4927c90f4c1a35682a5fcc58fdd:backend/tests/unit/test_outbound_guard.py:jwt:57
+6f11cf762672b4927c90f4c1a35682a5fcc58fdd:backend/tests/unit/test_outbound_guard.py:github-pat:39
+6f11cf762672b4927c90f4c1a35682a5fcc58fdd:backend/tests/unit/test_outbound_guard.py:aws-access-token:31
