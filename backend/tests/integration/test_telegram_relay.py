@@ -15,6 +15,7 @@ import json
 import os
 import signal
 import uuid
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -29,9 +30,10 @@ from doda.application.action_service import (
     validate_action,
 )
 from doda.config import get_settings
-from doda.db import tenant_scoped_session
+from doda.db import async_session_factory, tenant_scoped_session
 from doda.domain.action.models import Action, ActionStatus, RiskLevel
 from doda.domain.audit.models import AuditEvent
+from doda.domain.outbox.models import OutboxMessage
 from doda.infrastructure.outbox_relay import relay_once as outbox_relay_once
 from doda.infrastructure.telegram_relay import (
     CONSUMER_GROUP,
@@ -344,6 +346,97 @@ async def test_two_concurrent_telegram_relay_workers_never_double_send_the_same_
     for customer_id, action_id in seeded:
         action = await _get_action(customer_id, action_id)
         assert action.status is ActionStatus.SUCCEEDED
+
+
+async def _publish_pending_row_without_committing(redis: Redis, action_id: uuid.UUID) -> None:
+    """Simulates outbox_relay.relay_once's own documented crash window: it
+    XADDs to Redis for real, then updates published_at — but *inside* a
+    single Postgres transaction, so a crash between the two leaves
+    published_at unset and the same row eligible for a real, second publish.
+    No explicit session.begin()/commit() here at all — closing the session
+    without ever committing is exactly the FR-AUTH-006 lesson from this
+    codebase's own history (an uncommitted transaction is silently
+    discarded on scope exit), which is what makes this a faithful crash
+    simulation rather than a rollback dressed up as one."""
+    async with async_session_factory() as session:
+        message = (
+            await session.execute(
+                select(OutboxMessage)
+                .where(OutboxMessage.aggregate_id == action_id)
+                .with_for_update(skip_locked=True)
+            )
+        ).scalar_one()
+        await redis.xadd(
+            f"doda:outbox:{message.event_type}",
+            {
+                "id": str(message.id),
+                "customer_id": str(message.customer_id),
+                "aggregate_type": message.aggregate_type,
+                "aggregate_id": str(message.aggregate_id),
+                "payload": json.dumps(message.payload),
+            },
+        )
+        message.published_at = datetime.now(UTC)
+        message.attempts += 1
+        # No commit — the crash.
+
+
+async def test_a_crash_between_outbox_publish_and_commit_still_ends_in_exactly_one_send(
+    db_available: bool, redis_client: Redis
+) -> None:
+    """FR-ACT-008's own acceptance criterion: 'Crash-recovery testida
+    yo'qolgan yoki ikkilangan effekt yo'q' (no lost or duplicated effect in
+    a crash-recovery test). Every existing redelivery/concurrency test in
+    this file and test_outbox_relay.py proves ONE of two separate legs —
+    either that two concurrent relay_once calls never double-publish the
+    SAME row, or that redelivering the SAME Redis stream entry never
+    double-sends. Neither reproduces outbox_relay.py's own documented
+    crash window (XADD succeeds, then the process dies before its Postgres
+    commit persists published_at) — which is a *third*, distinct way a
+    duplicate can arise: the SAME outbox row, republished as a genuinely
+    SECOND, distinct Redis Stream entry, because the first publish was
+    never durably recorded.
+
+    Simulated here by publishing once without committing (the crash),
+    then letting the real relay_once publish the same still-pending row a
+    second time for real. This must produce two distinct stream entries
+    for the one action — proving the duplication is real, not assumed —
+    and the connector's own existing idempotency (already proven against
+    Redis-level redelivery of a single entry, see
+    test_redelivery_of_an_already_succeeded_action_does_not_resend) must
+    still collapse that onto exactly one Telegram send.
+    """
+    customer_id, action_id = await _seed_ready_telegram_action(chat_id="crash-drill")
+
+    await _publish_pending_row_without_committing(redis_client, action_id)
+    published = await outbox_relay_once(redis_client)
+    assert published >= 1  # the real relay saw the row as still-pending and republished it
+
+    stream = "doda:outbox:action.ready.v1"
+    entries = await redis_client.xrange(stream)
+    matching = [
+        fields for _entry_id, fields in entries if fields.get(b"aggregate_id") == str(action_id).encode()
+    ]
+    assert len(matching) == 2  # the crash really did produce a second, distinct entry
+
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 1}})
+
+    async with _mock_http_client(handler) as http_client:
+        action = await _drain_until_resolved(
+            redis_client,
+            http_client,
+            bot_token="fake-test-token",
+            customer_id=customer_id,
+            action_id=action_id,
+        )
+
+    assert action.status is ActionStatus.SUCCEEDED
+    assert call_count == 1  # duplicated outbox entry, but exactly one external effect
 
 
 async def test_a_transient_failure_that_clears_up_still_succeeds(

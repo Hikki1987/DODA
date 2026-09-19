@@ -6249,3 +6249,65 @@ xato in'ektsiyasi bu holatda foydadan ko'ra ko'proq zarar keltirdi
 
 475 test, barchasi real Postgres+Redis'da (ikki marta ketma-ket ishga
 tushirilib barqarorligi tasdiqlandi); `ruff`/`mypy src/doda` toza.
+
+**Ikkinchi to'liq TRD-ID qayta ko'rib chiqish o'tkazildi (check-in
+trigger orqali, PR/CI o'zgarishsiz) — yangi, avval sinalmagan FR-ACT-008
+bo'shligi topildi va yopildi.** TRD'ning har bir o'lchanadigan da'vosini
+(foiz, SLA, vaqt chegarasi) qayta grep qilib CLAUDE.md/test suite bilan
+solishtirdim. Deyarli hammasi allaqachon haqiqatda o'lchangan (NFR-PERF-*,
+FR-CTL-003, FR-AUTH-005, FR-CONV-002, NFR-OBS-001, NFR-SCL-001) yoki
+haqiqatda bloklangan (yangi PO qarori, qurilmagan domain, real infra/vaqt)
+ekani tasdiqlandi — ikkinchisiga misol: TRD 16.2'ning "workspace byudjeti
+100%ga yetganda yangi R3+ action bloklanadi" siyosati o'ylab ko'rildi va
+ATAYLAB qurilmadi, chunki bu AI byudjeti va Action risk-siyosatini
+bog'laydigan, hech qayerda aniq belgilanmagan yangi kross-domain qoida
+o'ylab topishni talab qilardi (QOIDA 2 buzilishi xavfi) — bu bug fix emas,
+PO qarori.
+
+Lekin bitta haqiqiy, torroq bo'shliq chiqdi: FR-ACT-008'ning o'z qabul
+mezoni — "Crash-recovery testida yo'qolgan yoki ikkilangan effekt yo'q" —
+hech qachon to'g'ridan-to'g'ri sinalmagan edi. Mavjud testlar ikkitasidan
+FARQLI ikkita holatni qamraydi: (1) `test_two_concurrent_relay_workers_
+never_double_publish_the_same_message` — ikkita BIR VAQTDAGI worker bir
+xil qatorni ikki marta nashr qilmasligi (`FOR UPDATE SKIP LOCKED`); (2)
+`test_redelivery_of_an_already_succeeded_action_does_not_resend` — BIR
+XIL Redis stream entry qayta yetkazilishi (consumer crash XACK'dan oldin).
+Hech biri `outbox_relay.py`ning o'z docstring'ida OCHIQ yozilgan, uchinchi,
+alohida yo'lni sinamagan edi: worker XADD qilgandan KEYIN, lekin Postgres
+commit'idan OLDIN qulab tushsa, `published_at` hech qachon saqlanmaydi —
+demak xuddi shu qator KEYINGI relay_once chaqiruvida haqiqatda IKKINCHI,
+mustaqil Redis stream entry sifatida qayta nashr qilinadi (bitta stream
+entry'ning qayta yetkazilishi emas, IKKITA HAQIQIY ALOHIDA entry).
+
+`test_a_crash_between_outbox_publish_and_commit_still_ends_in_exactly_
+one_send` (`test_telegram_relay.py`) buni to'g'ridan-to'g'ri simulyatsiya
+qiladi: `_publish_pending_row_without_committing` — `relay_once`ning o'z
+XADD+`published_at` yangilash mantig'ini AYNAN takrorlaydi, lekin
+`session.begin()`siz — yopilishda hech narsa commit qilinmaydi (aynan
+FR-AUTH-006'ning eski xatosidagi kabi "jimgina rollback" xulqi, bu safar
+ataylab, crash simulyatsiyasi sifatida ishlatildi). Shundan keyin haqiqiy
+`outbox_relay_once` chaqirilib, qator hali `published_at IS NULL` deb
+ko'rinib, HAQIQATDA ikkinchi marta nashr qilinadi. Test ikkita narsani
+tasdiqlaydi: (1) stream'da aynan shu action uchun ENDI IKKITA alohida
+entry borligi (crash haqiqatda duplikatsiya yaratganini isbotlaydi —
+sintetik emas); (2) ikkalasini ham drenaj qilgandan keyin Telegram'ga
+ANIQ BIR marta chaqiruv bo'lgani va action SUCCEEDED bo'lgani (duplikat
+outbox entry bo'lsa ham, tashqi effekt ikkilanmagani).
+
+Testning o'z birinchi yarmi (haqiqatda duplikatsiya yaratilgani)
+audit-zanjiri uslubida isbotlandi: crash-simulyatsiya chaqiruvini
+vaqtincha olib tashlab (qatorni normal, bir martalik nashr qilinishiga
+qoldirib), test aynan kutilgan tarzda (`assert 1 == 2`, faqat bitta
+entry) muvaffaqiyatsiz bo'lishini ko'rsatdim, keyin qaytarib yashil
+ekanini tasdiqladim. Testning ikkinchi yarmi (duplikat entry'ga qarshi
+connector'ning bir martalik yuborish kafolati) uchun alohida revert-test-
+restore QILINMADI — bu aynan `test_redelivery_of_an_already_succeeded_
+action_does_not_resend`ning o'z docstring'ida allaqachon isbotlangan
+ikkinchi qatlam (`apply_transition`ning state-machine backstop'i) bilan
+bir xil mexanizm (ikkinchi entry ham, xohlagan yo'l bilan, action
+allaqachon READY'dan chiqib ketgandan keyin ishlov beriladi) — buni
+qayta isbotlash ortiqcha, keyingi entry allaqachon boshqa test bilan
+tasdiqlangan mantiqning bir nusxasi.
+
+476 test, barchasi real Postgres+Redis'da (ikki marta ketma-ket ishga
+tushirilib barqarorligi tasdiqlandi); `ruff`/`mypy src/doda` toza.
