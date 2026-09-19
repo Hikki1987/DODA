@@ -6603,3 +6603,78 @@ talab qiladi" toifasidagi bo'shliq emas (aniq texnik sabab: dependency
 yo'q, PO qarori emas), balki `telegram_relay.py`ning "RUNNING'da qotib
 qolish" kabi allaqachon shu faylning o'zida (funksiya docstring'ida)
 ochiq yozilgan, torroq amalga oshirilgan qism.
+
+**Uchinchi to'liq TRD-ID sweep o'tkazildi (yana check-in orqali) — bu
+safar oldingi ikki auditning o'zi qoldirgan bo'shliqni topdi: ba'zi
+ID'lar hech qachon LITERAL matn sifatida CLAUDE.md/docs'da grep
+qilinmagan edi, garchi ular tasvirlagan funksiya allaqachon qurilgan
+bo'lsa ham (chunki bu yerdagi yozuvlar narrativ, "FR-WKS (customer/
+workspace boshqaruvi)" kabi oila nomi bilan yozilgan, har bir aniq ID
+alohida keltirilmagan).** TRD'dan pandoc orqali 124 ta ID chiqarilib,
+har biri CLAUDE.md+`docs/*.md` bo'ylab grep qilindi — bu safar avvalgi
+ikkita audit qilgani kabi "keltirilmagan → qurilmagan" deb taxmin
+qilinmadi, har bir topilgan ID'ning HAQIQIY kod holatiga qarab uch
+toifaga bo'lindi:
+
+1. **Sof sitatiya bo'shlig'i (kod allaqachon to'g'ri, faqat ID hech
+   qachon aniq keltirilmagan)** — `FR-WKS-001` (Customer yaratilganda
+   audit stream — `customer.created.v1`, `create_customer_with_owner`da
+   allaqachon bor; "default policy" — CustomerOwner roli avtomatik
+   berilishi, 10.2'ning o'z ruxsat modeli), `FR-WKS-004` (workspace
+   almashtirish — frontend URL-asosidagi navigatsiya, har bir sahifa
+   `workspace_id`ni to'g'ridan-to'g'ri URL'dan oladi, hech qanday client-
+   side "joriy workspace" cache holati yo'q, shuning uchun "oldingi
+   workspace konteksti keyingi javobda ishlatilmaydi" arxitektura
+   bo'yicha tabiiy ravishda to'g'ri — buni buzadigan holat yaratish
+   uchun avval shu holatni saqlaydigan kod yozish kerak bo'lardi),
+   `FR-ACT-003` (R0-R2 avtomatik / R3-R5 approval+step-up talab qiladi —
+   aynan `authz_service`/`state_machine`ning o'zagi, 9.1'da "risk-based
+   approval routing" deb tavsiflangan, R3+ uchun AAL2 step-up talabi
+   `authorize_consume_approval`da testlangan). Bularning uchtasi ham
+   yangi kod yoki test talab qilmadi — faqat "qaerda qurilganini"
+   tasdiqlash.
+2. **Haqiqiy, kichik test bo'shlig'i** — pastga qarang, FR-WKS-002.
+3. **Haqiqatda bloklangan** (yangi domain yoki PO qarori talab qiladi,
+   allaqachon boshqa joyda hujjatlashtirilgan sabab bilan) — `FR-KNW-
+   002..009` (Knowledge/RAG, hali boshlanmagan), `FR-ADM-003..006`
+   (admin panel, PO qarori), `NFR-DATA-001b/c/d` (data residency,
+   OD-005/yurist tasdiqi), `UC-001` (MFA enrollment + self-serve signup
+   — ikkalasi ham ataylab boshqa sabablarga ko'ra ochiq: FR-AUTH-002 PO
+   qarori, 2.3-bo'lim signup'ni v1 uchun OUT OF SCOPE deb belgilagan),
+   `UC-002` (Knowledge'ga bog'liq), `UC-006` (umumiy connector boshqaruv
+   UI'si — FR-ADM'ning bir qismi, Telegram hozircha faqat `.env` orqali
+   sozlanadi, "ulash/uzish" ekrani yo'q), `UC-008` (FR-CTL-002'ning
+   "o'chirish" yarmi — memory o'chirish, Knowledge domeniga bog'liq).
+   `ASM-*` (loyihaning o'z farazlari — "qurilishi" kerak bo'lgan talab
+   emas, kontekst). `UC-003/005` — allaqachon mos FR oilalari (FR-TASK,
+   FR-AUD) va ularning E2E testlari orqali substantially qamrab olingan,
+   faqat "UC-003"/"UC-005" literal matni bilan emas — bu ham 1-toifaning
+   bir nusxasi, lekin alohida tuzatish talab qilmadi (allaqachon FR-TASK/
+   FR-AUD yozuvlarida to'liq tasvirlangan).
+
+**FR-WKS-002 (Workspace CustomerId'ga bog'lanadi; global workspace
+mavjud emas) — haqiqiy, kichik test bo'shlig'i topildi va yopildi.**
+Bu invariant DB darajasida IKKI mustaqil qatlam bilan ta'minlangan edi
+(`customer_id NOT NULL` ustun cheklovi VA `FORCE ROW LEVEL SECURITY`ning
+`WITH CHECK (customer_id = current_setting(...))`si — ikkalasi ham
+`\d workspace_workspaces` orqali real Postgres'da tasdiqlandi), lekin
+`test_rls_coverage.py`ning o'zi ochiq yozadi: u faqat "FORCE RLS
+YOQILGANMI" deb tekshiradi (katalog darajasida), "policy HAQIQATDA
+ishlaydi" emas — buning uchun `test_tenant_isolation.py` bor, lekin u
+ham hech qachon aynan shu stsenariyni (customer_id=NULL bilan workspace
+yaratishga urinish) sinamagan edi. Yangi
+`test_a_workspace_cannot_be_created_without_a_tenant`
+`Workspace(customer_id=None, ...)`ni to'g'ridan-to'g'ri qurib (bu
+`Mapped[uuid.UUID]` tip ko'rsatmasini, Optional emas, chetlab o'tadi —
+SQLAlchemy'ning generatsiya qilingan `__init__`i buni runtime'da
+majburlamaydi) `session.flush()`ning `DBAPIError` ko'tarishini tasdiqlaydi.
+Real ishga tushirib aniqlandi (taxmin emas): aslida RLS'ning `WITH CHECK`i
+NOT NULL cheklovidan OLDIN ishga tushadi (`InsufficientPrivilegeError:
+new row violates row-level security policy`, NOT NULL xatosi emas) —
+lekin ikkala qatlam ham ataylab bir-biridan mustaqil (ADR-005), shuning
+uchun test qaysi birining ishlashiga qat'iy bog'lanmaydi, faqat
+`DBAPIError`ning umumiy ota-klassini kutadi.
+
+490 test, barchasi real Postgres'da; `ruff`/`mypy src/doda` toza. Kod
+o'zgarmadi (bitta yangi regressiya testi qo'shildi) — sof
+tekshiruv+traceability yopilishi.
