@@ -14,7 +14,7 @@ any chat-authorized member; workspace default,
 `authorize_manage_workspace_ai_preference`: WorkspaceAdmin/CustomerOwner).
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from doda.ai.factory import is_provider_configured
 from doda.ai.types import Provider
@@ -22,6 +22,7 @@ from doda.api.ai_settings_schemas import (
     AIBudgetStatusOut,
     AIFallbackSettingOut,
     AIPreferenceOut,
+    AIUsageReportRowOut,
     ProviderStatusOut,
     SetAIFallbackSettingRequest,
     SetAIPreferenceRequest,
@@ -155,6 +156,35 @@ async def get_ai_budget_status(
         spent_usd=status.spent_cents / CENTS_PER_DOLLAR,
         over_soft_budget=status.over_soft_budget,
     )
+
+
+@router.get("/v1/customers/{customer_id}/ai-usage-report", response_model=list[AIUsageReportRowOut])
+async def get_ai_usage_report(
+    year_month: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
+    ctx: CustomerRequestContext = Depends(get_customer_request_context),
+) -> list[AIUsageReportRowOut]:
+    """NFR-COST-001's breakdown half of "Customer/workspace/model
+    bo'yicha byudjet va alert" — the budget/alert half (`get_ai_budget_
+    status` above) only ever showed one customer-wide total; this shows
+    where that spend actually went. Same auditorium as the budget total
+    (CustomerOwner/Auditor — financial oversight, not "sensitive" in the
+    provider-status-list sense)."""
+    authorize_view_ai_budget(ctx.customer)
+    resolved_month = year_month or ai_budget_service.current_year_month()
+    rows = await ai_budget_service.get_usage_report(
+        ctx.db, customer_id=ctx.customer.customer_id, year_month=resolved_month
+    )
+    return [
+        AIUsageReportRowOut(
+            workspace_id=row.workspace_id,
+            workspace_name=row.workspace_name,
+            provider=row.provider,
+            model=row.model,
+            cost_usd=row.cost_cents / CENTS_PER_DOLLAR,
+            event_count=row.event_count,
+        )
+        for row in rows
+    ]
 
 
 @router.get("/v1/customers/{customer_id}/me/ai-preference", response_model=AIPreferenceOut)

@@ -6888,3 +6888,102 @@ chiqilishi kerak.
 
 Kod o'zgarmadi (faqat tekshiruv+hujjatlashtirish) — 491 test
 o'zgarishsiz.
+
+**NFR-COST-001'ning to'liq FinOps talabi — "Customer/workspace/model
+bo'yicha byudjet va alert" — endi to'liq: byudjet/alert yarmi (OD-008)
+allaqachon qurilgan edi, bu safar breakdown yarmi ham yopildi.**
+`GET /v1/customers/{id}/ai-budget` (avvalroq qurilgan) faqat bitta
+customer-keng jami raqamni ko'rsatardi — mijoz o'z oylik AI xarajatining
+QAYERGA ketganini (qaysi workspace, qaysi provayder, qaysi model) hech
+qachon ko'ra olmasdi, garchi `AIUsageEvent` bu ma'lumotni har bir chat
+burilishida allaqachon yozib borsa ham — yana bir "backend ma'lumoti bor,
+ko'rsatadigan hech narsa yo'q" naqshi.
+
+`ai_budget_service.get_usage_report` — `AIUsageEvent`ni berilgan oy
+(standart: joriy, `year_month`ning o'zi ledger'ning `current_year_month()`
+bilan bir xil "YYYY-MM" kaliti — ikkalasi bir joyda, `_month_bounds_utc`
+orqali hisoblanadi, shuning uchun oy chegaralari hech qachon jimgina
+bir-biridan chetlashmaydi) `workspace_id`/`provider`/`model` bo'yicha
+guruhlab, har biri uchun jami `actual_cost_cents`/so'rovlar sonini
+qaytaradi. Faqat `RECONCILED` yozuvlar hisoblanadi (`RESERVED` — amalda
+hech qachon yo'q, `UsageEventStatus`ning o'z docstring'iga qarang;
+`REFUNDED` — muvaffaqiyatsiz/bekor qilingan burilishning haqiqiy qisman
+xarajati, allaqachon o'zining `actual_cost_cents`sida to'g'ri qiymat
+bilan). Workspace nomini ko'rsatish uchun `Workspace`ga JOIN qilinadi —
+`workspace_service.list_workspace_members`ning o'z User-join naqshi bilan
+bir xil "xom UUID insonga ma'nosiz" mulohaza — VA bu join ham
+`Workspace.customer_id == customer_id` bilan aniq cheklanadi
+(`AIUsageEvent.customer_id`dan tashqari ham), 6.2'ning "customer_id'siz
+so'rov yo'q" qoidasiga ikkinchi qatlam sifatida.
+
+`GET /v1/customers/{id}/ai-usage-report[?year_month=YYYY-MM]` — bir xil
+auditoriya (`authorize_view_ai_budget`: CustomerOwner/Auditor — bu
+moliyaviy nazorat ma'lumoti, "provider status ro'yxati" kabi sezgir emas
+toifasiga kirmaydi, xuddi budjet jamining o'zi kabi).
+
+**Bu ATAYLAB TRD 16.2'ning "workspace byudjeti 100%ga yetganda yangi
+R3+ action bloklanadi" siyosatidan MUSTAQIL va undan ALOHIDA** — bu
+siyosat avvalroq (shu sessiyaning oldingi bosqichida) ko'rib chiqilgan
+va ATAYLAB qurilmagan qoldirilgan edi, chunki u AI byudjeti va Action
+risk-siyosatini bog'laydigan, hech qayerda aniq belgilanmagan yangi
+kross-domain qoida o'ylab topishni talab qiladi — haqiqiy Product Owner
+qarori, bug fix emas. Bu yopilish faqat allaqachon yozilgan ma'lumotni
+KO'RSATISH (hisobot/UI) — hech qanday yangi enforcement siyosati
+qo'shilmadi, hech qanday Action bloklanmaydi.
+
+Testlar (`tests/integration/test_ai_usage_report.py`, 7 ta): bir xil
+(workspace, provider, model) uchun bir nechta yozuv jamlanishi; turli
+model alohida qator sifatida qolishi (xarajat bo'yicha kamayish tartibida);
+boshqa customer'ning yozuvlari sizib chiqmasligi; `RESERVED` yozuv
+chiqarib tashlanishi; boshqa oydagi yozuv chiqarib tashlanishi (va aniq
+`year_month` bilan so'ralganda topilishi); HTTP darajasida oddiy a'zo
+403, owner/auditor 200 (owner uchun to'g'ri USD/model/provayder bilan).
+Tenant-izolyatsiya predikati (`Workspace.customer_id == customer_id`)
+uchun alohida revert-test-restore QILINMADI — bu ADR-005'ning
+"ikkinchi, mustaqil qatlam" naqshining o'zi (RLS + aniq predikat), va
+`AIUsageEvent.customer_id`ning o'zi allaqachon to'g'ri filtrlagani uchun
+bu ikkinchi predikatni olib tashlash mavjud testlar bilan HECH QANDAY
+kuzatiladigan farq bermaydi (xuddi beshinchi security-review'dagi
+`list_my_workspaces`ning ikkinchi qatlami bilan bir xil, aynan shu
+sababdan hujjatlashtirilgan holat) — sinab ko'rildi va tasdiqlandi,
+keyin qaytarildi.
+
+Frontend: customer sahifasining "AI provayderlar" bo'limiga, byudjet
+banneridan keyin, jadval qo'shildi (workspace/provayder/model/xarajat/
+so'rovlar soni ustunlari bilan) — faqat ro'yxat bo'sh bo'lmaganda
+ko'rsatiladi (arxivlangan workspace'lar bo'limining o'zi bilan bir xil
+konventsiya). `frontend/e2e/chat.spec.ts`ning mavjud testiga yangi qadam
+qo'shildi — real xabar yuborilgandan keyin backend'ning o'zidan (to'g'ridan-
+to'g'ri so'rov bilan) HAM, customer sahifasidagi jadvaldan HAM shu
+workspace'ning xarajati ko'rinishini tasdiqlaydi.
+
+**Bu E2E qadamni tekshirish jarayonida haqiqiy bo'lmagan, o'zimning
+qayta-seed qilmasdan qo'lda takrorlagan tekshiruvimdan kelib chiqqan
+soxta xato topildi va aniqlandi (real bug emas).** Bir marta to'liq
+suite (14 spec)ni ishga tushirganimda `chat.spec.ts`da "2 ta 'Demo
+Workspace' katakchasi" degan strict-mode xatosi chiqdi — birinchi
+qarashda haqiqiy nomuvofiqlikka o'xshardi. Tekshirilganda sabab aniqlandi:
+men ESKI, ALLAQACHON to'liq ishlatilgan `E2E_CHAT_` seed muhitini
+(oldingi, muvaffaqiyatli qo'lda ishga tushirishdan qolgan) IKKINCHI marta,
+qayta seed qilmasdan ishlatgandim — o'sha eski ishga tushirishning o'z
+to'rtinchi testi ("AI provayder sozlamalari") "mening AI afzalligim"ni
+CLAUDE'ga o'rnatib qo'ygan edi, bu esa foydalanuvchi darajasidagi doimiy
+sozlama (4 pog'onali ustuvorlik zanjirining ikkinchi darajasi) —
+shuning uchun ikkinchi (qayta ishlatilgan) ishga tushirishda test1'ning
+YANGI suhbati endi CLAUDE'ni ishlatdi, OPENAI'ni emas — natijada IKKITA
+haqiqatda turli (provider, model) qatori, ikkalasi ham "Demo Workspace"
+nomi bilan. Bu aynan shu kod bazasida allaqachon bir necha marta
+takrorlangan "E2E spec'lar bir xil mutable holatni bo'lishmasligi kerak"
+darsining, bu safar mening o'z QO'LDA TEKSHIRISH metodologiyamdagi
+nusxasi — production kod ham, test kodining o'zi ham to'g'ri; xato faqat
+mening ikkinchi marta qayta seed qilmasdan ishga tushirishimda edi. Fresh
+seed bilan (har bir prefiks bir marta) to'liq 14 spec ketma-ket ikki marta
+ishga tushirilib, ikkalasida ham yashil ekani tasdiqlandi.
+
+Real backend+production frontend'ga qarshi (barcha 14 E2E spec, jumladan
+accessibility skaneri — yangi jadval hech qanday WCAG buzilishi
+keltirmadi) tasdiqlandi.
+
+498 test (backend, 491 + 7), barchasi real Postgres'da; `ruff`/`mypy
+src/doda` toza; frontend `tsc`/ESLint toza, production build
+muvaffaqiyatli; barcha 14 E2E spec yashil.

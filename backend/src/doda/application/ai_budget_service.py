@@ -35,8 +35,9 @@ afford the call.
 
 import dataclasses
 import uuid
+from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,6 +52,7 @@ from doda.domain.ai_usage.models import (
     UsageProvider,
 )
 from doda.domain.base import utcnow
+from doda.domain.workspace.models import Workspace
 from doda.infrastructure.ai_pricing import CENTS_PER_DOLLAR
 
 
@@ -122,6 +124,86 @@ class BudgetStatus:
     hard_cap_cents: int
     spent_cents: int
     over_soft_budget: bool
+
+
+def _month_bounds_utc(year_month: str) -> tuple[datetime, datetime]:
+    """[start, end) UTC calendar-month bounds for the "YYYY-MM" string
+    `AIBudgetLedger.year_month`/`current_year_month` already use — kept
+    here rather than duplicated at the call site so the report's month
+    filter and the ledger's own month key can never silently drift apart."""
+    year, month = (int(part) for part in year_month.split("-"))
+    start = datetime(year, month, 1, tzinfo=UTC)
+    end = datetime(year + 1, 1, 1, tzinfo=UTC) if month == 12 else datetime(year, month + 1, 1, tzinfo=UTC)
+    return start, end
+
+
+@dataclasses.dataclass(frozen=True)
+class UsageBreakdownRow:
+    """One (workspace, provider, model) slice of a customer's monthly AI
+    spend — NFR-COST-001's "Customer/workspace/model bo'yicha... FinOps
+    dashboard" acceptance criterion, distinct from `BudgetStatus` (a
+    single customer-wide total): the budget/alert half of this
+    requirement was closed by OD-008 already, this closes the
+    breakdown half. `AIUsageEvent` has carried every field this needs
+    since it was first written for `conversation_service.stream_
+    message` — nothing new to record, only to aggregate and expose."""
+
+    workspace_id: uuid.UUID
+    workspace_name: str
+    provider: Provider
+    model: str
+    cost_cents: int
+    event_count: int
+
+
+async def get_usage_report(
+    session: AsyncSession, *, customer_id: uuid.UUID, year_month: str
+) -> list[UsageBreakdownRow]:
+    """Only RECONCILED rows count — a still-open RESERVED row (none exist
+    in practice; see `UsageEventStatus`'s own docstring) has no real
+    `actual_cost_cents` yet, and REFUNDED rows already carry whatever
+    real spend a failed/cancelled turn incurred (possibly zero) inside
+    their own `actual_cost_cents`, so no separate REFUNDED branch is
+    needed — summing them in is exactly right, not double-counting.
+
+    Joins to Workspace for a display name (the same "raw UUIDs are
+    meaningless to a human" reasoning `workspace_service.
+    list_workspace_members` already applies to its own User join) —
+    filtered by customer_id on BOTH sides of the join, not just
+    `AIUsageEvent`'s, per 6.2's "no repository query without an explicit
+    customer_id predicate" rule."""
+    start, end = _month_bounds_utc(year_month)
+    result = await session.execute(
+        select(
+            AIUsageEvent.workspace_id,
+            Workspace.name,
+            AIUsageEvent.provider,
+            AIUsageEvent.model,
+            func.sum(AIUsageEvent.actual_cost_cents),
+            func.count(),
+        )
+        .join(Workspace, Workspace.id == AIUsageEvent.workspace_id)
+        .where(
+            AIUsageEvent.customer_id == customer_id,
+            Workspace.customer_id == customer_id,
+            AIUsageEvent.status == UsageEventStatus.RECONCILED,
+            AIUsageEvent.created_at >= start,
+            AIUsageEvent.created_at < end,
+        )
+        .group_by(AIUsageEvent.workspace_id, Workspace.name, AIUsageEvent.provider, AIUsageEvent.model)
+        .order_by(func.sum(AIUsageEvent.actual_cost_cents).desc())
+    )
+    return [
+        UsageBreakdownRow(
+            workspace_id=workspace_id,
+            workspace_name=workspace_name,
+            provider=Provider(provider.value),
+            model=model,
+            cost_cents=cost_cents or 0,
+            event_count=event_count,
+        )
+        for workspace_id, workspace_name, provider, model, cost_cents, event_count in result.all()
+    ]
 
 
 async def get_budget_status(session: AsyncSession, *, customer_id: uuid.UUID) -> BudgetStatus:

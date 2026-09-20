@@ -113,6 +113,20 @@ test("chat: send a message, get the real NullModelGateway reply, pin a provider"
     ).toBe(true);
   });
 
+  await test.step("the earlier turn's cost shows up in the customer page's FinOps breakdown (NFR-COST-001)", async () => {
+    // Direct backend check first — proves the aggregation itself, not just
+    // that the page can render something.
+    const report = await page.request.get(
+      `http://localhost:8000/v1/customers/${CUSTOMER_ID}/ai-usage-report`,
+      { headers: { Authorization: `Bearer ${SESSION_ID}` } },
+    );
+    const rows: { workspace_name: string; event_count: number }[] = await report.json();
+    expect(rows.some((r) => r.workspace_name === "Demo Workspace" && r.event_count >= 1)).toBe(true);
+
+    await page.goto(`/customers/${CUSTOMER_ID}`);
+    await expect(page.getByRole("cell", { name: "Demo Workspace" })).toBeVisible();
+  });
+
   expect(consoleErrors, `unexpected browser console errors: ${consoleErrors.join("\n")}`).toEqual([]);
 });
 

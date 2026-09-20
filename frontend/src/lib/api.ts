@@ -972,6 +972,22 @@ export function getAiBudgetStatus(sessionId: string, customerId: string): Promis
   return apiFetch(`/v1/customers/${customerId}/ai-budget`, sessionId);
 }
 
+// NFR-COST-001's breakdown half — the total above shows one number; this
+// shows where it went, per workspace/provider/model. Same auditorium
+// (CustomerOwner/Auditor), same "swallow 403 like an optional section" rule.
+export interface AiUsageReportRowOut {
+  workspace_id: string;
+  workspace_name: string;
+  provider: AiProvider;
+  model: string;
+  cost_usd: number;
+  event_count: number;
+}
+
+export function getAiUsageReport(sessionId: string, customerId: string): Promise<AiUsageReportRowOut[]> {
+  return apiFetch(`/v1/customers/${customerId}/ai-usage-report`, sessionId);
+}
+
 // ---- browser-side download helper (FR-CTL-002 export, FR-AUD-005 evidence package) ----
 
 // Shared by sessions/page.tsx's "export my data" and customers/[id]/page.tsx's

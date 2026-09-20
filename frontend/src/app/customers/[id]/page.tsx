@@ -12,6 +12,7 @@ import {
   engageCustomerKillSwitch,
   getAiBudgetStatus,
   getAiFallbackSetting,
+  getAiUsageReport,
   getCustomerAuditEvidencePackage,
   getCustomerKillSwitch,
   getMyAiPreference,
@@ -37,6 +38,7 @@ import {
   type AiFallbackSettingOut,
   type AiPreferenceOut,
   type AiProvider,
+  type AiUsageReportRowOut,
   type AuditChainVerificationOut,
   type AuditEventOut,
   type CustomerMemberOut,
@@ -77,6 +79,7 @@ export default function CustomerPage() {
   const [restoringWorkspaceId, setRestoringWorkspaceId] = useState<string | null>(null);
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatusOut[] | null>(null);
   const [budgetStatus, setBudgetStatus] = useState<AiBudgetStatusOut | null>(null);
+  const [usageReport, setUsageReport] = useState<AiUsageReportRowOut[] | null>(null);
   const [testingProvider, setTestingProvider] = useState<string | null>(null);
   const [fallbackSetting, setFallbackSetting] = useState<AiFallbackSettingOut | null>(null);
   const [togglingFallback, setTogglingFallback] = useState(false);
@@ -119,6 +122,7 @@ export default function CustomerPage() {
     // CustomerOwner/Auditor-only (authorize_view_ai_budget) — fails
     // silently for a plain member, same as archived workspaces above.
     getAiBudgetStatus(sessionId, customerId).then(setBudgetStatus).catch(() => {});
+    getAiUsageReport(sessionId, customerId).then(setUsageReport).catch(() => {});
     getMyAiPreference(sessionId, customerId).then(setMyAiPreferenceState).catch(() => {});
   }, [sessionId, customerId, appliedTraceId]);
 
@@ -418,6 +422,46 @@ export default function CustomerPage() {
             {budgetStatus.over_soft_budget && (
               <span> — oylik byudjetning katta qismi sarflandi (soft cap: ${budgetStatus.soft_cap_usd.toFixed(2)}).</span>
             )}
+          </div>
+        )}
+        {usageReport !== null && usageReport.length > 0 && (
+          <div className="mb-3 overflow-x-auto rounded-md border border-gray-200">
+            <table className="w-full text-left text-sm">
+              <caption className="sr-only">Workspace, provayder va model bo&apos;yicha AI xarajati</caption>
+              <thead className="bg-gray-50 text-xs text-gray-500">
+                <tr>
+                  <th scope="col" className="px-3 py-2">
+                    Workspace
+                  </th>
+                  <th scope="col" className="px-3 py-2">
+                    Provayder
+                  </th>
+                  <th scope="col" className="px-3 py-2">
+                    Model
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-right">
+                    Xarajat
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-right">
+                    So&apos;rovlar
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {usageReport.map((row) => (
+                  <tr
+                    key={`${row.workspace_id}-${row.provider}-${row.model}`}
+                    className="border-t border-gray-200"
+                  >
+                    <td className="px-3 py-2">{row.workspace_name}</td>
+                    <td className="px-3 py-2">{row.provider}</td>
+                    <td className="px-3 py-2">{row.model}</td>
+                    <td className="px-3 py-2 text-right">${row.cost_usd.toFixed(2)}</td>
+                    <td className="px-3 py-2 text-right">{row.event_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
         <ul className="space-y-2">

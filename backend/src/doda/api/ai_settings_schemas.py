@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 
 from pydantic import BaseModel
@@ -54,3 +55,16 @@ class AIBudgetStatusOut(BaseModel):
     hard_cap_usd: float
     spent_usd: float
     over_soft_budget: bool
+
+
+class AIUsageReportRowOut(BaseModel):
+    """NFR-COST-001's "Customer/workspace/model bo'yicha" FinOps
+    breakdown — one row per (workspace, provider, model) combination
+    with any reconciled spend this month."""
+
+    workspace_id: uuid.UUID
+    workspace_name: str
+    provider: Provider
+    model: str
+    cost_usd: float
+    event_count: int
