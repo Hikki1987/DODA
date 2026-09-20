@@ -6987,3 +6987,34 @@ keltirmadi) tasdiqlandi.
 498 test (backend, 491 + 7), barchasi real Postgres'da; `ruff`/`mypy
 src/doda` toza; frontend `tsc`/ESLint toza, production build
 muvaffaqiyatli; barcha 14 E2E spec yashil.
+
+**O'ninchi `security-review` o'tkazildi — bu safar 9-review'dan (476eb40)
+KEYINGI, faqat NFR-COST-001'ning yangi FinOps breakdown diff'iga qarshi
+(kichik, maqsadli qamrov: yangi `GET /v1/customers/{id}/ai-usage-report`
+endpoint'i, uning agregatsiya so'rovi, va frontend render qismi).**
+Jarayon bir xil: topish subagent'i butun diff'ni (303 qator) va
+mos kontekstni (authz zanjiri, `AIUsageEvent`/`Workspace` domenlari)
+ko'rib chiqdi.
+
+**Natija: 0 topilma — filtrlash bosqichiga hech qanday nomzod
+o'tmadi.** Tekshirilgan va to'g'ri ekani tasdiqlangan: (1) yangi
+endpoint mavjud `authorize_view_ai_budget` (CustomerOwner/Auditor)ni
+qayta ishlatadi, yangi authz yo'li yo'q; (2) agregatsiya so'rovi
+`AIUsageEvent.customer_id == customer_id` VA `Workspace.customer_id ==
+customer_id`ni ikkalasini ham tekshiradi — join'ning ikki tomoni ham
+customer_id bilan cheklangan, tenant-lararo sizib chiqish yo'q; (3)
+`year_month` FastAPI'ning `Query(pattern=...)` orqali tekshiriladi,
+keyin faqat `int()` parslash + parametrlashtirilgan SQLAlchemy
+`where()`ga uzatiladi — SQL injection yo'q; (4) javob maydonlari mavjud
+budjet-status endpoint'ining oshkoralik darajasi bilan bir xil, yangi
+sezgir maydon yo'q; (5) frontend sof JSX matn interpolatsiyasi,
+`dangerouslySetInnerHTML` yo'q.
+
+Bitta, xavfsizlik topilmasi SIFATIDA HISOBLANMAGAN kuzatuv qayd etildi:
+regex'ga mos, lekin haqiqiy oy bo'lmagan `year_month` (masalan
+"2024-13") `datetime(year, 13, 1)`da ushlanmagan `ValueError` bilan
+generik 500 qaytaradi (aniq 4xx o'rniga) — bu robustness bo'shligi,
+injection/authz emas, va mavjud catch-all handler orqali hech qanday
+sezgir narsa sizib chiqmaydi (`trace_id` bilan xavfsiz generic javob).
+
+498 test, barchasi real Postgres'da (kod o'zgarmadi — sof tekshiruv).
