@@ -27,6 +27,7 @@ from doda.api.customer_admin import router as customer_admin_router
 from doda.api.errors import register_exception_handlers
 from doda.api.health import router as health_router
 from doda.api.kill_switch import router as kill_switch_router
+from doda.api.knowledge import router as knowledge_router
 from doda.api.me import router as me_router
 from doda.api.middleware import TraceIdMiddleware
 from doda.api.notifications import router as notifications_router
@@ -84,6 +85,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(actions_router)
     app.include_router(tasks_router)
+    app.include_router(knowledge_router)
     app.include_router(conversations_router)
     app.include_router(workspace_admin_router)
     app.include_router(customer_admin_router)

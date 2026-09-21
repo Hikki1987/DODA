@@ -71,6 +71,18 @@ class Settings(BaseSettings):
     redis_url: SecretStr = SecretStr("redis://localhost:6379/0")
     object_storage_endpoint: str = "http://localhost:9000"
     object_storage_bucket: str = "doda-files"
+    # FR-KNW-001: v1's real object-storage backend (doda.storage.factory)
+    # is a local filesystem directory, not the S3/MinIO settings above —
+    # this sandbox cannot run/verify an S3 adapter (no Docker daemon, no
+    # boto3; see doda.storage.port's docstring). Relative paths resolve
+    # against the process's working directory, same as Alembic's own
+    # migrations path convention.
+    knowledge_storage_dir: str = "./data/knowledge"
+    # FR-KNW-001's own size-limit acceptance criterion. 25MB comfortably
+    # covers a scanned PDF or a spreadsheet without inviting the
+    # multi-hundred-MB uploads this v1 (in-memory read, no streaming/
+    # chunked upload) is not built to handle efficiently.
+    knowledge_max_file_size_bytes: int = 25 * 1024 * 1024
     otel_service_name: str = "doda-backend"
     # OD-002: first real connector. Read only by infrastructure/telegram_*
     # (the connector itself) -- never by domain/application code, never

@@ -988,6 +988,73 @@ export function getAiUsageReport(sessionId: string, customerId: string): Promise
   return apiFetch(`/v1/customers/${customerId}/ai-usage-report`, sessionId);
 }
 
+// ---- /v1/workspaces/{id}/documents — FR-KNW-001 file ingest ----
+
+export interface DocumentOut {
+  id: string;
+  workspace_id: string;
+  uploader_id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  sha256: string;
+  created_at: string;
+}
+
+// Not routed through apiFetch: apiFetch always sets Content-Type:
+// application/json when a body is present, which would strip the
+// multipart boundary the browser needs to set itself for a FormData body.
+export async function uploadDocument(
+  sessionId: string,
+  workspaceId: string,
+  file: File,
+): Promise<DocumentOut> {
+  const body = new FormData();
+  body.append("file", file);
+  const response = await fetch(`${API_BASE_URL}/v1/workspaces/${workspaceId}/documents`, {
+    method: "POST",
+    headers: authHeaders(sessionId),
+    body,
+  });
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return (await response.json()) as DocumentOut;
+}
+
+export function listDocuments(sessionId: string, workspaceId: string): Promise<DocumentOut[]> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/documents`, sessionId);
+}
+
+export function deleteDocument(sessionId: string, workspaceId: string, documentId: string): Promise<void> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/documents/${documentId}`, sessionId, { method: "DELETE" });
+}
+
+// Fetches the raw bytes and immediately saves them under the document's
+// own filename — same browser-download shape as downloadJsonFile below,
+// but the payload here is arbitrary binary content, not JSON.
+export async function downloadDocument(
+  sessionId: string,
+  workspaceId: string,
+  documentId: string,
+  filename: string,
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/v1/workspaces/${workspaceId}/documents/${documentId}/content`,
+    { headers: authHeaders(sessionId) },
+  );
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 // ---- browser-side download helper (FR-CTL-002 export, FR-AUD-005 evidence package) ----
 
 // Shared by sessions/page.tsx's "export my data" and customers/[id]/page.tsx's

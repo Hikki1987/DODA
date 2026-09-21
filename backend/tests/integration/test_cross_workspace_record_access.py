@@ -23,6 +23,7 @@ from httpx import ASGITransport, AsyncClient
 
 from doda.application.session_service import create_session
 from doda.application.workspace_service import create_workspace
+from doda.config import Settings
 from doda.db import tenant_scoped_session
 from doda.domain.customer.models import Customer, CustomerMembership
 from doda.domain.identity.models import AuthStrength, User
@@ -35,6 +36,12 @@ async def client():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
+
+
+@pytest.fixture
+def knowledge_storage_settings(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = Settings(knowledge_storage_dir=str(tmp_path))  # type: ignore[arg-type]
+    monkeypatch.setattr("doda.api.knowledge.get_settings", lambda: settings)
 
 
 def _auth_headers(session_id: uuid.UUID) -> dict[str, str]:
@@ -343,3 +350,36 @@ async def test_a_sibling_workspaces_action_compensation_cannot_be_completed(
         headers=_auth_headers(seeded["session_a"]),
     )
     assert response.status_code == 404
+
+
+async def test_a_document_from_a_sibling_workspace_is_not_readable(
+    client: AsyncClient, db_available: bool, knowledge_storage_settings: None
+) -> None:
+    seeded = await _seed_two_workspaces_one_customer()
+
+    uploaded = await client.post(
+        f"/v1/workspaces/{seeded['workspace_b']}/documents",
+        files={"file": ("report.pdf", b"%PDF-1.4\nreal pdf body", "application/pdf")},
+        headers=_auth_headers(seeded["session_b"]),
+    )
+    assert uploaded.status_code == 200
+    document_id = uploaded.json()["id"]
+
+    cross_workspace_get = await client.get(
+        f"/v1/workspaces/{seeded['workspace_a']}/documents/{document_id}",
+        headers=_auth_headers(seeded["session_a"]),
+    )
+    assert cross_workspace_get.status_code == 404
+
+    cross_workspace_download = await client.get(
+        f"/v1/workspaces/{seeded['workspace_a']}/documents/{document_id}/content",
+        headers=_auth_headers(seeded["session_a"]),
+    )
+    assert cross_workspace_download.status_code == 404
+
+    # Untouched: B can still read/download their own document through B.
+    own_get = await client.get(
+        f"/v1/workspaces/{seeded['workspace_b']}/documents/{document_id}",
+        headers=_auth_headers(seeded["session_b"]),
+    )
+    assert own_get.status_code == 200

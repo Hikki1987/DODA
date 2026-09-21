@@ -17,6 +17,10 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.49b0",
     "prometheus-fastapi-instrumentator>=7.0",
     "structlog>=24.4",
+    # FR-KNW-001: FastAPI's UploadFile/multipart form parsing requires
+    # this at runtime (it is not vendored into fastapi itself) — needed
+    # once, here, for the one real file-upload endpoint in the codebase.
+    "python-multipart>=0.0.12",
     # ADR-008/ADR-009: the three real AI provider adapters. Each pinned
     # to the major version verified against this codebase, installed
     # fresh from PyPI 2026-09-12 — only the matching

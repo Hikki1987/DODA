@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -12,7 +12,9 @@ import {
   changeWorkspaceMemberRole,
   confirmTaskReminder,
   createTask,
+  deleteDocument,
   disengageWorkspaceKillSwitch,
+  downloadDocument,
   engageWorkspaceKillSwitch,
   getTaskDecisions,
   getTaskHistory,
@@ -20,6 +22,7 @@ import {
   getTaskReminders,
   getWorkspaceKillSwitch,
   listActions,
+  listDocuments,
   listNotifications,
   listTasks,
   listWorkspaceAudit,
@@ -28,8 +31,10 @@ import {
   recordTaskDecision,
   removeWorkspaceMember,
   requestTaskReminder,
+  uploadDocument,
   type ActionOut,
   type AuditEventOut,
+  type DocumentOut,
   type KillSwitchStatusOut,
   type NotificationOut,
   type ReminderOut,
@@ -53,6 +58,11 @@ const OTHER_ROLE: Record<WorkspaceRole, WorkspaceRole> = {
   member: "workspace_admin",
   workspace_admin: "member",
 };
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  return `${(bytes / 1024).toFixed(1)} KB`;
+}
 
 interface DecisionDraft {
   variant: string;
@@ -94,6 +104,10 @@ export default function WorkspacePage() {
   const [traceIdInput, setTraceIdInput] = useState("");
   const [appliedTraceId, setAppliedTraceId] = useState("");
   const [cancellingActionId, setCancellingActionId] = useState<string | null>(null);
+  const [documents, setDocuments] = useState<DocumentOut[] | null>(null);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
+  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
+  const documentFileInputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(() => {
     if (sessionId === null) return;
@@ -107,6 +121,7 @@ export default function WorkspacePage() {
     listWorkspaceAudit(sessionId, workspaceId, appliedTraceId || undefined)
       .then(setAuditEvents)
       .catch(() => {});
+    listDocuments(sessionId, workspaceId).then(setDocuments).catch(() => {});
   }, [sessionId, workspaceId, appliedTraceId]);
 
   useEffect(() => {
@@ -142,6 +157,47 @@ export default function WorkspacePage() {
       setError(err instanceof ApiError ? err.message : "Task yaratib bo'lmadi.");
     } finally {
       setCreatingTask(false);
+    }
+  }
+
+  async function handleUploadDocument(event: FormEvent) {
+    event.preventDefault();
+    const file = documentFileInputRef.current?.files?.[0];
+    if (sessionId === null || !file || uploadingDocument) return;
+    setUploadingDocument(true);
+    try {
+      await uploadDocument(sessionId, workspaceId, file);
+      if (documentFileInputRef.current) documentFileInputRef.current.value = "";
+      refresh();
+    } catch (err) {
+      // FR-KNW-001: a rejected upload (wrong type, too large, content
+      // doesn't match its declared type) surfaces its own specific
+      // reason here rather than a generic failure message.
+      setError(err instanceof ApiError ? err.message : "Faylni yuklab bo'lmadi.");
+    } finally {
+      setUploadingDocument(false);
+    }
+  }
+
+  async function handleDownloadDocument(doc: DocumentOut) {
+    if (sessionId === null) return;
+    try {
+      await downloadDocument(sessionId, workspaceId, doc.id, doc.filename);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Faylni yuklab bo'lmadi.");
+    }
+  }
+
+  async function handleDeleteDocument(doc: DocumentOut) {
+    if (sessionId === null || deletingDocumentId !== null) return;
+    setDeletingDocumentId(doc.id);
+    try {
+      await deleteDocument(sessionId, workspaceId, doc.id);
+      refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Faylni o'chirib bo'lmadi.");
+    } finally {
+      setDeletingDocumentId(null);
     }
   }
 
@@ -641,6 +697,60 @@ export default function WorkspacePage() {
           ))}
           {tasks !== null && tasks.length === 0 && (
             <li className="text-sm text-gray-500">Hali task yo&apos;q.</li>
+          )}
+        </ul>
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-lg font-semibold">Fayllar</h2>
+        <form onSubmit={handleUploadDocument} className="mb-3 flex items-center gap-2">
+          <input
+            ref={documentFileInputRef}
+            type="file"
+            accept=".pdf,.docx,.xlsx,.txt,.png,.jpg,.jpeg"
+            aria-label="Yuklanadigan fayl"
+          />
+          <button
+            type="submit"
+            disabled={uploadingDocument}
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+          >
+            Yuklash
+          </button>
+        </form>
+        <ul data-testid="document-list" className="space-y-2">
+          {documents?.map((doc) => (
+            <li
+              key={doc.id}
+              className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-sm"
+            >
+              <div className="flex flex-col">
+                <span>{doc.filename}</span>
+                <span className="text-xs text-gray-500">
+                  {doc.content_type} · {formatFileSize(doc.size_bytes)}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDownloadDocument(doc)}
+                  className="text-xs text-blue-600 hover:underline"
+                >
+                  Yuklab olish
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteDocument(doc)}
+                  disabled={deletingDocumentId === doc.id}
+                  className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                >
+                  O&apos;chirish
+                </button>
+              </div>
+            </li>
+          ))}
+          {documents !== null && documents.length === 0 && (
+            <li className="text-sm text-gray-500">Hali fayl yo&apos;q.</li>
           )}
         </ul>
       </section>

@@ -18,6 +18,7 @@ from doda.domain.customer import models as customer_models  # noqa: F401
 
 # Import every domain's models so Base.metadata is complete for autogenerate.
 from doda.domain.identity import models as identity_models  # noqa: F401
+from doda.domain.knowledge import models as knowledge_models  # noqa: F401
 from doda.domain.notification import models as notification_models  # noqa: F401
 from doda.domain.outbox import models as outbox_models  # noqa: F401
 from doda.domain.security import kill_switch as security_kill_switch_models  # noqa: F401

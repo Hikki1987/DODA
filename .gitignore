@@ -10,6 +10,10 @@ htmlcov/
 .env
 .env.prod
 *.rdb
+# FR-KNW-001: doda.storage.local_filesystem's default on-disk store
+# (Settings.knowledge_storage_dir), relative to wherever the backend
+# process runs from.
+backend/data/
 node_modules/
 .next/
 dist/

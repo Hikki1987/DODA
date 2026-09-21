@@ -193,6 +193,18 @@ def authorize_use_chat(context: WorkspaceContext) -> None:
         raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not use chat")
 
 
+def authorize_use_knowledge(context: WorkspaceContext) -> None:
+    """FR-KNW has no dedicated 10.2 row — this mirrors authorize_use_chat/
+    authorize_create_task's three roles (Member/WorkspaceAdmin, plus
+    CustomerOwner resolving to WORKSPACE_ADMIN — see get_workspace_context)
+    since file upload/list/download is the same kind of everyday,
+    non-privileged workspace activity those two already cover, written
+    as its own explicit check so a future FR-KNW-specific role split
+    doesn't require re-deriving which function covers which row."""
+    if context.role not in (WorkspaceRole.MEMBER, WorkspaceRole.WORKSPACE_ADMIN):
+        raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not use knowledge/files")
+
+
 def authorize_manage_workspace_members(context: WorkspaceContext) -> None:
     """10.2 'Rol biriktirish' row: Member = Yo'q; WorkspaceAdmin = Workspace
     ichida; CustomerOwner = Ha (resolves as WORKSPACE_ADMIN — see

@@ -7018,3 +7018,136 @@ injection/authz emas, va mavjud catch-all handler orqali hech qanday
 sezgir narsa sizib chiqmaydi (`trace_id` bilan xavfsiz generic javob).
 
 498 test, barchasi real Postgres'da (kod o'zgarmadi — sof tekshiruv).
+
+**FR-KNW-001 (fayl ingest: PDF/DOCX/XLSX/TXT/rasm; tur, hajm va malware
+validatsiyasi) qurildi — Knowledge/RAG domenidagi birinchi vertikal
+bo'lak, Product Owner "Knowledge/RAG domenini boshlash"ni aniq
+tanlaganidan keyin.** Bu ID traceability auditda "41 ta hech qayerda
+tilga olinmagan" ro'yxatida edi. TRD'ning o'z 3.5-bo'limini (pandoc
+orqali, xotiradan emas) o'qib chiqib qamrov ataylab torraytirildi:
+FR-KNW-002 dan boshlab (parsing→chunking→embedding→retrieval,
+citation, "manba topilmasa ochiq ayt") barchasi haqiqiy, ishlaydigan
+AI-provider embedding chaqiruvini talab qiladi — bu muhitning tarmoq
+siyosati OpenAI/Gemini/Claude'ning haqiqiy API'siga chiqishni bloklaydi
+(Telegram/Google OIDC bilan bir xil, allaqachon hujjatlashtirilgan
+cheklov), demak bu qismlarni "qurish" xayoliy, tekshirib bo'lmaydigan
+kod yozish bo'lardi — QOIDA 1'ning o'zi buni taqiqlaydi. Faqat
+FR-KNW-001'ning o'zi qurildi: "Zararli fixture fayllar rad etiladi
+(security test); hajm limiti majburiy" — bu aniq, deterministik, hech
+qanday AI chaqiruviga bog'liq emas.
+
+`doda.storage.port.ObjectStoragePort` — `doda.ai.port.ModelGateway`ning
+aynan bir xil "Protocol + factory + bitta real implementatsiya" naqshi,
+object storage uchun. `docker-compose.yml`da allaqachon MinIO
+(`object-storage`) xizmati va `Settings.object_storage_endpoint`/
+`object_storage_bucket` bor edi — lekin bu sandbox'da Docker daemon
+umuman ishlamaydi (`docker ps`: "no such file or directory" socket'ga)
+va `boto3` o'rnatilmagan, demak S3 adapter yozib uni haqiqatda
+tekshirib bo'lmaydi (Telegram/Google/GCP bilan bir xil "yetib
+bo'lmaydi, shuning uchun soxtalashtirmaymiz" tamoyili). Shuning uchun
+v1 uchun yagona real, to'liq tekshirilgan implementatsiya —
+`LocalFilesystemObjectStorage`: kalitni SHA-256 bilan hash qilib
+ikki segmentli papka tuzilishiga (fan-out) yozadi — bu ataylab
+xavfsizlik uchun ham: caller bergan xom `key` HECH QACHON haqiqiy
+fayl yo'liga aylanmaydi (hash qilingani uchun `../../etc/passwd` kabi
+qiymat ham base_dir'dan chiqib keta olmaydi), sof validatsiyaga
+tayanmasdan strukturaviy himoya (`test_a_path_traversal_looking_key_
+never_escapes_the_base_dir` bilan real Postgres'siz, sof unit test
+darajasida tasdiqlangan).
+
+`doda.domain.knowledge.file_validation.validate_file` — FR-KNW-001'ning
+o'zagi. "Malware validatsiyasi" bu kod bazasida haqiqiy antivirus SKANI
+degani EMAS (bunday qobiliyat yo'q, va soxta bo'lishini da'vo qilish
+Master Instruction'ning "test qilinmagan xavfsizlik kafolatini da'vo
+qilma" qoidasini buzardi) — bu yerda aniq, tekshiriladigan narsa:
+fayl KENGAYTMASI, deklaratsiya qilingan Content-Type va HAQIQIY BAYTLAR
+(magic-byte imzo) uchtasi bir-biriga mos kelishi shart, VA ma'lum
+executable/skript imzolari (`MZ` — Windows PE, `\x7fELF` — Linux ELF,
+`#!` — shebang) har qanday deklaratsiya qilingan turdan qat'i nazar rad
+etiladi. Aynan shu oxirgi tekshiruv FR-KNW-001'ning o'z acceptance
+mezonini ("xavfsizlik testi") ta'minlaydi: Windows PE binary
+`invoice.pdf` nomi va `application/pdf` deklaratsiyasi bilan yuborilsa
+ham, uning haqiqiy baytlari PDF emasligi aniqlanib rad etiladi. Bu
+real HTTP orqali (`test_a_malicious_file_disguised_as_a_pdf_is_
+rejected_and_never_stored` — 422 qaytishi VA hech qanday Document
+qatori yaratilmasligi) VA sof unit darajasida (bir nechta fixture:
+ELF, shebang script, binary blob `.txt` deb yashiringan) tasdiqlandi.
+DOCX/XLSX'ning ikkalasi ham ZIP-konteyner (OOXML) bo'lgani uchun to'liq
+kontent-tur tekshiruvi (markaziy katalogni o'qib "word/"/"xl/" papkasini
+tasdiqlash) ataylab QURILMADI — bu haqiqiy, hujjatlashtirilgan bo'shliq
+(faqat ZIP imzosi tekshiriladi), spekulyativ chuqurlashtirish o'rniga
+aniq belgilab qo'yildi.
+
+`application/knowledge_service.py` — `ingest_file` (validate → storage
+→ DB qator, shu tartibda: agar storage'ga yozilgandan keyin DB insert
+qulasa, egasiz obyekt qoladi — zararsiz, hech kim unga yetolmaydi; teskari
+tartib DB qatori bor-u fayli yo'q "buzuq havola" holatini yaratardi, bu
+yomonroq), `list_documents_for_workspace`, `delete_document` (DB
+qatorini avval o'chirish, keyin storage'dan — xuddi shu "fail-safe"
+yo'nalish).
+
+`api/knowledge.py` — Task API'ning o'z authoritative-chain naqshi
+(`RequestContext`, `_get_owned_task`ning o'z nusxasi —
+`_get_owned_document`, boshqa workspace'ning hujjatiga 404). Yozish
+amallari (upload, delete) yangi `authorize_use_knowledge`ni talab
+qiladi (10.2'da FR-KNW uchun alohida qator yo'q — `authorize_use_chat`/
+`authorize_create_task`ning uchta rolini, Member/WorkspaceAdmin,
+aynan takrorlaydi, alohida aniq funksiya sifatida yozilgan — kelajakda
+FR-KNW o'ziga xos rol talab qilsa, uni qaysi funksiya qamrashini
+qayta izlash shart bo'lmasin deb); o'qish (list/get/download)
+esa boshqa har bir workspace-scoped ro'yxatlash kabi faqat a'zolikning
+o'zini talab qiladi. Fayl yuklash `python-multipart` (yangi dependency,
+FastAPI'ning `UploadFile`/multipart form parsing'i uchun runtime'da
+zarur — bu birinchi va yagona real fayl-yuklash endpoint uchun
+qo'shildi) orqali ishlaydi.
+
+Yangi 0024-migratsiya `knowledge_documents` jadvalini `task_tasks`/
+`conversation_conversations` bilan bir xil RLS shaklda (customer_id +
+workspace_id, FORCE ROW LEVEL SECURITY, tenant_isolation policy)
+qo'shdi — `migrations/env.py` va `test_rls_coverage.py`ning model-import
+ro'yxatiga ham kiritildi (aks holda RLS qamrov testi bu yangi domainni
+"ko'rmagan" bo'lardi). Migratsiya round-trip (0023→0024→0023→0024)
+qo'lda tekshirildi.
+
+Cross-workspace tenancy testi (`test_a_document_from_a_sibling_
+workspace_is_not_readable`) yangi fayl ochish o'rniga mavjud
+`test_cross_workspace_record_access.py`ga (uning o'z
+`_seed_two_workspaces_one_customer` yordamchisidan foydalanib)
+qo'shildi — bir xil customer ostidagi ikkita workspace holatini
+(RLS yordam bermaydi, faqat aniq `workspace_id` tekshiruvi) qamraydi,
+bu allaqachon shu faylning o'z, boshqa domenlar uchun o'rnatilgan
+naqshi.
+
+Frontend: workspace sahifasiga "Fayllar" bo'limi qo'shildi (yuklash
+formasi + ro'yxat, har biri "Yuklab olish"/"O'chirish" tugmasi bilan).
+`uploadDocument`/`downloadDocument` `apiFetch`dan MUSTAQIL yozildi
+(xuddi `streamConversationMessage` kabi) — `apiFetch` body mavjud
+bo'lsa har doim `Content-Type: application/json` qo'yadi, bu esa
+brauzerning o'zi multipart chegarasini (`boundary`) qo'yishi kerak
+bo'lgan `FormData` so'roviga zid keladi. `downloadDocument` mavjud
+`downloadJsonFile`ning Blob/createObjectURL/anchor-click naqshini
+takrorlaydi, lekin JSON o'rniga xom baytlarni (`response.blob()`)
+saqlaydi.
+
+Yangi, mustaqil Playwright E2E spec (`knowledge.spec.ts`, o'z seed
+prefiksi — `E2E_KNOWLEDGE_`, chunki bu spec haqiqiy Document qatorlarini
+yaratadi/o'chiradi) real backend+frontend'ga (production build) qarshi
+to'liq oqimni tasdiqladi: haqiqiy PDF yuklash → ro'yxatda ko'rinishi →
+yuklab olish (haqiqiy baytlar to'g'ri qaytishi, brauzerning haqiqiy
+yuklab olish hodisasi orqali) → Windows executable'ni `.pdf` deb
+yuklashga urinish rad etilishi (ro'yxatda ko'rinmasligi) → o'chirish.
+Barcha 15 E2E spec (14 mavjud + yangisi, accessibility skaneri bilan
+birga — yangi "Fayllar" bo'limi hech qanday WCAG buzilishi keltirmadi)
+fresh seed'ga qarshi yashil.
+
+`docs/risk-register.md`ning RISK-003 qatori yangilandi: memory/Knowledge
+domeni endi qisman mavjud (fayl saqlash), lekin hali hech narsa
+saqlangan kontentni AI promptiga o'qimaydi (FR-KNW-002+ hali yo'q),
+shuning uchun kontaminatsiya xavfi hamon dormant — faqat sabab
+aniqroq.
+
+527 test (498+29: 23 unit — `test_file_validation.py`, 5 unit —
+`test_local_filesystem_storage.py`, 6 integration — `test_knowledge_
+api.py` + `test_cross_workspace_record_access.py`ga 1 ta qo'shimcha),
+barchasi real Postgres'da; `ruff`/`mypy` toza; frontend `tsc`/ESLint/
+production build toza; barcha 15 E2E spec yashil.

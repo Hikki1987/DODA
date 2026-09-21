@@ -43,6 +43,7 @@ from doda.application.task_service import (
 )
 from doda.application.workspace_service import DuplicateWorkspaceMembershipError, WorkspaceMembershipError
 from doda.domain.action.state_machine import InvalidActionTransition
+from doda.domain.knowledge.file_validation import FileValidationError
 from doda.domain.security.decisions import Decision
 from doda.infrastructure.google_oidc_client import GoogleOidcError
 
@@ -155,6 +156,18 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=_envelope(
                 code="REMINDER_INVALID",
                 message="Tasdiqlanayotgan vaqt reminder'ning joriy qiymatiga mos kelmadi.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(FileValidationError)
+    async def _file_validation_failed(request: Request, exc: FileValidationError) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content=_envelope(
+                code="INVALID_FILE",
+                message=str(exc),
                 trace_id=_trace_id(request),
                 retryable=False,
             ),

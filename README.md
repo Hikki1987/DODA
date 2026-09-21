@@ -633,9 +633,12 @@ tekshiradigan test qo'shildi — shu sinf xatoni endi CI har safar ushlaydi.
 ```
 backend/
   src/doda/
-    domain/         # Identity, Customer, Workspace, Task, Action, Audit, Conversation... (6-bo'lim)
+    domain/         # Identity, Customer, Workspace, Task, Action, Audit, Conversation, Knowledge... (6-bo'lim)
     application/    # Servislar — authz, action/task/customer/workspace, AI budget/preference, export...
     ai/             # Provider-neutral gateway porti, xato tiplari, til aniqlash, outbound guard (ADR-004)
+    storage/        # Provider-neutral object-storage porti (FR-KNW-001) — bugungi yagona implementatsiya
+                    # LocalFilesystemObjectStorage (docker-compose'dagi MinIO'ni bu sandbox ishga
+                    # tushira olmaydi — Docker daemon yo'q, boto3 yo'q; doda.storage.port'ga qarang)
     infrastructure/ # Tashqi dunyo bilan gaplashadigan yagona qatlam: telegram/google-oidc client'lari,
                     # relay worker'lar (outbox_relay.py, telegram_relay.py), gateway adapterlari
     api/            # Experience qatlami (FastAPI routerlar)

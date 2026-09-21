@@ -27,6 +27,7 @@ from doda.domain.base import Base
 from doda.domain.conversation import models as _conversation_models  # noqa: F401
 from doda.domain.customer import models as _customer_models  # noqa: F401
 from doda.domain.identity import models as _identity_models  # noqa: F401
+from doda.domain.knowledge import models as _knowledge_models  # noqa: F401
 from doda.domain.notification import models as _notification_models  # noqa: F401
 from doda.domain.outbox import models as _outbox_models  # noqa: F401
 from doda.domain.security import kill_switch as _security_kill_switch_models  # noqa: F401
