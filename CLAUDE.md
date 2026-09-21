@@ -7557,3 +7557,27 @@ qayta start, toza seed) barcha 16 ta spec yashil.
 toza; frontend `tsc`/ESLint toza, production build muvaffaqiyatli;
 barcha 16 E2E spec (15 mavjud + yangi `task-attachments.spec.ts`) real
 backend+frontend'ga (production build) qarshi yashil.
+
+**O'n ikkinchi `security-review` o'tkazildi — FR-TASK-006'ning o'z diff'iga
+qarshi (bounded-read tuzatishidan keyingi yagona commit), yangi authz
+zanjiriga (`attach_document_to_task`ning cross-workspace himoyasi, yangi
+ikkita endpoint'ning tenancy tekshiruvi) alohida e'tibor bilan.**
+Natija: **0 topilma**. Aniq tekshirilgan va to'g'ri ekani tasdiqlangan:
+(1) `attach_document_to_task`ning `document.workspace_id != task.
+workspace_id` tekshiruvi — `task` allaqachon `_get_owned_task` orqali
+`ctx.workspace.workspace_id`ga tekshirilgan holda yuklangani uchun, bu
+bir xil customer'ning boshqa workspace'idagi hujjatni to'g'ri rad etadi
+(RLS'ning o'zi buni ushlay olmaydigan aynan shu holat); cross-customer
+hujjat esa RLS tomonidan tekshiruvdan OLDIN allaqachon bloklanadi
+(`session.get` `None` qaytaradi). (2) `GET .../attachments` faqat
+ro'yxat, `task_id`ning o'zi `_get_owned_task` orqali allaqachon
+tasdiqlangan; `DELETE .../attachments/{id}` esa `_get_owned_attachment`
+orqali HAM `task_id`, HAM `workspace_id`ni tekshiradi — attachment_id'ni
+boshqa task_id yoki workspace bilan URL orqali almashtirib bo'lmaydi.
+(3) Ikkalasi ham `authorize_task_mutation` (task egasi yoki
+workspace_admin) bilan himoyalangan — oddiy a'zo bog'lay/uza olmaydi.
+(4) Yangi schema/endpoint'larda injection/path-traversal/type-confusion
+yo'q — barcha identifikatorlar `uuid.UUID` orqali tiplangan, hujjat
+qidiruvi parametrlashtirilgan ORM `session.get`.
+
+548 test o'zgarishsiz (kod o'zgarmadi — sof tekshiruv).
