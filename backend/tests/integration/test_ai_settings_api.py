@@ -169,6 +169,35 @@ async def test_my_ai_preference_round_trips_and_a_plain_member_may_set_their_own
     assert after_clear.json() == {"provider": None, "model": None}
 
 
+async def test_setting_and_clearing_my_ai_preference_is_audited(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """FR-ADM-006: "O'zgarish... audit qilinadi" — a personal preference
+    change is still a change; before this, nothing recorded it at all.
+    Uses a CustomerOwner (not a plain member) purely so the same caller
+    can also read the customer-wide audit trail afterwards
+    (authorize_view_customer_audit) — a plain member's own set/clear
+    still gets audited identically, it just can't be re-read here by
+    that same member (10.2's own, unrelated restriction)."""
+    owner = await seed_workspace_member(customer_role="customer_owner")
+
+    await client.put(
+        f"/v1/customers/{owner.customer_id}/me/ai-preference",
+        json={"provider": "OPENAI", "model": "gpt-5-mini"},
+        headers=_auth_headers(owner.session_id),
+    )
+    await client.delete(
+        f"/v1/customers/{owner.customer_id}/me/ai-preference", headers=_auth_headers(owner.session_id)
+    )
+
+    audit = await client.get(
+        f"/v1/customers/{owner.customer_id}/audit", headers=_auth_headers(owner.session_id)
+    )
+    event_types = [e["event_type"] for e in audit.json()]
+    assert "ai_preference.user_set.v1" in event_types
+    assert "ai_preference.user_cleared.v1" in event_types
+
+
 async def test_workspace_ai_preference_requires_workspace_admin_to_set_but_not_to_read(
     client: AsyncClient, db_available: bool
 ) -> None:
@@ -220,6 +249,51 @@ async def test_workspace_ai_preference_requires_workspace_admin_to_set_but_not_t
         f"/v1/workspaces/{admin.workspace_id}/ai-preference", headers=_auth_headers(admin.session_id)
     )
     assert after_clear.json() == {"provider": None, "model": None}
+
+
+async def test_setting_and_clearing_the_workspace_ai_preference_is_audited(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """FR-ADM-006: same "a change must be audited" gap as the personal
+    preference above, one tier up — this one affects every member of
+    the workspace, not just the caller."""
+    admin = await seed_workspace_member(workspace_role="workspace_admin")
+
+    await client.put(
+        f"/v1/workspaces/{admin.workspace_id}/ai-preference",
+        json={"provider": "CLAUDE", "model": None},
+        headers=_auth_headers(admin.session_id),
+    )
+    await client.delete(
+        f"/v1/workspaces/{admin.workspace_id}/ai-preference", headers=_auth_headers(admin.session_id)
+    )
+
+    audit = await client.get(
+        f"/v1/workspaces/{admin.workspace_id}/audit", headers=_auth_headers(admin.session_id)
+    )
+    event_types = [e["event_type"] for e in audit.json()]
+    assert "ai_preference.workspace_set.v1" in event_types
+    assert "ai_preference.workspace_cleared.v1" in event_types
+
+
+async def test_clearing_an_already_unset_workspace_ai_preference_is_not_audited(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """A DELETE against a preference that was never set is a no-op, not
+    a change — it must not pollute the trail with an event describing
+    nothing happening."""
+    admin = await seed_workspace_member(workspace_role="workspace_admin")
+
+    cleared = await client.delete(
+        f"/v1/workspaces/{admin.workspace_id}/ai-preference", headers=_auth_headers(admin.session_id)
+    )
+    assert cleared.status_code == 204
+
+    audit = await client.get(
+        f"/v1/workspaces/{admin.workspace_id}/audit", headers=_auth_headers(admin.session_id)
+    )
+    event_types = [e["event_type"] for e in audit.json()]
+    assert "ai_preference.workspace_cleared.v1" not in event_types
 
 
 async def test_fallback_setting_defaults_to_off_and_only_a_customer_owner_can_turn_it_on(

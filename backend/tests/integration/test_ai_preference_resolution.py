@@ -61,6 +61,7 @@ async def test_a_workspaces_default_is_used_when_no_user_preference_is_set(db_av
             db,
             workspace_id=member.workspace_id,
             customer_id=member.customer_id,
+            actor_id="user:test-admin",
             provider=Provider.GEMINI,
             model=None,
         )
@@ -88,6 +89,7 @@ async def test_a_users_own_preference_wins_over_the_workspaces_default(db_availa
             db,
             workspace_id=member.workspace_id,
             customer_id=member.customer_id,
+            actor_id="user:test-admin",
             provider=Provider.GEMINI,
             model=None,
         )

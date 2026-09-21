@@ -161,29 +161,29 @@ qobiliyati edi (bugungacha bitta, deployment-keng, fiksirlangan
 
 **Talab**: "O'zgarish darhol qo'llanadi va audit qilinadi."
 
-**Xulosa: qisman allaqachon mavjud (model routing), qisman yangi
-qaror talab qiladi (feature flag) — feature-flag qismi qurilmadi.**
+**Xulosa: model routing yarmi endi TO'LIQ (audit qilinadi ham); feature
+flag yarmi hamon yangi qaror talab qiladi, qurilmagan.**
 
-**Model routing yarmi allaqachon mavjud**: `ai_preference_service`
-(4 pog'onali ustuvorlik: suhbat pin > foydalanuvchi > workspace >
-tizim standart) + `PUT /v1/workspaces/{id}/ai-preference` allaqachon
-"model routing sozlamasi"ning aynan o'zi — workspace darajasida qaysi
-provayder/model standart ishlatilishini belgilaydi, va o'zgarish
-DARHOL qo'llanadi (keyingi chat burilishidan boshlab). **Bitta aniq
-bo'shliq topildi**: bu o'zgarish HECH QACHON audit qilinmaydi — talab
-esa aniq "audit qilinadi" deydi. Bu FR-ADM-005'ning o'zi hal qilgan
-"versiyalangan-lekin-audit-qilinmagan xato bo'lardi" mulohazasining
-xuddi o'zi.
-
-**Taklif (keyingi kichik qadam, bu sessiyada QURILMADI, chunki
-FR-ADM-006 o'zi "Should" darajasida va bu hujjatning maqsadi — barcha
-oltitasini bir yo'la yopish emas, xaritalash)**: `ai_preference_
-service.set_workspace_ai_preference`/`set_user_ai_preference`ga
-`record_audit_event` chaqiruvi qo'shish, `ai_budget.override_set.v1`
-naqshiga o'xshash `ai_preference.workspace_set.v1`/`ai_preference.
-user_set.v1` event turlari bilan. Bu FR-ADM-006ni TO'LIQ yopmaydi
-(feature flag yarmi hamon yo'q), lekin model-routing yarmini to'liq
-qabul mezoniga mos qiladi.
+**Model routing yarmi**: `ai_preference_service` (4 pog'onali
+ustuvorlik: suhbat pin > foydalanuvchi > workspace > tizim standart) +
+`PUT /v1/workspaces/{id}/ai-preference`/`PUT
+/v1/customers/{id}/me/ai-preference` allaqachon "model routing
+sozlamasi"ning aynan o'zi — qaysi provayder/model standart
+ishlatilishini belgilaydi, va o'zgarish DARHOL qo'llanadi (keyingi chat
+burilishidan boshlab). Bu hujjatning o'zi topgan bo'shliq — o'zgarish
+HECH QACHON audit qilinmasligi — endi yopildi:
+`set_workspace_ai_preference`/`set_user_ai_preference` (va ularning
+`clear_*` juftlari) `record_audit_event`ni chaqiradi
+(`ai_preference.workspace_set.v1`/`ai_preference.workspace_cleared.v1`/
+`ai_preference.user_set.v1`/`ai_preference.user_cleared.v1` —
+`ai_budget.override_set.v1`ning aynan o'zi naqshi). "Clear" faqat
+haqiqatda o'chiriladigan qator bo'lganda audit qilinadi — hech narsa
+o'zgarmagan no-op DELETE trail'ga bo'sh yozuv qo'shmaydi. 6 ta yangi
+test (`test_ai_settings_api.py`): ikkala tier uchun ham set+clear audit
+trail'da ko'rinishi (workspace-scoped audit hamda customer-scoped
+audit orqali), va no-op clear audit qilinmasligi — audit-zanjiri
+uslubida (audit chaqiruvi vaqtincha olib tashlanib, test aynan kutilgan
+tarzda qizarishi ko'rsatilgan, keyin qaytarilgan) isbotlangan.
 
 **Feature flag yarmi yangi qaror talab qiladi**: bugungi kod bazasida
 hech qanday umumiy feature-flag mexanizmi yo'q (funksiyalar
@@ -198,7 +198,8 @@ bo'lishini aniqlashi kerak — bu ham spekulyativ boshlashga arzimaydi.
 Olti FR-ADM talabidan to'rttasi (FR-ADM-002/003/004, va FR-ADM-006ning
 feature-flag yarmi) haqiqiy, yangi arxitektura yoki mahsulot qarorini
 talab qiladi — bularning barchasi shu hujjatda taklif shaklida
-qoldirildi, QOIDA 2ga ko'ra so'ralmasdan amalga oshirilmadi. Ikkitasi
-(FR-ADM-001, model-routing yarmi FR-ADM-006) allaqachon mavjud UI/API
-bilan qondirilgan edi. Bittasi (FR-ADM-005) haqiqiy, kichik,
-xavfsiz qadam sifatida shu sessiyada qurildi.
+qoldirildi, QOIDA 2ga ko'ra so'ralmasdan amalga oshirilmadi. Bittasi
+(FR-ADM-001) allaqachon mavjud UI/API bilan qondirilgan edi.
+Ikkitasi (FR-ADM-005 to'liq, FR-ADM-006ning model-routing yarmi —
+audit qismi bilan birga) haqiqiy, kichik, xavfsiz qadam sifatida shu
+sessiyada qurildi.

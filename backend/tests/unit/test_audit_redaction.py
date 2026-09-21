@@ -60,6 +60,8 @@ ALLOWED_SAFE_METADATA_KEYS = {
     "provider_receipt",
     "soft_cap_usd",
     "hard_cap_usd",
+    "provider",
+    "model",
 }
 
 

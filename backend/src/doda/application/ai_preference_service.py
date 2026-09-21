@@ -25,6 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.ai.types import Provider
+from doda.application.audit_service import record_audit_event
 from doda.config import Settings
 from doda.domain.ai_preference.models import PreferenceProvider, UserAIPreference, WorkspaceAIPreference
 from doda.domain.conversation.models import Conversation
@@ -107,21 +108,29 @@ async def set_user_ai_preference(
         pref.provider = PreferenceProvider(provider.value)
         pref.model = model
         await session.flush()
-        return pref
-
-    pref = UserAIPreference(
-        customer_id=customer_id, user_id=user_id, provider=PreferenceProvider(provider.value), model=model
-    )
-    try:
-        async with session.begin_nested():
-            session.add(pref)
+    else:
+        pref = UserAIPreference(
+            customer_id=customer_id, user_id=user_id, provider=PreferenceProvider(provider.value), model=model
+        )
+        try:
+            async with session.begin_nested():
+                session.add(pref)
+                await session.flush()
+        except IntegrityError:
+            pref = await session.get(UserAIPreference, (customer_id, user_id))
+            assert pref is not None
+            pref.provider = PreferenceProvider(provider.value)
+            pref.model = model
             await session.flush()
-    except IntegrityError:
-        pref = await session.get(UserAIPreference, (customer_id, user_id))
-        assert pref is not None
-        pref.provider = PreferenceProvider(provider.value)
-        pref.model = model
-        await session.flush()
+
+    await record_audit_event(
+        session,
+        customer_id=customer_id,
+        trace_id=uuid.uuid4(),
+        actor_id=f"user:{user_id}",
+        event_type="ai_preference.user_set.v1",
+        safe_metadata={"provider": provider.value, "model": model},
+    )
     return pref
 
 
@@ -130,33 +139,47 @@ async def set_workspace_ai_preference(
     *,
     workspace_id: uuid.UUID,
     customer_id: uuid.UUID,
+    actor_id: str,
     provider: Provider,
     model: str | None,
 ) -> WorkspaceAIPreference:
-    """Same race-safe upsert shape as `set_user_ai_preference` above."""
+    """Same race-safe upsert shape as `set_user_ai_preference` above.
+    FR-ADM-006: "O'zgarish darhol qo'llanadi va audit qilinadi" — the
+    "applies immediately" half was always true (the next chat turn just
+    reads the row), but nothing ever recorded the change itself until
+    this audit call was added."""
     pref = await session.get(WorkspaceAIPreference, workspace_id)
     if pref is not None:
         pref.provider = PreferenceProvider(provider.value)
         pref.model = model
         await session.flush()
-        return pref
-
-    pref = WorkspaceAIPreference(
-        workspace_id=workspace_id,
-        customer_id=customer_id,
-        provider=PreferenceProvider(provider.value),
-        model=model,
-    )
-    try:
-        async with session.begin_nested():
-            session.add(pref)
+    else:
+        pref = WorkspaceAIPreference(
+            workspace_id=workspace_id,
+            customer_id=customer_id,
+            provider=PreferenceProvider(provider.value),
+            model=model,
+        )
+        try:
+            async with session.begin_nested():
+                session.add(pref)
+                await session.flush()
+        except IntegrityError:
+            pref = await session.get(WorkspaceAIPreference, workspace_id)
+            assert pref is not None
+            pref.provider = PreferenceProvider(provider.value)
+            pref.model = model
             await session.flush()
-    except IntegrityError:
-        pref = await session.get(WorkspaceAIPreference, workspace_id)
-        assert pref is not None
-        pref.provider = PreferenceProvider(provider.value)
-        pref.model = model
-        await session.flush()
+
+    await record_audit_event(
+        session,
+        customer_id=customer_id,
+        workspace_id=workspace_id,
+        trace_id=uuid.uuid4(),
+        actor_id=actor_id,
+        event_type="ai_preference.workspace_set.v1",
+        safe_metadata={"provider": provider.value, "model": model},
+    )
     return pref
 
 
@@ -168,17 +191,38 @@ async def clear_user_ai_preference(
     to OPENAI explicitly (which would itself be indistinguishable from a
     deliberate OpenAI preference later if the system default ever
     changes) — deleting the row is the honest representation of "no
-    personal override"."""
+    personal override". Reverting is itself a change, so it is audited
+    the same as setting one (FR-ADM-006) — but only when there was
+    actually a row to clear; a no-op clear (nothing was set) is not a
+    change and would otherwise pollute the trail with events that
+    describe nothing happening."""
     pref = await session.get(UserAIPreference, (customer_id, user_id))
     if pref is not None:
         await session.delete(pref)
         await session.flush()
+        await record_audit_event(
+            session,
+            customer_id=customer_id,
+            trace_id=uuid.uuid4(),
+            actor_id=f"user:{user_id}",
+            event_type="ai_preference.user_cleared.v1",
+        )
 
 
-async def clear_workspace_ai_preference(session: AsyncSession, *, workspace_id: uuid.UUID) -> None:
+async def clear_workspace_ai_preference(
+    session: AsyncSession, *, workspace_id: uuid.UUID, customer_id: uuid.UUID, actor_id: str
+) -> None:
     """Same revert-to-default semantics as `clear_user_ai_preference`,
     one tier up."""
     pref = await session.get(WorkspaceAIPreference, workspace_id)
     if pref is not None:
         await session.delete(pref)
         await session.flush()
+        await record_audit_event(
+            session,
+            customer_id=customer_id,
+            workspace_id=workspace_id,
+            trace_id=uuid.uuid4(),
+            actor_id=actor_id,
+            event_type="ai_preference.workspace_cleared.v1",
+        )

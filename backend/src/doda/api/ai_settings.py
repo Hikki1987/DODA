@@ -295,6 +295,7 @@ async def set_workspace_ai_preference(
         ctx.db,
         workspace_id=ctx.workspace.workspace_id,
         customer_id=ctx.workspace.customer_id,
+        actor_id=f"user:{ctx.workspace.user_id}",
         provider=body.provider,
         model=body.model,
     )
@@ -304,4 +305,9 @@ async def set_workspace_ai_preference(
 @router.delete("/v1/workspaces/{workspace_id}/ai-preference", status_code=204)
 async def clear_workspace_ai_preference(ctx: RequestContext = Depends(get_request_context)) -> None:
     authorize_manage_workspace_ai_preference(ctx.workspace)
-    await ai_preference_service.clear_workspace_ai_preference(ctx.db, workspace_id=ctx.workspace.workspace_id)
+    await ai_preference_service.clear_workspace_ai_preference(
+        ctx.db,
+        workspace_id=ctx.workspace.workspace_id,
+        customer_id=ctx.workspace.customer_id,
+        actor_id=f"user:{ctx.workspace.user_id}",
+    )

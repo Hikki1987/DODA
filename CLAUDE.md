@@ -7281,3 +7281,57 @@ tokeni/Google OAuth client secret'ining aynan bir xil kutish holati —
 kelib tushgandan keyin xavfsiz kanal orqali (hech qachon chat matniga
 yoki repo'ga yozilmasdan) `backend/.env`ga qo'yilishi kutilmoqda. Sof
 hujjat yangilanishi — kod o'zgarmadi, 533 test o'zgarishsiz.
+
+**FR-ADM-006ning model-routing yarmi endi to'liq — `docs/design-
+proposals/FR-ADM-design-proposal.md`ning o'zi taklif qilgan "keyingi
+kichik qadam" qurildi.** Talab: "O'zgarish darhol qo'llanadi va audit
+qilinadi." "Darhol qo'llanadi" yarmi allaqachon rost edi
+(`ai_preference_service`ning 4 pog'onali ustuvorlik zanjiri, keyingi
+chat burilishidan boshlab o'qiladi) — yetishmagani "audit qilinadi"
+yarmi edi: `PUT /v1/workspaces/{id}/ai-preference` va `PUT
+/v1/customers/{id}/me/ai-preference` hech qachon hech qanday audit
+yozuvi qoldirmasdi, garchi bu workspace'ning (yoki foydalanuvchining
+o'z) keyingi har bir chat burilishi qaysi providerga borishini
+belgilasa ham.
+
+`set_workspace_ai_preference`/`set_user_ai_preference` va ularning
+`clear_workspace_ai_preference`/`clear_user_ai_preference` juftlari
+endi `record_audit_event`ni chaqiradi (`ai_preference.workspace_set.v1`/
+`ai_preference.workspace_cleared.v1`/`ai_preference.user_set.v1`/
+`ai_preference.user_cleared.v1` — `ai_budget.override_set.v1`ning aynan
+o'zi naqshi, xuddi shu sababdan: "versiyalangan/o'rnatilgan-lekin-audit-
+qilinmagan" FR-ADM-005'ning o'zi allaqachon hal qilgan xato bo'lardi).
+"Clear" faqat haqiqatda mavjud bo'lgan qator o'chirilganda audit
+qilinadi — hech narsa o'rnatilmagan holatda DELETE chaqirilishi
+(no-op) trail'ga bo'sh, hech narsani tasvirlamaydigan yozuv
+qo'shmaydi. Workspace-scoped `set_workspace_ai_preference`/`clear_
+workspace_ai_preference`ga endi `actor_id` parametri ham qo'shildi
+(avval yo'q edi — workspace darajasidagi o'zgarish uchun "kim
+o'zgartirdi" degan aniq maydon zarur edi, `ctx.workspace.user_id`
+orqali chaqiruvchi API'dan uzatiladi).
+
+Testlar audit-zanjiri uslubida isbotlandi: workspace preference'ning
+`record_audit_event` chaqiruvini vaqtincha olib tashlab, yangi
+`test_setting_and_clearing_the_workspace_ai_preference_is_audited` aynan
+kutilgan tarzda (audit ro'yxatida `ai_preference.workspace_set.v1`
+yo'qligi bilan) muvaffaqiyatsiz bo'lishi ko'rsatildi, keyin qaytarib
+yashil ekani tasdiqlandi. Jami olti yangi test
+(`test_ai_settings_api.py`): ikkala tier (workspace, user) uchun ham
+set+clear audit trail'da ko'rinishi (workspace-scoped `GET .../audit`
+va customer-scoped `GET .../audit` orqali mos ravishda — user-darajasidagi
+test CustomerOwner bilan ishlatildi, chunki customer-wide audit'ni
+o'qish uchun 10.2 shuni talab qiladi, plain member emas — o'zgarishning
+o'zi plain member uchun ham xuddi shunday audit qilinadi, faqat bu
+testda o'sha caller o'z-o'zining o'zgarishini qayta o'qiy olmaydi), va
+`test_clearing_an_already_unset_workspace_ai_preference_is_not_audited`
+(no-op DELETE hech qanday yozuv qo'shmasligi).
+
+"provider"/"model" `test_audit_redaction.py`ning `ALLOWED_SAFE_
+METADATA_KEYS` ro'yxatiga qo'shildi (ikkalasi ham enum qiymati/model
+nomi — sezgir emas).
+
+536 test, barchasi real Postgres'da; `ruff`/`mypy` toza. Frontend
+o'zgarmadi (API javob shakli o'zgarmadi, faqat yangi audit yon-ta'siri
+qo'shildi) — mavjud E2E spec'lar buzilmaydi, alohida qayta ishga
+tushirilmadi (minimal, faqat-audit qo'shimchasi, kontraktga ta'sir
+qilmaydi).
