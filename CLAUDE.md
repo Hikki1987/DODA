@@ -7335,3 +7335,36 @@ o'zgarmadi (API javob shakli o'zgarmadi, faqat yangi audit yon-ta'siri
 qo'shildi) — mavjud E2E spec'lar buzilmaydi, alohida qayta ishga
 tushirilmadi (minimal, faqat-audit qo'shimchasi, kontraktga ta'sir
 qilmaydi).
+
+**O'n birinchi `security-review` o'tkazildi — 10-review'dan (476eb40)
+keyingi hamma narsaga qarshi: FR-KNW-001 (fayl yuklash domeni — bu
+guruhning eng katta yangi hujum sirti), FR-ADM-005 (byudjet override),
+FR-ADM-006 (preference audit).** Jarayon bir xil: topish subagent'i
+`file_validation.py`/`local_filesystem.py`/`api/knowledge.py`ni
+(path traversal, tenancy, magic-byte bypass'ga alohida e'tibor bilan)
+va qolgan yangi kodni to'liq o'qib chiqdi.
+
+Topish subagent'i bitta nomzod qaytardi: `api/knowledge.py`ning
+`upload_document`'i `file.read()`ni hajm limiti tekshirilishidan OLDIN
+to'liq xotiraga yuklaydi (`validate_file`ning o'z hajm tekshiruvi
+FAQAT shundan keyin ishga tushadi) — katta so'rov tanasi hajm
+chegarasidan oldin xotirani egallashi mumkin. Bu skill'ning o'z HARD
+EXCLUSION ro'yxatining #1 (DoS) va #4 (xotira/CPU tugatish)
+qatorlariga aynan mos keladi — filtrlash subagent'i chaqirilmasdan,
+to'g'ridan-to'g'ri chiqarib tashlandi (skill'ning o'z qoidasi bo'yicha,
+muhandislik qarori emas).
+
+Qolgan barcha tekshirilgan joylar (path traversal — key SHA-256 bilan
+hash qilinadi, filename hech qachon path component sifatida
+ishlatilmaydi; cross-workspace document access — `_get_owned_task`
+bilan bir xil naqsh; magic-byte bypass/served Content-Type xavfi —
+content_type har doim server tomonidan tasdiqlangan enum'dan keladi;
+SQL injection — to'liq parametrlashtirilgan; `ai_budget_overrides`/
+`get_usage_report`ning tenant izolyatsiyasi — ikkilamchi `customer_id`
+predikati; yangi endpoint'larning avtorizatsiyasi; frontend'ning
+`uploadDocument`/`downloadDocument`i — umumiy auth-header/xato
+yordamchilaridan foydalanadi) toza deb tasdiqlandi.
+
+**Natija: 0 topilma** — 4-, 6-, 7-, 9-, 10-review'lar bilan bir xil.
+
+536 test, barchasi real Postgres'da (kod o'zgarmadi — sof tekshiruv).
