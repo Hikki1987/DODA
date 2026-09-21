@@ -7,6 +7,7 @@ see CLAUDE.md known limitations. If real usage needs it, that's a change
 request (QOIDA 2), not a bug fix.
 """
 
+import dataclasses
 import uuid
 from datetime import datetime, timedelta
 
@@ -15,8 +16,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.application.notification_service import create_notification
 from doda.domain.base import utcnow
+from doda.domain.knowledge.models import Document
 from doda.domain.notification.models import NotificationType
-from doda.domain.task.models import Reminder, ReminderStatus, Task, TaskDecision, TaskHistory, TaskStatus
+from doda.domain.task.models import (
+    Reminder,
+    ReminderStatus,
+    Task,
+    TaskAttachment,
+    TaskDecision,
+    TaskHistory,
+    TaskStatus,
+)
 
 MAX_PAGE_SIZE = 200
 
@@ -59,6 +69,15 @@ class TaskParentNotFoundError(Exception):
     (NFR-ISO-002). This check closes that off with an explicit,
     workspace-scoped lookup before the insert, same as
     workspace_service.add_workspace_member's cross-customer guard."""
+
+
+class TaskAttachmentDocumentNotFoundError(Exception):
+    """Raised when attach_document_to_task's document_id doesn't resolve
+    to a Document in the SAME workspace as the task — the exact same
+    cross-tenant-existence-oracle guard as TaskParentNotFoundError above,
+    for the exact same reason (document_id is a bare, FK-less reference,
+    so nothing else would stop a caller from linking a document that
+    belongs to a different workspace, or a different customer entirely)."""
 
 
 async def create_task(
@@ -189,6 +208,95 @@ async def list_task_decisions(session: AsyncSession, task_id: uuid.UUID) -> list
         select(TaskDecision).where(TaskDecision.task_id == task_id).order_by(TaskDecision.created_at)
     )
     return list(result.scalars())
+
+
+@dataclasses.dataclass(frozen=True)
+class ResolvedTaskAttachment:
+    """The attachment's own row plus the document it points to, resolved
+    at read time rather than joined at write time — because the document
+    may since have been deleted. `broken=True` is FR-TASK-006's own
+    acceptance criterion made concrete: the link is never silently
+    dropped and never a 404/500, it is shown, just marked as broken."""
+
+    id: uuid.UUID
+    document_id: uuid.UUID
+    attached_by: str
+    created_at: datetime
+    broken: bool
+    filename: str | None
+    content_type: str | None
+    size_bytes: int | None
+
+
+async def attach_document_to_task(
+    session: AsyncSession, task: Task, *, document_id: uuid.UUID, actor_id: str
+) -> ResolvedTaskAttachment:
+    """FR-TASK-006. document_id must resolve to a Document in the SAME
+    workspace as the task — same cross-tenant-existence-oracle guard as
+    create_task's parent_task_id check, for the same reason. Returns the
+    already-resolved shape (list_task_attachments' own return type)
+    rather than the bare row, since the Document was just loaded to
+    validate it anyway - a second lookup to re-resolve it would be a
+    redundant round trip for no benefit."""
+    document = await session.get(Document, document_id)
+    if document is None or document.workspace_id != task.workspace_id:
+        raise TaskAttachmentDocumentNotFoundError(f"document {document_id} not found in this workspace")
+
+    attachment = TaskAttachment(
+        customer_id=task.customer_id,
+        workspace_id=task.workspace_id,
+        task_id=task.id,
+        document_id=document_id,
+        attached_by=actor_id,
+    )
+    session.add(attachment)
+    await session.flush()
+    return ResolvedTaskAttachment(
+        id=attachment.id,
+        document_id=attachment.document_id,
+        attached_by=attachment.attached_by,
+        created_at=attachment.created_at,
+        broken=False,
+        filename=document.filename,
+        content_type=document.content_type,
+        size_bytes=document.size_bytes,
+    )
+
+
+async def detach_task_attachment(session: AsyncSession, attachment: TaskAttachment) -> None:
+    await session.delete(attachment)
+    await session.flush()
+
+
+async def list_task_attachments(session: AsyncSession, task_id: uuid.UUID) -> list[ResolvedTaskAttachment]:
+    result = await session.execute(
+        select(TaskAttachment).where(TaskAttachment.task_id == task_id).order_by(TaskAttachment.created_at)
+    )
+    attachments = list(result.scalars())
+    if not attachments:
+        return []
+
+    documents = await session.execute(
+        select(Document).where(Document.id.in_({a.document_id for a in attachments}))
+    )
+    documents_by_id = {d.id: d for d in documents.scalars()}
+
+    resolved = []
+    for attachment in attachments:
+        document = documents_by_id.get(attachment.document_id)
+        resolved.append(
+            ResolvedTaskAttachment(
+                id=attachment.id,
+                document_id=attachment.document_id,
+                attached_by=attachment.attached_by,
+                created_at=attachment.created_at,
+                broken=document is None,
+                filename=document.filename if document else None,
+                content_type=document.content_type if document else None,
+                size_bytes=document.size_bytes if document else None,
+            )
+        )
+    return resolved
 
 
 async def request_reminder(

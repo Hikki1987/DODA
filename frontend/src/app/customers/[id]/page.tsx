@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -98,6 +98,19 @@ export default function CustomerPage() {
   const [traceIdInput, setTraceIdInput] = useState("");
   const [appliedTraceId, setAppliedTraceId] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // refresh() re-fetches this page's whole state after ANY mutation (kill
+  // switch, member changes, etc.), not just budget-limit ones — its
+  // getAiBudgetLimits() call used to unconditionally overwrite
+  // softCapInput/hardCapInput on every one of those, so an in-flight
+  // refresh() triggered by an unrelated action (e.g. engaging the kill
+  // switch) could land after the user had already started typing into the
+  // budget-cap fields and silently wipe them back to "" — a real,
+  // reproducible race, not a flake (caught by two consecutive E2E runs
+  // failing at the same step with "budget caps must be positive", which is
+  // exactly what submitting the wiped, empty inputs as 0/0 produces). Only
+  // populate the inputs from the server on the very first load; later
+  // refreshes leave whatever the user is editing alone.
+  const budgetLimitsLoadedRef = useRef(false);
 
   const refresh = useCallback(() => {
     if (sessionId === null) return;
@@ -134,8 +147,11 @@ export default function CustomerPage() {
     getAiBudgetLimits(sessionId, customerId)
       .then((limits) => {
         setBudgetLimits(limits);
-        setSoftCapInput(limits.soft_cap_usd !== null ? String(limits.soft_cap_usd) : "");
-        setHardCapInput(limits.hard_cap_usd !== null ? String(limits.hard_cap_usd) : "");
+        if (!budgetLimitsLoadedRef.current) {
+          budgetLimitsLoadedRef.current = true;
+          setSoftCapInput(limits.soft_cap_usd !== null ? String(limits.soft_cap_usd) : "");
+          setHardCapInput(limits.hard_cap_usd !== null ? String(limits.hard_cap_usd) : "");
+        }
       })
       .catch(() => {});
     getMyAiPreference(sessionId, customerId).then(setMyAiPreferenceState).catch(() => {});

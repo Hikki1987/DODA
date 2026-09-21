@@ -108,3 +108,31 @@ class TaskDecision(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     tradeoff: Mapped[str] = mapped_column(Text)
     decision: Mapped[str] = mapped_column(Text)
     reason: Mapped[str] = mapped_column(Text)
+
+
+class TaskAttachment(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """FR-TASK-006: "Task'ni evidence va fayl bilan bog'lash" — its own
+    acceptance criterion is "bog'langan manba o'chirilsa task'da uzilgan
+    havola belgilanadi" (if the linked source is deleted, the task shows
+    a broken link), not that the link itself is immutable — unlike
+    TaskDecision above, this table is a plain, detachable link, not
+    append-only.
+
+    `document_id` is deliberately a bare UUID, not a ForeignKey to
+    `knowledge_documents` — that table belongs to the Knowledge domain,
+    and 6.2's domain-isolation rule ("faqat ID/reference kontrakti")
+    means Task may hold a reference to it but must not import or
+    FK-couple to its implementation. This is the same shape
+    `Notification.reference_id` already uses for cross-domain
+    references: the application layer resolves it by hand and tolerates
+    "not found" as a normal, expected outcome (the referenced document
+    having been deleted) rather than an error — which is exactly what
+    the acceptance criterion asks for."""
+
+    __tablename__ = "task_attachments"
+
+    customer_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("task_tasks.id"), index=True)
+    document_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    attached_by: Mapped[str] = mapped_column(String(256))

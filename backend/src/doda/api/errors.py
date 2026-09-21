@@ -40,6 +40,7 @@ from doda.application.task_service import (
     InvalidTaskTransition,
     ReminderConfirmationMismatchError,
     ReminderNotPendingError,
+    TaskAttachmentDocumentNotFoundError,
     TaskParentNotFoundError,
 )
 from doda.application.workspace_service import DuplicateWorkspaceMembershipError, WorkspaceMembershipError
@@ -131,6 +132,20 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=_envelope(
                 code="NOT_FOUND",
                 message="Parent task topilmadi.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(TaskAttachmentDocumentNotFoundError)
+    async def _task_attachment_document_not_found(
+        request: Request, exc: TaskAttachmentDocumentNotFoundError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=404,
+            content=_envelope(
+                code="NOT_FOUND",
+                message="Fayl topilmadi.",
                 trace_id=_trace_id(request),
                 retryable=False,
             ),

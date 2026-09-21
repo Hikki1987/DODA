@@ -51,6 +51,24 @@ class TaskDecisionOut(BaseModel):
     created_at: datetime
 
 
+class AttachDocumentRequest(BaseModel):
+    document_id: uuid.UUID
+
+
+class TaskAttachmentOut(BaseModel):
+    id: uuid.UUID
+    document_id: uuid.UUID
+    attached_by: str
+    created_at: datetime
+    broken: bool
+    """FR-TASK-006's own acceptance criterion: true once the linked
+    document has been deleted — the link stays visible, it is never
+    silently dropped or turned into an error."""
+    filename: str | None
+    content_type: str | None
+    size_bytes: int | None
+
+
 class RequestReminderRequest(BaseModel):
     remind_at: datetime
 

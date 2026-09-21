@@ -7,6 +7,7 @@ from datetime import timedelta
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from doda.config import Settings
 from doda.domain.base import utcnow
 from doda.domain.identity.models import AuthStrength
 from doda.main import app
@@ -18,6 +19,28 @@ async def client():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
+
+
+@pytest.fixture
+def storage_settings(tmp_path, monkeypatch: pytest.MonkeyPatch) -> Settings:
+    """FR-TASK-006's attachment tests need a real, uploadable Document to
+    link to — same fixture shape as test_knowledge_api.py's own, pointed
+    at api/knowledge.py specifically (that's the module that reads
+    get_settings() on the upload path api/tasks.py's attachment
+    endpoints never touch storage themselves)."""
+    settings = Settings(knowledge_storage_dir=str(tmp_path))  # type: ignore[arg-type]
+    monkeypatch.setattr("doda.api.knowledge.get_settings", lambda: settings)
+    return settings
+
+
+async def _upload_document(client: AsyncClient, member: SeededMember, filename: str = "evidence.pdf") -> str:
+    response = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/documents",
+        files={"file": (filename, b"%PDF-1.4\nreal pdf body", "application/pdf")},
+        headers=_auth_headers(member.session_id),
+    )
+    assert response.status_code == 200
+    return response.json()["id"]
 
 
 def _auth_headers(session_id: uuid.UUID) -> dict[str, str]:
@@ -764,3 +787,159 @@ async def test_confirming_a_reminder_that_belongs_to_a_different_task_is_a_404(
         headers=_auth_headers(member.session_id),
     )
     assert confirmed.status_code == 404
+
+
+async def test_attaching_a_document_returns_it_and_it_appears_in_the_list(
+    client: AsyncClient, db_available: bool, storage_settings: Settings
+) -> None:
+    member = await seed_workspace_member()
+    task_id = await _create_task(client, member, "Review the contract")
+    document_id = await _upload_document(client, member)
+
+    response = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/attachments",
+        json={"document_id": document_id},
+        headers=_auth_headers(member.session_id),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["document_id"] == document_id
+    assert body["broken"] is False
+    assert body["filename"] == "evidence.pdf"
+    assert body["attached_by"] == f"user:{member.user_id}"
+
+    listing = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/attachments",
+        headers=_auth_headers(member.session_id),
+    )
+    assert [a["id"] for a in listing.json()] == [body["id"]]
+
+
+async def test_deleting_the_linked_document_marks_the_attachment_broken_not_missing(
+    client: AsyncClient, db_available: bool, storage_settings: Settings
+) -> None:
+    """FR-TASK-006's own acceptance criterion: "Bog'langan manba
+    o'chirilsa task'da uzilgan havola belgilanadi" — deleting the
+    document the task points to must never make the attachment vanish
+    or 404/500; it stays listed, just marked broken."""
+    member = await seed_workspace_member()
+    task_id = await _create_task(client, member, "Review the contract")
+    document_id = await _upload_document(client, member)
+    await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/attachments",
+        json={"document_id": document_id},
+        headers=_auth_headers(member.session_id),
+    )
+
+    delete = await client.delete(
+        f"/v1/workspaces/{member.workspace_id}/documents/{document_id}",
+        headers=_auth_headers(member.session_id),
+    )
+    assert delete.status_code == 204
+
+    listing = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/attachments",
+        headers=_auth_headers(member.session_id),
+    )
+    [attachment] = listing.json()
+    assert attachment["broken"] is True
+    assert attachment["filename"] is None
+    assert attachment["document_id"] == document_id
+
+
+async def test_plain_member_who_is_not_the_owner_cannot_attach_a_document(
+    client: AsyncClient, db_available: bool, storage_settings: Settings
+) -> None:
+    owner = await seed_workspace_member(workspace_role="workspace_admin", customer_role="customer_owner")
+    task_id = await _create_task(client, owner, "Owner's task")
+    document_id = await _upload_document(client, owner)
+
+    other = await seed_workspace_member()
+    other_membership = await client.post(
+        f"/v1/customers/{owner.customer_id}/members",
+        json={"user_id": str(other.user_id), "role": "member"},
+        headers=_auth_headers(owner.session_id),
+    )
+    assert other_membership.status_code == 200
+    await client.post(
+        f"/v1/workspaces/{owner.workspace_id}/members",
+        json={"customer_membership_id": other_membership.json()["id"], "role": "member"},
+        headers=_auth_headers(owner.session_id),
+    )
+
+    response = await client.post(
+        f"/v1/workspaces/{owner.workspace_id}/tasks/{task_id}/attachments",
+        json={"document_id": document_id},
+        headers=_auth_headers(other.session_id),
+    )
+    assert response.status_code == 403
+
+
+async def test_attachments_on_a_sibling_workspaces_task_are_a_404(
+    client: AsyncClient, db_available: bool, storage_settings: Settings
+) -> None:
+    member = await seed_workspace_member()
+    other = await seed_workspace_member()
+    task_id = await _create_task(client, other, "Someone else's task")
+    document_id = await _upload_document(client, other)
+
+    write = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/attachments",
+        json={"document_id": document_id},
+        headers=_auth_headers(member.session_id),
+    )
+    assert write.status_code == 404
+
+    read = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/attachments",
+        headers=_auth_headers(member.session_id),
+    )
+    assert read.status_code == 404
+
+
+async def test_detaching_a_document_removes_it_from_the_list(
+    client: AsyncClient, db_available: bool, storage_settings: Settings
+) -> None:
+    member = await seed_workspace_member()
+    task_id = await _create_task(client, member, "Review the contract")
+    document_id = await _upload_document(client, member)
+    attached = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/attachments",
+        json={"document_id": document_id},
+        headers=_auth_headers(member.session_id),
+    )
+    attachment_id = attached.json()["id"]
+
+    detach = await client.delete(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/attachments/{attachment_id}",
+        headers=_auth_headers(member.session_id),
+    )
+    assert detach.status_code == 204
+
+    listing = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_id}/attachments",
+        headers=_auth_headers(member.session_id),
+    )
+    assert listing.json() == []
+
+
+async def test_detaching_an_attachment_that_belongs_to_a_different_task_is_a_404(
+    client: AsyncClient, db_available: bool, storage_settings: Settings
+) -> None:
+    member = await seed_workspace_member()
+    task_a = await _create_task(client, member, "Task A")
+    task_b = await _create_task(client, member, "Task B")
+    document_id = await _upload_document(client, member)
+
+    attached = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_a}/attachments",
+        json={"document_id": document_id},
+        headers=_auth_headers(member.session_id),
+    )
+    attachment_id = attached.json()["id"]
+
+    detach = await client.delete(
+        f"/v1/workspaces/{member.workspace_id}/tasks/{task_b}/attachments/{attachment_id}",
+        headers=_auth_headers(member.session_id),
+    )
+    assert detach.status_code == 404

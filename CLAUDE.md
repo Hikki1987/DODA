@@ -7413,3 +7413,147 @@ unit test qiladi).
 541 test, barchasi real Postgres'da; `ruff`/`mypy` toza. Frontend/API
 kontrakti o'zgarmadi (faqat server ichki o'qish strategiyasi) — E2E
 qayta ishga tushirilmadi.
+
+**FR-TASK-006 (task'ni evidence/fayl bilan bog'lash: "Bog'langan manba
+o'chirilsa task'da uzilgan havola belgilanadi") qurildi — yuqoridagi
+"ataylab qurilmagan" ro'yxatida "Knowledge/fayl domeni hali yo'q,
+bloklangan" deb aniq qayd etilgan edi, va FR-KNW-001 (fayl ingest) shu
+sessiyaning o'zida keyinroq qurilgani uchun endi bloklovchi sabab yo'q.**
+
+Qabul mezonining o'zi ("uzilgan havola belgilanadi", o'chirilmaydi/
+yashirilmaydi) `list_my_customers`ning "eskirgan index qatori" naqshi
+bilan bir xil falsafa: cross-domain havola o'chirilgan bo'lsa, xato
+bermasdan yoki jimgina yo'qotmasdan, aniq "broken" deb belgilab
+ko'rsatish. Bu `task_decisions`dan farqli — bu jadval MUTABLE (link
+o'chirilishi/detach qilinishi mumkin), append-only emas, chunki talab
+faqat "o'chirilgan manbaga havolani oqilona hal qilish"ni talab qiladi,
+havolaning o'zini abadiy saqlashni emas.
+
+`domain/task/models.py`ga `TaskAttachment` qo'shildi — `document_id`
+ATAYLAB xom UUID (ForeignKey emas), `Notification.reference_id`ning
+aynan bir xil cross-domain-reference naqshi: Task domeni Knowledge
+domenining implementatsiyasini import qilmaydi (6.2-bo'lim), faqat
+ID orqali bog'lanadi. `test_domain_isolation.py`ning AST tekshiruvi
+faqat `src/doda/domain/*/` ostidagi fayllarni cheklaydi — bu qoida
+`application/task_service.py`ning `doda.domain.knowledge.models.Document`ni
+import qilishiga xalaqit bermaydi (tasdiqlandi, `list_task_attachments`/
+`attach_document_to_task` shu importni ishlatadi).
+
+0026-migratsiya `task_attachments` jadvalini (customer_id + workspace_id
++ task_id FK + document_id bare UUID + attached_by) `task_tasks`ning
+aynan bir xil RLS shaklida (FORCE ROW LEVEL SECURITY, `tenant_isolation`
+policy) qo'shdi — append-only trigger YO'Q (mutable link). Round-trip
+(0025→0026→0025→0026) qo'lda tekshirildi.
+
+`task_service.attach_document_to_task` — `TaskParentNotFoundError`ning
+aynan bir xil cross-tenant-existence-oracle himoyasi: `document_id`ning
+HAQIQATDA shu task'ning workspace'iga tegishli ekanini (RLS customer_id
+bo'yicha bloklaydi, lekin bir xil customer'ning boshqa workspace'idagi
+document'ini bog'lashga yo'l qo'ymaydi) tekshiradi, aks holda
+`TaskAttachmentDocumentNotFoundError` → 404 — boshqa workspace'ning
+hujjati mavjudligini oshkor qilmasdan. `list_task_attachments` har bir
+link uchun `Document`ni qidiradi; topilmasa (`broken=True`) filename/
+content_type/size_bytes `None` bilan qaytadi, lekin LINK QATORI
+o'chirilmaydi/yashirilmaydi. `ResolvedTaskAttachment`
+(`dataclasses.dataclass(frozen=True)`) — `MyCustomerEntry`/`BudgetStatus`
+bilan bir xil "read-model qaytish turi" naqshi.
+
+`POST/GET /v1/workspaces/{id}/tasks/{task_id}/attachments`,
+`DELETE .../attachments/{attachment_id}` — mavjud `authorize_task_
+mutation` (task egasi yoki workspace_admin) bilan himoyalangan yozish
+uchun, o'qish esa workspace a'zoligining o'zi yetarli (boshqa har bir
+task-scoped ro'yxatlash bilan bir xil).
+
+**Ikkita real xato o'zida topildi va yozishdan OLDIN tuzatildi** (test
+ishga tushirilmasdan, kodni ko'rib chiqishda): (1) test uchun ATAYLAB
+`client.post("/v1/workspaces", ...)` orqali ikkinchi workspace yaratishga
+urindim — `grep`dan tasdiqlandi, bunday HTTP endpoint UMUMAN mavjud emas
+(workspace yaratish ataylab public API orqali ochilmagan). Tuzatildi:
+yangi cross-workspace testni `test_tasks_api.py`dan `test_cross_
+workspace_record_access.py`ga ko'chirib, uning mavjud `_seed_two_
+workspaces_one_customer()` yordamchisidan foydalanib. (2) `attach_task_
+document`ning birinchi qoralamasi `[resolved] = await list_task_
+attachments(...)`ni chaqirib, "har doim aynan bitta attachment bor" deb
+noto'g'ri taxmin qilgan edi — bir nechta mavjud attachment bo'lsa
+buzilardi. `attach_document_to_task`ning o'zi allaqachon tasdiqlangan
+`Document` obyektiga ega bo'lgani uchun to'g'ridan-to'g'ri to'liq
+`ResolvedTaskAttachment` qaytarishga o'zgartirildi — xato ham, ortiqcha
+ikkinchi DB round-trip ham yo'qoldi.
+
+Revert-test-restore uslubida isbotlandi: `list_task_attachments`ning
+`broken=document is None`ini vaqtincha `broken=False`ga qattiq bog'lab,
+`test_deleting_the_linked_document_marks_the_attachment_broken_not_
+missing` aynan kutilgan tarzda muvaffaqiyatsiz bo'lishi ko'rsatildi,
+keyin qaytarib yashil ekani tasdiqlandi. Olti yangi HTTP test
+(`test_tasks_api.py`): bog'lash+ro'yxatda ko'rinish, o'chirilgan hujjat
+broken deb belgilanishi (yo'qolmasdan), egasi bo'lmagan oddiy a'zo rad
+etilishi, qo'shni workspace'ning task'iga 404, detach qilish ro'yxatdan
+olib tashlashi, boshqa task'ga tegishli attachment_id 404. Bitta yangi
+test `test_cross_workspace_record_access.py`da (bir xil customer,
+boshqa workspace'ning hujjatini bog'lashga urinish — `TaskAttachment
+DocumentNotFoundError`).
+
+Frontend: har bir task qatoriga "Bog'langan fayllar"/"Fayllarni
+yashirish" toggle qo'shildi (Tarix/Qarorlar/Eslatmalar bilan bir xil
+naqsh) — mavjud attachment'lar ro'yxati (`data-testid="attachment-list"`,
+buzilganlar qizil "Uzilgan havola (fayl o'chirilgan)" bilan, sog'lomlari
+filename bilan), "Uzish" tugmasi, va yangi bog'lash formasi (mavjud
+`documents` state'idan to'ldirilgan `<select>`).
+
+Yangi, mustaqil Playwright E2E spec (`task-attachments.spec.ts`, o'z
+seed prefiksi — `E2E_ATTACH_`, chunki bu spec haqiqiy Document qatorini
+yaratadi/o'chiradi va o'zining task'ini yaratadi, `workspace.spec.ts`ning
+"E2E test task"i bilan kesishmasligi uchun): fayl yuklash+task yaratish
+→ bog'lash (linked, broken emas) → hujjatni o'chirish → panelni
+yopib-ochib (stale client cache emasligini isbotlash uchun) "Uzilgan
+havola" ko'rinishi, filename esa yo'qolishi → uzish → bo'sh holat.
+
+**E2E to'liq suite ishga tushirilganda IKKITA muvaffaqiyatsizlik
+chiqdi — bittasi seed-qayta-ishlatish artefakti (yangi spec'ni bitta
+o'zi, keyin qayta seed qilmasdan butun suite bilan ikkinchi marta ishga
+tushirganim uchun "E2E attachment task" ikki marta yaratilgan edi —
+`workspace.spec.ts`ning "E2E test task"i duplikatsiyasi kabi allaqachon
+bir necha marta hujjatlashtirilgan naqsh, kod xatosi emas — toza seed
+bilan darhol yo'qoldi), ikkinchisi esa HAQIQIY, avvaldan mavjud bo'lgan
+xato edi (mening bu sessiyadagi o'zgarishlarimga aloqasi yo'q, lekin
+toza seed bilan IKKI MARTA ketma-ket takrorlanib tasdiqlandi).**
+
+`customer.spec.ts`ning FR-ADM-005 qadami ("byudjet limitlarini o'rnatib,
+standart qiymatga qaytarish") toza seed bilan ham izchil
+muvaffaqiyatsiz bo'ldi: `"budget caps must be positive"` xatosi —
+holbuki test aniq "15"/"30" (ikkalasi ham musbat) kiritadi. Sabab
+`customers/[id]/page.tsx`ning `refresh()` funksiyasida: bu funksiya
+SAHIFADAGI HAR QANDAY mutatsiyadan keyin (kill switch yoqish/o'chirish,
+a'zo qo'shish va h.k.) chaqiriladi va o'zining `getAiBudgetLimits(...)
+.then(...)` filiali HAR SAFAR `softCapInput`/`hardCapInput`ni serverdan
+kelgan qiymat bilan SHARTSIZ almashtirardi. `refresh()`ning bu chaqiruvlari
+fire-and-forget (kutilmaydi) — demak FR-ADM-005 qadamidan OLDIN sodir
+bo'lgan kill switch qadamining o'z `refresh()`i hali НАВБАТДА (tarmoq
+round-trip'i tugamagan) bo'lishi mumkin edi, va foydalanuvchi budjet
+maydonlariga "15"/"30" kiritib bo'lgandan KEYIN javob qaytib, maydonlarni
+jimgina "" ga qaytarib qo'yardi — "Saqlash" bosilganda `Number("")` =
+0 yuborilib, backend'ning "musbat bo'lishi shart" tekshiruvi (to'g'ri
+ishlab) rad etardi. Bu haqiqiy, takrorlanuvchi race edi — flake emas
+(ikkinchi to'liq-toza-seed ishga tushirishda ham AYNAN shu joyda,
+AYNAN shu xato bilan qizardi).
+
+Tuzatish: yangi `budgetLimitsLoadedRef` (`useRef(false)`) — server'dan
+kelgan qiymat faqat BIRINCHI marta (sahifa ochilganda) `softCapInput`/
+`hardCapInput`ga yoziladi; keyingi HAR QANDAY `refresh()` chaqiruvi
+(budjet bilan aloqasi bo'lmagan mutatsiyalardan kelib chiqqan bo'lsa
+ham) foydalanuvchi tahrirlayotgan maydonlarga tegmaydi.
+`handleClearBudgetLimits`ning o'zining aniq, foydalanuvchi-boshlagan
+reset'i (`setSoftCapInput("")`/`setHardCapInput("")` muvaffaqiyatli
+tozalashdan keyin) o'zgarishsiz qoldi — bu ataylab, ref bilan
+cheklanmagan.
+
+Tuzatish real, ikki marta ketma-ket toza-seed'li to'liq E2E ishga
+tushirish bilan isbotlandi: tuzatishdan OLDIN 16 ta spec'dan 1 tasi
+(`customer.spec.ts`) izchil muvaffaqiyatsiz bo'lardi (frontend qayta
+build+start qilingandan keyin ham), tuzatishdan KEYIN (qayta build+
+qayta start, toza seed) barcha 16 ta spec yashil.
+
+548 test (backend, real Postgres'da), barchasi yashil; `ruff`/`mypy`
+toza; frontend `tsc`/ESLint toza, production build muvaffaqiyatli;
+barcha 16 E2E spec (15 mavjud + yangi `task-attachments.spec.ts`) real
+backend+frontend'ga (production build) qarshi yashil.

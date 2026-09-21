@@ -9,31 +9,37 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from doda.api.dependencies import RequestContext, get_request_context
 from doda.api.task_schemas import (
+    AttachDocumentRequest,
     ChangeTaskStatusRequest,
     ConfirmReminderRequest,
     CreateTaskRequest,
     RecordTaskDecisionRequest,
     ReminderOut,
     RequestReminderRequest,
+    TaskAttachmentOut,
     TaskDecisionOut,
     TaskHistoryEntryOut,
     TaskOut,
 )
 from doda.application.authz_service import authorize_create_task, authorize_task_mutation
 from doda.application.task_service import (
+    ResolvedTaskAttachment,
+    attach_document_to_task,
     cancel_reminder,
     change_task_status,
     confirm_reminder,
     create_task,
+    detach_task_attachment,
     generate_task_plan,
     list_reminders_for_task,
+    list_task_attachments,
     list_task_decisions,
     list_task_history,
     list_tasks_for_workspace,
     record_task_decision,
     request_reminder,
 )
-from doda.domain.task.models import Reminder, Task, TaskDecision, TaskStatus
+from doda.domain.task.models import Reminder, Task, TaskAttachment, TaskDecision, TaskStatus
 
 router = APIRouter(tags=["tasks"])
 
@@ -191,6 +197,78 @@ async def get_task_decisions(
     await _get_owned_task(ctx, task_id)  # 404s before revealing any decision exists
     decisions = await list_task_decisions(ctx.db, task_id)
     return [_to_task_decision_out(record) for record in decisions]
+
+
+def _to_task_attachment_out(record: ResolvedTaskAttachment) -> TaskAttachmentOut:
+    return TaskAttachmentOut(
+        id=record.id,
+        document_id=record.document_id,
+        attached_by=record.attached_by,
+        created_at=record.created_at,
+        broken=record.broken,
+        filename=record.filename,
+        content_type=record.content_type,
+        size_bytes=record.size_bytes,
+    )
+
+
+@router.post(
+    "/v1/workspaces/{workspace_id}/tasks/{task_id}/attachments",
+    response_model=TaskAttachmentOut,
+)
+async def attach_task_document(
+    task_id: uuid.UUID,
+    body: AttachDocumentRequest,
+    ctx: RequestContext = Depends(get_request_context),
+) -> TaskAttachmentOut:
+    """FR-TASK-006. Same authorization as recording a decision (owner or
+    workspace_admin) — attaching evidence is task-mutating the same way."""
+    task = await _get_owned_task(ctx, task_id)
+    authorize_task_mutation(ctx.workspace, task)
+    resolved = await attach_document_to_task(
+        ctx.db, task, document_id=body.document_id, actor_id=f"user:{ctx.workspace.user_id}"
+    )
+    return _to_task_attachment_out(resolved)
+
+
+@router.get(
+    "/v1/workspaces/{workspace_id}/tasks/{task_id}/attachments",
+    response_model=list[TaskAttachmentOut],
+)
+async def get_task_attachments(
+    task_id: uuid.UUID, ctx: RequestContext = Depends(get_request_context)
+) -> list[TaskAttachmentOut]:
+    await _get_owned_task(ctx, task_id)  # 404s before revealing any attachment exists
+    attachments = await list_task_attachments(ctx.db, task_id)
+    return [_to_task_attachment_out(record) for record in attachments]
+
+
+async def _get_owned_attachment(
+    ctx: RequestContext, task_id: uuid.UUID, attachment_id: uuid.UUID
+) -> TaskAttachment:
+    attachment = await ctx.db.get(TaskAttachment, attachment_id)
+    if (
+        attachment is None
+        or attachment.task_id != task_id
+        or attachment.workspace_id != ctx.workspace.workspace_id
+    ):
+        raise HTTPException(status_code=404, detail="attachment not found")
+    return attachment
+
+
+@router.delete(
+    "/v1/workspaces/{workspace_id}/tasks/{task_id}/attachments/{attachment_id}",
+    status_code=204,
+)
+async def detach_task_document(
+    task_id: uuid.UUID,
+    attachment_id: uuid.UUID,
+    ctx: RequestContext = Depends(get_request_context),
+) -> None:
+    task = await _get_owned_task(ctx, task_id)
+    authorize_task_mutation(ctx.workspace, task)
+    attachment = await _get_owned_attachment(ctx, task_id, attachment_id)
+    await detach_task_attachment(ctx.db, attachment)
 
 
 def _to_reminder_out(reminder: Reminder) -> ReminderOut:

@@ -284,6 +284,53 @@ export function cancelTaskReminder(
   });
 }
 
+// FR-TASK-006: a link to an already-uploaded Knowledge document.
+// `broken` is the requirement's own acceptance criterion made concrete:
+// once the linked document is deleted, the link stays listed (never
+// silently dropped), just marked broken - `filename`/`content_type`/
+// `size_bytes` are null exactly then.
+export interface TaskAttachmentOut {
+  id: string;
+  document_id: string;
+  attached_by: string;
+  created_at: string;
+  broken: boolean;
+  filename: string | null;
+  content_type: string | null;
+  size_bytes: number | null;
+}
+
+export function getTaskAttachments(
+  sessionId: string,
+  workspaceId: string,
+  taskId: string,
+): Promise<TaskAttachmentOut[]> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/tasks/${taskId}/attachments`, sessionId);
+}
+
+export function attachTaskDocument(
+  sessionId: string,
+  workspaceId: string,
+  taskId: string,
+  documentId: string,
+): Promise<TaskAttachmentOut> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/tasks/${taskId}/attachments`, sessionId, {
+    method: "POST",
+    body: JSON.stringify({ document_id: documentId }),
+  });
+}
+
+export function detachTaskDocument(
+  sessionId: string,
+  workspaceId: string,
+  taskId: string,
+  attachmentId: string,
+): Promise<void> {
+  return apiFetch(`/v1/workspaces/${workspaceId}/tasks/${taskId}/attachments/${attachmentId}`, sessionId, {
+    method: "DELETE",
+  });
+}
+
 // ---- /v1/workspaces/{id}/actions ----
 
 export type ActionStatus =

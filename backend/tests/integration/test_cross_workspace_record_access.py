@@ -383,3 +383,36 @@ async def test_a_document_from_a_sibling_workspace_is_not_readable(
         headers=_auth_headers(seeded["session_b"]),
     )
     assert own_get.status_code == 200
+
+
+async def test_a_task_cannot_be_linked_to_a_sibling_workspaces_document(
+    client: AsyncClient, db_available: bool, knowledge_storage_settings: None
+) -> None:
+    """FR-TASK-006's own cross-tenant-existence-oracle guard
+    (attach_document_to_task's workspace check), the same shape as
+    parent_task_id's — a document that exists, just in a different
+    workspace under the same customer, must never be linkable."""
+    seeded = await _seed_two_workspaces_one_customer()
+
+    task = await client.post(
+        f"/v1/workspaces/{seeded['workspace_a']}/tasks",
+        json={"title": "A's task"},
+        headers=_auth_headers(seeded["session_a"]),
+    )
+    assert task.status_code == 200
+    task_id = task.json()["id"]
+
+    uploaded = await client.post(
+        f"/v1/workspaces/{seeded['workspace_b']}/documents",
+        files={"file": ("report.pdf", b"%PDF-1.4\nreal pdf body", "application/pdf")},
+        headers=_auth_headers(seeded["session_b"]),
+    )
+    assert uploaded.status_code == 200
+    document_id = uploaded.json()["id"]
+
+    response = await client.post(
+        f"/v1/workspaces/{seeded['workspace_a']}/tasks/{task_id}/attachments",
+        json={"document_id": document_id},
+        headers=_auth_headers(seeded["session_a"]),
+    )
+    assert response.status_code == 404
