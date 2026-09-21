@@ -7259,3 +7259,25 @@ qo'lda tekshirildi.
 533 test (527+6: `test_ai_budget_override.py`), barchasi real
 Postgres'da; `ruff`/`mypy` toza; frontend `tsc`/ESLint/production build
 toza; barcha 15 E2E spec yashil.
+
+**OD-004ning provayder tanlovi hujjatlashtirildi: Google Cloud
+Speech-to-Text/Text-to-Speech.** Product Owner "ovoz MVP uchun kerak"
+qarorini avvalroq bergan edi (bu paragraf yozilishidan oldin allaqachon
+CLAUDE.md/`docs/open-decisions.md`da qayd etilgan) — bu safar
+`AskUserQuestion` orqali ANIQ so'ralib, ikkinchi ochiq savol (qaysi
+provayder) ham hal qilindi, taxmin qilinmadi. `docs/open-decisions.md`ning
+OD-004 qatori shu qaror bilan, va yangi kontekst bilan (FR-CONV/chat
+UI shu sessiyaning o'zida keyinroq to'liq qurilgani — demak ovoz endi
+"mavjud bo'lmagan UI ustiga qurish" emas) yangilandi. `docs/risk-
+register.md`ning RISK-010 qatoriga ham qisqa qo'shimcha yozildi — bu
+risk endi matn-model sifat parite muammosidan tashqari, ovoz (STT/TTS)
+uchun ham amal qiladi.
+
+**Ataylab, ochiq qoldirilgan halol chegara**: haqiqiy amalga oshirish
+(Google Cloud Speech API'ga real chaqiruv, mikrofon-yozib-olish/audio-
+pleer UI) BOSHLANMADI — buning uchun haqiqiy GCP credential (service
+account kaliti yoki API kaliti) hali taqdim etilmagan. Bu Telegram bot
+tokeni/Google OAuth client secret'ining aynan bir xil kutish holati —
+kelib tushgandan keyin xavfsiz kanal orqali (hech qachon chat matniga
+yoki repo'ga yozilmasdan) `backend/.env`ga qo'yilishi kutilmoqda. Sof
+hujjat yangilanishi — kod o'zgarmadi, 533 test o'zgarishsiz.
