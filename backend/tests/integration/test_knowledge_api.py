@@ -126,6 +126,32 @@ async def test_a_malicious_file_disguised_as_a_pdf_is_rejected_and_never_stored(
     assert listing.json() == []
 
 
+async def test_a_file_over_the_size_limit_is_rejected_without_buffering_past_it(
+    client: AsyncClient, db_available: bool, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Proves the bounded chunked read: with a deliberately tiny limit,
+    a body that exceeds it by more than one read-chunk is still rejected
+    (the running total is checked as bytes arrive, not only after the
+    whole body has been buffered)."""
+    tiny_limit_settings = Settings(knowledge_storage_dir=str(tmp_path), knowledge_max_file_size_bytes=10)  # type: ignore[arg-type]
+    monkeypatch.setattr("doda.api.knowledge.get_settings", lambda: tiny_limit_settings)
+    member = await seed_workspace_member()
+
+    oversized = b"%PDF-1.4\n" + b"x" * 500  # far larger than the 10-byte limit
+    upload = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/documents",
+        files=_upload_files("report.pdf", "application/pdf", oversized),
+        headers=_auth_headers(member.session_id),
+    )
+    assert upload.status_code == 422
+    assert upload.json()["code"] == "INVALID_FILE"
+
+    listing = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/documents", headers=_auth_headers(member.session_id)
+    )
+    assert listing.json() == []
+
+
 async def test_owner_can_delete_their_own_upload(
     client: AsyncClient, db_available: bool, storage_settings: Settings
 ) -> None:

@@ -13,11 +13,38 @@ from doda.api.knowledge_schemas import DocumentOut
 from doda.application.authz_service import authorize_use_knowledge
 from doda.application.knowledge_service import delete_document, ingest_file, list_documents_for_workspace
 from doda.config import get_settings
+from doda.domain.knowledge.file_validation import FileTooLargeError
 from doda.domain.knowledge.models import Document
 from doda.storage.factory import get_object_storage
 from doda.storage.port import ObjectNotFoundError
 
 router = APIRouter(tags=["knowledge"])
+
+_READ_CHUNK_BYTES = 1024 * 1024  # 1 MiB
+
+
+async def _read_bounded(file: UploadFile, max_size_bytes: int) -> bytes:
+    """`UploadFile.read()` with no size argument buffers the ENTIRE body
+    into memory before `validate_file`'s own size check ever runs — a
+    client can force the server to hold an arbitrarily large body just
+    to reject it. Reading in bounded chunks and failing as soon as the
+    running total crosses the limit means the server never buffers more
+    than `max_size_bytes + 1` bytes, no matter how large the client's
+    declared or actual body is. `validate_file`'s own `len(data) >
+    max_size_bytes` check is kept as-is (it's exercised directly by unit
+    tests that pass raw bytes, not an UploadFile) — this only changes
+    how those bytes are accumulated before reaching it."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_size_bytes:
+            raise FileTooLargeError(f"file exceeds the {max_size_bytes}-byte limit")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _to_document_out(document: Document) -> DocumentOut:
@@ -46,7 +73,7 @@ async def upload_document(
 ) -> DocumentOut:
     authorize_use_knowledge(ctx.workspace)
     settings = get_settings()
-    data = await file.read()
+    data = await _read_bounded(file, settings.knowledge_max_file_size_bytes)
     document = await ingest_file(
         ctx.db,
         get_object_storage(settings),

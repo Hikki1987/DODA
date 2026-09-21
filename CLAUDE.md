@@ -7368,3 +7368,48 @@ yordamchilaridan foydalanadi) toza deb tasdiqlandi.
 **Natija: 0 topilma** — 4-, 6-, 7-, 9-, 10-review'lar bilan bir xil.
 
 536 test, barchasi real Postgres'da (kod o'zgarmadi — sof tekshiruv).
+
+**11-review'ning o'zi rasmiy hisobotdan chiqarib tashlagan DoS nomzodi
+alohida, muhandislik sifatida tuzatildi — skill'ning "DoS'ni xavfsizlik
+topilmasi sifatida hisobotga qo'shma" qoidasi buni "tuzatishga
+arzimaydi" demaydi, faqat "xavfsizlik hisobotida emas" deydi.**
+`api/knowledge.py`ning `upload_document`i `file.read()`ni HECH QANDAY
+hajm argumentisiz chaqirardi — butun so'rov tanasini `validate_file`ning
+o'z hajm tekshiruvi ishga tushishidan OLDIN to'liq xotiraga yuklab
+olardi. Demak plain `Member` roliga ega har qanday autentifikatsiyalangan
+foydalanuvchi (yuklash huquqiga ega bo'lgan eng past rol) katta
+so'rov tanasi yuborib, serverni uni rad etishdan OLDIN xotiraga
+yuklashga majbur qila olardi.
+
+Tuzatish: yangi `_read_bounded(file, max_size_bytes)` — 1 MiB'lik
+bo'laklarda o'qiydi, yig'indi limit'dan oshgan ZAHOTI (butun tanani
+o'qib bo'lgandan keyin emas) `FileTooLargeError` ko'taradi. `validate_
+file`ning o'z `len(data) > max_size_bytes` tekshiruvi o'zgarishsiz
+qoldi (u xom bytes bilan to'g'ridan-to'g'ri chaqiriladigan unit
+testlar tomonidan sinaladi) — faqat bu bytes'lar SHU tekshiruvga
+yetib borishidan oldin qanday yig'ilishi o'zgardi.
+
+**Isbotlash bu safar oddiy HTTP darajasidagi test bilan qilinmadi —
+chunki chekli (finite) so'rov tanasi bilan eski VA yangi kod bir xil
+422 natija beradi (ikkalasi ham oxir-oqibat rad etadi), demak oddiy
+HTTP test ikkisini farqlay olmaydi.** Shuning uchun yangi
+`tests/unit/test_read_bounded.py` cheksiz oqimni simulyatsiya qiladigan
+stub ishlatadi (`_EndlessStream`, har bir `read(n)` chaqiruvi doim `n`
+bayt qaytaradi, cheksiz) — bu asl regressiya sinfini (chekli emas,
+CHEKSIZ oqimni to'liq o'qishga urinish) haqiqatda ushlaydi. Revert-
+test-restore audit-zanjiri uslubida isbotlandi: `_read_bounded`ni
+vaqtincha "avval hammasini o'qi, keyin tekshir" ko'rinishiga
+qaytarganimda, test **butunlay osilib qoldi** (2 daqiqalik bash
+timeout'i bilan o'ldirildi) — bu faraziy emas, `_EndlessStream` uchun
+"oxirigacha o'qi" degani hech qachon tugamaydi, aynan shu xato sinfini
+aniq namoyish etadi. Tuzatish qaytarilgandan keyin test darhol
+(1 soniyadan kam) o'tdi. HTTP darajasida ham bir test qo'shildi
+(`test_a_file_over_the_size_limit_is_rejected_without_buffering_
+past_it`, `test_knowledge_api.py`) — bu funksional to'g'rilikni
+(chekli, lekin oshirilgan tana rad etilishi) tasdiqlaydi, garchi
+xotira-bog'lash xususiyatini o'zi isbotlamasa ham (buni yuqoridagi
+unit test qiladi).
+
+541 test, barchasi real Postgres'da; `ruff`/`mypy` toza. Frontend/API
+kontrakti o'zgarmadi (faqat server ichki o'qish strategiyasi) — E2E
+qayta ishga tushirilmadi.
