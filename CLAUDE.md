@@ -7581,3 +7581,71 @@ yo'q — barcha identifikatorlar `uuid.UUID` orqali tiplangan, hujjat
 qidiruvi parametrlashtirilgan ORM `session.get`.
 
 548 test o'zgarishsiz (kod o'zgarmadi — sof tekshiruv).
+
+**Beshinchi `/simplify` ko'rib chiqish o'tkazildi — oxirgi simplify'dan
+(`1b89756`) keyingi barcha commit'larga qarshi (55 fayl, ~4300 qo'shilgan
+qator: FR-ADM design proposal + FR-ADM-005 byudjet limitlari, FR-KNW-001
+fayl ingest domeni, OD-004 provayder qarori, va 12-security-review).**
+Jarayon: 4 ta parallel review agent (reuse/simplification/efficiency/
+altitude). **Bu safar hisobning o'z usage limit'iga (429, "resets
+4:10pm UTC") ikkita agent (reuse, simplification) o'rtada duch keldi** —
+reuse agent o'z to'liq hisobotini ALLAQACHON yetkazib bo'lgandan KEYIN
+keyingi bir amalda xato berdi (uning hisoboti shuning uchun to'liq va
+ishlatiladigan), simplification agent esa hech qanday hisobot
+yetkazmasdan xato berdi (bu burchakdan natija yo'q). Efficiency va
+altitude ikkalasi ham to'liq ishladi (altitude — 0 topilma).
+
+**Reuse (3 ta topilma, uchtasi ham tuzatildi):**
+1. `api/ai_settings.py`ning `get_ai_budget_limits`/`set_ai_budget_limits`i
+   `AIBudgetLimitsOut(...)`ni ikki joyda (bittasi `None`-holat uchun,
+   ikkinchisi to'ldirilgan holat uchun) mustaqil qurgan edi —
+   `_to_provider_status_out`ning aynan bir xil konventsiyasi bilan
+   `_to_budget_limits_out(override)` yordamchisiga chiqarildi.
+2. `frontend/src/lib/api.ts`ning `downloadDocument` (FR-KNW-001) va
+   `downloadJsonFile` (FR-CTL-002/FR-AUD-005) bir xil Blob/
+   createObjectURL/anchor-click/revokeObjectURL ketma-ketligini
+   mustaqil yozgan edi — `triggerBlobDownload(filename, blob)`
+   yordamchisiga chiqarildi, ikkalasi ham shuni chaqiradi.
+3. `task_service.py`ning `attach_document_to_task` va `list_task_
+   attachments`i `ResolvedTaskAttachment(...)`ni `(attachment,
+   document)` juftligidan ikki joyda mustaqil qurgan edi (bittasi
+   inline, `broken=False` qattiq yozilgan; ikkinchisi sikl ichida,
+   `broken=document is None`) — `_resolve_attachment(attachment,
+   document)`ga chiqarildi, ikkalasi ham shuni chaqiradi.
+
+**Efficiency (2 ta topilma tuzatildi, 1 tasi ataylab o'tkazib
+yuborildi):**
+1. `workspaces/[id]/page.tsx`ning `handleAttachDocument`i muvaffaqiyatli
+   POST'dan keyin butun attachment ro'yxatini `getTaskAttachments`
+   orqali qayta so'rardi — holbuki `attachTaskDocument`ning o'zi
+   allaqachon to'liq `TaskAttachmentOut`ni qaytaradi. Endi shu
+   qaytarilgan obyekt to'g'ridan-to'g'ri mavjud state massiviga
+   qo'shiladi, qayta so'rovsiz.
+2. `handleDetachDocument`i ham xuddi shunday, muvaffaqiyatli DELETE'dan
+   (204, hech narsa qaytarmaydi) keyin butun ro'yxatni qayta so'rardi —
+   endi o'chirilgan attachment mahalliy `filter` bilan state'dan olib
+   tashlanadi.
+3. `api/knowledge.py`ning `_read_bounded`i (11-security-review'ning
+   o'z bounded-read tuzatishi) bo'laklarni ro'yxatga yig'ib, oxirida
+   `b"".join(chunks)` qiladi — bu limit yaqinidagi fayl uchun cho'qqi
+   xotirani vaqtincha ikki baravar qiladi. Ataylab **tuzatilmadi**:
+   bu fixning o'z maqsadi (cheksiz o'qishni chegaralash) allaqachon
+   erishilgan, xotira-tejash ikkinchi darajali va marjinal, va bu fayl
+   yaqindagina diqqat bilan (audit-zanjiri uslubida) xavfsizlik
+   tuzatishining predmeti bo'lgan — sababsiz qayta tegish xavf-foyda
+   nisbatiga mos emas.
+
+**Altitude**: 0 topilma — bu safar chindan ham toza.
+
+**Simplification**: bu burchakdan hech qanday natija yo'q (agent
+hisobot yetkazmasdan rate-limit bilan tugadi). Qayta ishga tushirish
+o'rniga (limit shu zahoti qayta urilishi mumkin edi) mavjud 3 burchak
+bilan davom etildi — bu burchak keyingi `/simplify` pass'ida qamrab
+olinishi mumkin.
+
+Tuzatishlardan keyin: 548 test (backend, real Postgres'da) o'zgarishsiz
+o'tdi; `ruff format`/`ruff check`/`mypy src/doda` toza; frontend
+`tsc --noEmit`/ESLint/production build toza; barcha 16 E2E spec
+(`task-attachments.spec.ts` ham — aynan tuzatilgan `_resolve_attachment`
+yo'lini ishlatadi) real backend+frontend'ga (production build, barcha
+11 mustaqil seed prefiksi bilan) qarshi qayta ishga tushirilib yashil.

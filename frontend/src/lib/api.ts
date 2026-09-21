@@ -1106,6 +1106,22 @@ export function deleteDocument(sessionId: string, workspaceId: string, documentI
   return apiFetch(`/v1/workspaces/${workspaceId}/documents/${documentId}`, sessionId, { method: "DELETE" });
 }
 
+// ---- browser-side download helper (FR-CTL-002 export, FR-AUD-005 evidence
+// package, FR-KNW-001 file download) ----
+
+// Shared by sessions/page.tsx's "export my data", customers/[id]/page.tsx's
+// "export evidence package", and downloadDocument below — all three save a
+// Blob under a given filename via the same anchor-click sequence; only the
+// Blob's origin (JSON payload vs. raw fetched bytes) differs per caller.
+function triggerBlobDownload(filename: string, blob: Blob): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 // Fetches the raw bytes and immediately saves them under the document's
 // own filename — same browser-download shape as downloadJsonFile below,
 // but the payload here is arbitrary binary content, not JSON.
@@ -1123,27 +1139,10 @@ export async function downloadDocument(
     await throwApiError(response);
   }
   const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
+  triggerBlobDownload(filename, blob);
 }
 
-// ---- browser-side download helper (FR-CTL-002 export, FR-AUD-005 evidence package) ----
-
-// Shared by sessions/page.tsx's "export my data" and customers/[id]/page.tsx's
-// "export evidence package" — both fetched a JSON payload and immediately
-// saved it as a file with the identical Blob/createObjectURL/anchor-click/
-// revokeObjectURL sequence; consolidated here so a third caller doesn't
-// have to copy it a third time.
 export function downloadJsonFile(filename: string, data: unknown): void {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
+  triggerBlobDownload(filename, blob);
 }

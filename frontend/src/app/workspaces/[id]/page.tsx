@@ -384,10 +384,12 @@ export default function WorkspacePage() {
     if (!documentId) return;
     setAttachingFor(task.id);
     try {
-      await attachTaskDocument(sessionId, workspaceId, task.id, documentId);
+      const attachment = await attachTaskDocument(sessionId, workspaceId, task.id, documentId);
       setAttachDrafts((prev) => ({ ...prev, [task.id]: "" }));
-      const attachments = await getTaskAttachments(sessionId, workspaceId, task.id);
-      setOpenTaskAttachments((prev) => ({ ...prev, [task.id]: attachments }));
+      setOpenTaskAttachments((prev) => ({
+        ...prev,
+        [task.id]: [...(prev[task.id] ?? []), attachment],
+      }));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Faylni task'ga bog'lab bo'lmadi.");
     } finally {
@@ -400,8 +402,10 @@ export default function WorkspacePage() {
     setDetachingAttachmentId(attachment.id);
     try {
       await detachTaskDocument(sessionId, workspaceId, task.id, attachment.id);
-      const attachments = await getTaskAttachments(sessionId, workspaceId, task.id);
-      setOpenTaskAttachments((prev) => ({ ...prev, [task.id]: attachments }));
+      setOpenTaskAttachments((prev) => ({
+        ...prev,
+        [task.id]: (prev[task.id] ?? []).filter((a) => a.id !== attachment.id),
+      }));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Bog'lanishni uzib bo'lmadi.");
     } finally {

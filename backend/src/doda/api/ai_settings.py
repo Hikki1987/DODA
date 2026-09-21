@@ -47,6 +47,7 @@ from doda.application.authz_service import (
 )
 from doda.config import Settings, get_settings
 from doda.domain.ai_provider_settings.models import AIProviderVerification
+from doda.domain.ai_usage.models import CustomerAIBudgetOverride
 from doda.infrastructure.ai_pricing import CENTS_PER_DOLLAR
 
 router = APIRouter(tags=["ai-settings"])
@@ -66,6 +67,15 @@ def _to_provider_status_out(
         verified_at=verification.last_verified_at if verification else None,
         verified_ok=verification.last_verified_ok if verification else None,
         verified_error=verification.last_error if verification else None,
+    )
+
+
+def _to_budget_limits_out(override: CustomerAIBudgetOverride | None) -> AIBudgetLimitsOut:
+    if override is None:
+        return AIBudgetLimitsOut(soft_cap_usd=None, hard_cap_usd=None)
+    return AIBudgetLimitsOut(
+        soft_cap_usd=override.soft_cap_cents / CENTS_PER_DOLLAR,
+        hard_cap_usd=override.hard_cap_cents / CENTS_PER_DOLLAR,
     )
 
 
@@ -173,12 +183,7 @@ async def get_ai_budget_limits(
     override = await ai_budget_service.get_customer_ai_budget_override(
         ctx.db, customer_id=ctx.customer.customer_id
     )
-    if override is None:
-        return AIBudgetLimitsOut(soft_cap_usd=None, hard_cap_usd=None)
-    return AIBudgetLimitsOut(
-        soft_cap_usd=override.soft_cap_cents / CENTS_PER_DOLLAR,
-        hard_cap_usd=override.hard_cap_cents / CENTS_PER_DOLLAR,
-    )
+    return _to_budget_limits_out(override)
 
 
 @router.put("/v1/customers/{customer_id}/ai-budget-limits", response_model=AIBudgetLimitsOut)
@@ -199,10 +204,7 @@ async def set_ai_budget_limits(
         soft_cap_usd=body.soft_cap_usd,
         hard_cap_usd=body.hard_cap_usd,
     )
-    return AIBudgetLimitsOut(
-        soft_cap_usd=override.soft_cap_cents / CENTS_PER_DOLLAR,
-        hard_cap_usd=override.hard_cap_cents / CENTS_PER_DOLLAR,
-    )
+    return _to_budget_limits_out(override)
 
 
 @router.delete("/v1/customers/{customer_id}/ai-budget-limits", status_code=204)

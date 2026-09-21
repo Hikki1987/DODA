@@ -228,6 +228,19 @@ class ResolvedTaskAttachment:
     size_bytes: int | None
 
 
+def _resolve_attachment(attachment: TaskAttachment, document: Document | None) -> ResolvedTaskAttachment:
+    return ResolvedTaskAttachment(
+        id=attachment.id,
+        document_id=attachment.document_id,
+        attached_by=attachment.attached_by,
+        created_at=attachment.created_at,
+        broken=document is None,
+        filename=document.filename if document else None,
+        content_type=document.content_type if document else None,
+        size_bytes=document.size_bytes if document else None,
+    )
+
+
 async def attach_document_to_task(
     session: AsyncSession, task: Task, *, document_id: uuid.UUID, actor_id: str
 ) -> ResolvedTaskAttachment:
@@ -251,16 +264,7 @@ async def attach_document_to_task(
     )
     session.add(attachment)
     await session.flush()
-    return ResolvedTaskAttachment(
-        id=attachment.id,
-        document_id=attachment.document_id,
-        attached_by=attachment.attached_by,
-        created_at=attachment.created_at,
-        broken=False,
-        filename=document.filename,
-        content_type=document.content_type,
-        size_bytes=document.size_bytes,
-    )
+    return _resolve_attachment(attachment, document)
 
 
 async def detach_task_attachment(session: AsyncSession, attachment: TaskAttachment) -> None:
@@ -281,22 +285,10 @@ async def list_task_attachments(session: AsyncSession, task_id: uuid.UUID) -> li
     )
     documents_by_id = {d.id: d for d in documents.scalars()}
 
-    resolved = []
-    for attachment in attachments:
-        document = documents_by_id.get(attachment.document_id)
-        resolved.append(
-            ResolvedTaskAttachment(
-                id=attachment.id,
-                document_id=attachment.document_id,
-                attached_by=attachment.attached_by,
-                created_at=attachment.created_at,
-                broken=document is None,
-                filename=document.filename if document else None,
-                content_type=document.content_type if document else None,
-                size_bytes=document.size_bytes if document else None,
-            )
-        )
-    return resolved
+    return [
+        _resolve_attachment(attachment, documents_by_id.get(attachment.document_id))
+        for attachment in attachments
+    ]
 
 
 async def request_reminder(
