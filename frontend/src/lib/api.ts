@@ -972,6 +972,35 @@ export function getAiBudgetStatus(sessionId: string, customerId: string): Promis
   return apiFetch(`/v1/customers/${customerId}/ai-budget`, sessionId);
 }
 
+// FR-ADM-005: "AI byudjeti va limitlarni belgilash" — until this existed,
+// the soft/hard caps above were a single, fixed, deployment-wide value
+// nobody could change per customer. CustomerOwner-only to set/clear;
+// CustomerOwner/Auditor may view (same as getAiBudgetStatus).
+export interface AiBudgetLimitsOut {
+  soft_cap_usd: number | null;
+  hard_cap_usd: number | null;
+}
+
+export function getAiBudgetLimits(sessionId: string, customerId: string): Promise<AiBudgetLimitsOut> {
+  return apiFetch(`/v1/customers/${customerId}/ai-budget-limits`, sessionId);
+}
+
+export function setAiBudgetLimits(
+  sessionId: string,
+  customerId: string,
+  softCapUsd: number,
+  hardCapUsd: number,
+): Promise<AiBudgetLimitsOut> {
+  return apiFetch(`/v1/customers/${customerId}/ai-budget-limits`, sessionId, {
+    method: "PUT",
+    body: JSON.stringify({ soft_cap_usd: softCapUsd, hard_cap_usd: hardCapUsd }),
+  });
+}
+
+export function clearAiBudgetLimits(sessionId: string, customerId: string): Promise<void> {
+  return apiFetch(`/v1/customers/${customerId}/ai-budget-limits`, sessionId, { method: "DELETE" });
+}
+
 // NFR-COST-001's breakdown half — the total above shows one number; this
 // shows where it went, per workspace/provider/model. Same auditorium
 // (CustomerOwner/Auditor), same "swallow 403 like an optional section" rule.

@@ -350,6 +350,17 @@ def authorize_view_ai_budget(context: CustomerContext) -> None:
         raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not view the AI budget")
 
 
+def authorize_manage_ai_budget(context: CustomerContext) -> None:
+    """FR-ADM-005: SETTING the customer's own AI budget caps is a
+    higher-trust act than viewing them (authorize_view_ai_budget above,
+    which also lets Auditor read them) — Auditor is explicitly read-only
+    by design (2.2), so this is CustomerOwner-only, the same
+    restrictiveness as authorize_manage_ai_provider_settings: it affects
+    every workspace under the customer, not just the caller's own."""
+    if context.role is not CustomerRole.CUSTOMER_OWNER:
+        raise AuthorizationError(Decision.DENY, f"role {context.role.value} may not manage the AI budget")
+
+
 def authorize_manage_workspace_ai_preference(context: WorkspaceContext) -> None:
     """Same shape as authorize_manage_workspace_members: setting the
     workspace's own default provider/model affects every member's chat,

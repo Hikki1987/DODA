@@ -7151,3 +7151,111 @@ aniqroq.
 api.py` + `test_cross_workspace_record_access.py`ga 1 ta qo'shimcha),
 barchasi real Postgres'da; `ruff`/`mypy` toza; frontend `tsc`/ESLint/
 production build toza; barcha 15 E2E spec yashil.
+
+**FR-ADM (Administrator va platforma boshqaruvi, 3.9-bo'lim) — to'liq
+dizayn taklifi yozildi (`docs/design-proposals/FR-ADM-design-proposal.md`)
+va uning yagona haqiqatda qurilishi mumkin bo'lgan qismi — FR-ADM-005,
+AI byudjeti va limitlarni belgilash — amalga oshirildi.** TRD'ning o'z
+3.9-bo'limini (pandoc orqali) qayta o'qib, olti sub-talab (FR-ADM-001..006)
+har biri alohida baholandi, oldingi sessiyaning "FR-ADM hali qurilmagan"
+degan umumiy xulosasidan farqli, aniq toifalarga bo'lib:
+
+- **FR-ADM-001** (customer/workspace ro'yxati+holati paneli, "Admin
+  faqat o'z scope'idagi obyektlarni ko'radi") — allaqachon
+  QONDIRILGAN. Bu talab PLATFORM-darajasidagi admin panelini emas,
+  CustomerOwner'ning o'z customer'i doirasidagi ko'rinishini nazarda
+  tutadi deb o'qildi (2.2-bo'lim rol jadvalida `platform_owner` degan
+  tenant'dan yuqori primitiv umuman yo'q, va "faqat o'z scope'idagi"
+  mezoni aynan CustomerOwner'ning bugungi cheklovini tasvirlaydi) —
+  `/customers/{id}` sahifasi (workspace/a'zolar/kill switch/audit/AI
+  sozlamalari) bu talabni RLS+aniq customer_id tekshiruvlari orqali
+  allaqachon qamraydi.
+- **FR-ADM-002/003/004** (custom role+permission matritsa, connector
+  consent/scope, ABAC policy) — ATAYLAB QURILMADI. Uchtasi ham
+  bugungi RBAC modelini (fiksirlangan Python enum + qattiq yozilgan
+  `authorize_*` funksiyalar) tubdan qayta qurishni yoki umuman yangi
+  subsystem (ABAC policy engine, ko'p-connector consent modeli)
+  o'ylab topishni talab qiladi — bularning har biri uchun dizayn
+  taklif hujjatida aniq, javob berilishi kerak bo'lgan savollar
+  yozildi (masalan: custom role CustomerRole/WorkspaceRole'ni
+  ALMASHTIRADIMI yoki ustiga qo'shiladimi — bu javobga qarab butun
+  authz zanjiri qayta yozilishi yoki yozilmasligi mumkin).
+- **FR-ADM-005** ("AI byudjeti va limitlarni belgilash") —
+  **QURILDI**, quyida batafsil.
+- **FR-ADM-006** (feature flag + model routing) — QISMAN allaqachon
+  mavjud (model routing — `ai_preference_service`ning 4 pog'onali
+  ustuvorlik zanjiri, `PUT /v1/workspaces/{id}/ai-preference`,
+  o'zgarish darhol qo'llanadi), lekin bitta aniq bo'shliq topildi:
+  bu o'zgarish HECH QACHON audit qilinmaydi, talab esa aniq "audit
+  qilinadi" deydi — dizayn taklifiga kichik, keyingi qadam sifatida
+  yozildi (`ai_preference.workspace_set.v1` event turi qo'shish),
+  bu sessiyada QURILMADI (FR-ADM-006 o'zi "Should", bu hujjatning
+  maqsadi xaritalash, hammasini bir yo'la yopish emas). Feature-flag
+  yarmi — hech qanday umumiy mexanizm yo'q — yangi qaror talab qiladi.
+
+**FR-ADM-005 amalga oshirilishi**: `ai_budget_service.reserve_budget`
+allaqachon limitga yetganda bloklardi (`BudgetExceededError`/402), lekin
+limitning o'zi — `Settings.ai_budget_soft_usd_per_customer_month`/
+`ai_budget_hard_usd_per_customer_month` — BUTUN deployment uchun bitta,
+fiksirlangan qiymat edi, hech qanday customer o'zinikini o'zgartira
+olmasdi. Yangi `ai_budget_overrides` jadvali (0025-migratsiya,
+`ai_budget_ledgers`ning aynan bir xil "customer_id PRIMARY KEY" RLS
+shakli) — qatorning yo'qligi "deployment standarti qo'llanadi" degani,
+`workspace_language_settings`/`notification_preferences`ning "yo'qlik =
+standart" konventsiyasining takrori.
+
+`ai_budget_service._effective_caps_cents(session, customer_id)` — YANGI,
+markazlashtirilgan funksiya: override bo'lsa o'shani, bo'lmasa
+`Settings`dan o'qiydi. Muhimi: `reserve_budget` VA `get_budget_status`
+ikkalasi ham ENDI shu bitta funksiyani chaqiradi — avval ikkalasi
+mustaqil, o'z-o'zidan `Settings`ni o'qirdi (birga refaktor qilingan, chunki
+ikkita mustaqil o'qish qatori kelajakda jimgina bir-biridan uzoqlashib
+ketishi mumkin edi — "ko'rsatilgan qiymat" va "haqiqatda majburlangan
+qiymat" bir xil manbadan kelishi kerak, aks holda `get_budget_status`
+noto'g'ri raqam ko'rsatishi mumkin edi). Bu real, o'lchangan foyda
+sifatida test bilan tasdiqlandi
+(`test_the_override_is_enforced_not_just_reported` — juda past override
+o'rnatib, HAQIQIY `reserve_budget` chaqiruvi shu override bilan
+bloklanishini tekshiradi, faqat `get_budget_status`ning ko'rsatishini
+emas).
+
+`set_customer_ai_budget_override` — `soft_cap_usd <= 0`/`hard_cap_usd <=
+0` yoki `hard_cap_usd < soft_cap_usd` holatlarida yangi
+`InvalidBudgetOverrideError` (422 `INVALID_BUDGET_LIMITS`) ko'taradi —
+ikkinchi tekshiruv ("hard >= soft") DB darajasidagi cheklov emas, balki
+mantiqiy: aks holda soft-cap ogohlantirishi hard-cap allaqachon
+bloklagandan KEYIN paydo bo'lardi, ikkita limitning butun maqsadini
+buzib. Concurrency himoyasi — `notification_service.set_notification_
+preference`ning aynan bir xil `begin_nested`/`IntegrityError`/"oxirgi
+yozuvchi g'olib" naqshi (kill switch'ning "birinchi g'olib"idan farqli —
+bu yerda ham har bir chaqiruvchi O'Z qiymatini xohlaydi, umumiy
+"ta'minlash" emas).
+
+O'zgarish `ai_budget.override_set.v1`/`ai_budget.override_cleared.v1`
+sifatida audit qilinadi (`soft_cap_usd`/`hard_cap_usd` — sof raqamlar,
+`test_audit_redaction.py`ning allowlist'iga qo'shildi) — `set_workspace_
+language`ning "versiyalangan VA audit qilingan, faqat bittasi emas"
+mulohazasining takrori.
+
+`GET/PUT/DELETE /v1/customers/{id}/ai-budget-limits` — yangi
+`authorize_manage_ai_budget` (CustomerOwner-only, `authorize_manage_ai_
+provider_settings`bilan bir xil restriktivlik — Auditor ko'ra oladi,
+o'zgartira olmaydi, chunki bu moliyaviy nazorat, "sezgir emas"
+toifasiga kirmaydi) bilan himoyalangan.
+
+Frontend: customer sahifasining "AI provayderlar" bo'limiga (mavjud
+byudjet banneri va breakdown jadvalidan keyin) soft/hard cap formasi
+qo'shildi — "Standart qiymatga qaytarish" tugmasi faqat override
+mavjud bo'lganda ko'rinadi. Yangi Playwright qadam (`customer.spec.ts`)
+formani to'ldirib, backend'ning o'zidan (`GET .../ai-budget-limits`)
+override haqiqatda saqlanganini, keyin tozalangandan keyin `null`ga
+qaytganini tasdiqlaydi.
+
+Real backend+production frontend'ga qarshi (barcha 15 E2E spec, jumladan
+accessibility skaneri — yangi forma hech qanday WCAG buzilishi
+keltirmadi) tasdiqlandi. Migratsiya round-trip (0024→0025→0024→0025)
+qo'lda tekshirildi.
+
+533 test (527+6: `test_ai_budget_override.py`), barchasi real
+Postgres'da; `ruff`/`mypy` toza; frontend `tsc`/ESLint/production build
+toza; barcha 15 E2E spec yashil.

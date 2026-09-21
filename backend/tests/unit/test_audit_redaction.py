@@ -58,6 +58,8 @@ ALLOWED_SAFE_METADATA_KEYS = {
     "exported_trace_id",
     "event_count",
     "provider_receipt",
+    "soft_cap_usd",
+    "hard_cap_usd",
 }
 
 

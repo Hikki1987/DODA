@@ -27,6 +27,7 @@ from doda.application.action_service import (
     ApprovalInvalidError,
     InvalidCompensationOutcomeError,
 )
+from doda.application.ai_budget_service import InvalidBudgetOverrideError
 from doda.application.ai_provider_settings_service import ProviderDisabledError
 from doda.application.authz_service import AuthorizationError
 from doda.application.conversation_service import DeepRequestCostCeilingExceededError
@@ -334,6 +335,18 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=_envelope(
                 code="BUDGET_EXCEEDED",
                 message="Oylik AI byudjeti tugadi.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(InvalidBudgetOverrideError)
+    async def _invalid_budget_override(request: Request, exc: InvalidBudgetOverrideError) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content=_envelope(
+                code="INVALID_BUDGET_LIMITS",
+                message=str(exc),
                 trace_id=_trace_id(request),
                 retryable=False,
             ),

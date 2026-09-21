@@ -120,3 +120,20 @@ class AIBudgetLedger(Base):
     """Sum of outstanding RESERVED AIUsageEvent estimates not yet reconciled."""
     actual_cents: Mapped[int] = mapped_column(default=0)
     """Sum of RECONCILED AIUsageEvent actual costs this month."""
+
+
+class CustomerAIBudgetOverride(Base):
+    """FR-ADM-005: "AI byudjeti va limitlarni belgilash" — a per-customer
+    override of `Settings.ai_budget_soft_usd_per_customer_month`/
+    `ai_budget_hard_usd_per_customer_month`, which are otherwise the SAME
+    fixed value for every customer on this deployment. No row means "use
+    the deployment-wide default" (same "absence = default" convention as
+    `notification_preferences`/`workspace_language_settings`), not zero —
+    a customer with no override is not silently given a $0 budget.
+    """
+
+    __tablename__ = "ai_budget_overrides"
+
+    customer_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    soft_cap_cents: Mapped[int]
+    hard_cap_cents: Mapped[int]

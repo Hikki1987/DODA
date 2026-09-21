@@ -108,5 +108,28 @@ test("customer page: members, notification prefs, audit, kill switch", async ({ 
     await expect(page.getByText("Faol.")).toHaveCount(0);
   });
 
+  await test.step("FR-ADM-005: set the customer's own AI budget caps, then clear them back to default", async () => {
+    await page.getByLabel("Soft cap ($)").fill("15");
+    await page.getByLabel("Hard cap ($)").fill("30");
+    await page.click('form:has(input[type="number"]) button:has-text("Saqlash")');
+    await expect(page.getByText("Standart qiymatga qaytarish")).toBeVisible();
+
+    // Real, not UI-only: hit the backend directly for the override itself.
+    const afterSet = await page.request.get(
+      `http://localhost:8000/v1/customers/${CUSTOMER_ID}/ai-budget-limits`,
+      { headers: { Authorization: `Bearer ${SESSION_ID}` } },
+    );
+    expect(await afterSet.json()).toEqual({ soft_cap_usd: 15, hard_cap_usd: 30 });
+
+    await page.click("text=Standart qiymatga qaytarish");
+    await expect(page.getByText("Standart qiymatga qaytarish")).toHaveCount(0);
+
+    const afterClear = await page.request.get(
+      `http://localhost:8000/v1/customers/${CUSTOMER_ID}/ai-budget-limits`,
+      { headers: { Authorization: `Bearer ${SESSION_ID}` } },
+    );
+    expect(await afterClear.json()).toEqual({ soft_cap_usd: null, hard_cap_usd: null });
+  });
+
   expect(consoleErrors, `unexpected browser console errors: ${consoleErrors.join("\n")}`).toEqual([]);
 });

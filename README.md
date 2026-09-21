@@ -673,6 +673,8 @@ docs/
   adr/                # Architecture Decision Records (TRD 6.4, NFR-MNT-001)
   open-decisions.md   # TRD 19.4 — Product Owner tasdig'i shart bo'lgan 8 savol, holati
   risk-register.md    # TRD 19.1 — o'nta riskning har biri, haqiqiy kod bazasiga nisbatan holati
+  design-proposals/   # Qurilmagan, Product Owner qarorini talab qiladigan bo'limlar uchun taklif
+                       # hujjatlari (masalan FR-ADM-design-proposal.md)
 ```
 
 ## Arxitektura qarorlari va ochiq savollar
@@ -684,4 +686,9 @@ qaroriga bitta joydan qarash: qaysi biri hal qilingan, qaysi biri hali
 ochiq, va qaysi biri hujjatdagi muddatidan allaqachon o'tib ketgan.
 `docs/risk-register.md` — TRD 19.1'dagi o'nta riskning har biri qanday
 yengillashtirilgani (yoki hali dormant/yengillashtirilmagan ekani),
-haqiqiy kod bazasiga nisbatan baholangan.
+haqiqiy kod bazasiga nisbatan baholangan. `docs/design-proposals/
+FR-ADM-design-proposal.md` — FR-ADM (3.9-bo'lim) olti talabining
+har biri uchun xulosa: qaysi biri mavjud UI bilan allaqachon
+qondirilgan, qaysi biri kichik qadam bilan yopilgan (FR-ADM-005,
+AI byudjeti limitlarini belgilash), va qaysi biri hali haqiqiy
+Product Owner/arxitektura qarorini kutmoqda (FR-ADM-002/003/004).

@@ -57,6 +57,20 @@ class AIBudgetStatusOut(BaseModel):
     over_soft_budget: bool
 
 
+class SetAIBudgetLimitsRequest(BaseModel):
+    soft_cap_usd: float
+    hard_cap_usd: float
+
+
+class AIBudgetLimitsOut(BaseModel):
+    """None means "no override — the deployment-wide Settings default
+    applies" (FR-ADM-005), distinct from AIBudgetStatusOut's soft/hard
+    caps, which always report the EFFECTIVE value (override or default)."""
+
+    soft_cap_usd: float | None
+    hard_cap_usd: float | None
+
+
 class AIUsageReportRowOut(BaseModel):
     """NFR-COST-001's "Customer/workspace/model bo'yicha" FinOps
     breakdown — one row per (workspace, provider, model) combination

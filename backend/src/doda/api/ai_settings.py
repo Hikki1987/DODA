@@ -19,11 +19,13 @@ from fastapi import APIRouter, Depends, Query
 from doda.ai.factory import is_provider_configured
 from doda.ai.types import Provider
 from doda.api.ai_settings_schemas import (
+    AIBudgetLimitsOut,
     AIBudgetStatusOut,
     AIFallbackSettingOut,
     AIPreferenceOut,
     AIUsageReportRowOut,
     ProviderStatusOut,
+    SetAIBudgetLimitsRequest,
     SetAIFallbackSettingRequest,
     SetAIPreferenceRequest,
     SetProviderEnabledRequest,
@@ -37,6 +39,7 @@ from doda.api.dependencies import (
 )
 from doda.application import ai_budget_service, ai_preference_service, ai_provider_settings_service
 from doda.application.authz_service import (
+    authorize_manage_ai_budget,
     authorize_manage_ai_provider_settings,
     authorize_manage_workspace_ai_preference,
     authorize_use_chat,
@@ -155,6 +158,58 @@ async def get_ai_budget_status(
         hard_cap_usd=status.hard_cap_cents / CENTS_PER_DOLLAR,
         spent_usd=status.spent_cents / CENTS_PER_DOLLAR,
         over_soft_budget=status.over_soft_budget,
+    )
+
+
+@router.get("/v1/customers/{customer_id}/ai-budget-limits", response_model=AIBudgetLimitsOut)
+async def get_ai_budget_limits(
+    ctx: CustomerRequestContext = Depends(get_customer_request_context),
+) -> AIBudgetLimitsOut:
+    """FR-ADM-005: the override itself (None fields = "no override, the
+    deployment default from get_ai_budget_status applies"), distinct
+    from the effective status above. Same viewing auditorium as the
+    budget status (CustomerOwner/Auditor)."""
+    authorize_view_ai_budget(ctx.customer)
+    override = await ai_budget_service.get_customer_ai_budget_override(
+        ctx.db, customer_id=ctx.customer.customer_id
+    )
+    if override is None:
+        return AIBudgetLimitsOut(soft_cap_usd=None, hard_cap_usd=None)
+    return AIBudgetLimitsOut(
+        soft_cap_usd=override.soft_cap_cents / CENTS_PER_DOLLAR,
+        hard_cap_usd=override.hard_cap_cents / CENTS_PER_DOLLAR,
+    )
+
+
+@router.put("/v1/customers/{customer_id}/ai-budget-limits", response_model=AIBudgetLimitsOut)
+async def set_ai_budget_limits(
+    body: SetAIBudgetLimitsRequest, ctx: CustomerRequestContext = Depends(get_customer_request_context)
+) -> AIBudgetLimitsOut:
+    """FR-ADM-005: "AI byudjeti va limitlarni belgilash" — until this
+    endpoint existed, the soft/hard caps enforced by ai_budget_service
+    (reserve_budget/get_budget_status) were a single, fixed, deployment-
+    wide Settings value with no way for any customer to set their own.
+    CustomerOwner-only (authorize_manage_ai_budget) — Auditor may view
+    but never change a financial control."""
+    authorize_manage_ai_budget(ctx.customer)
+    override = await ai_budget_service.set_customer_ai_budget_override(
+        ctx.db,
+        customer_id=ctx.customer.customer_id,
+        actor_id=f"user:{ctx.customer.user_id}",
+        soft_cap_usd=body.soft_cap_usd,
+        hard_cap_usd=body.hard_cap_usd,
+    )
+    return AIBudgetLimitsOut(
+        soft_cap_usd=override.soft_cap_cents / CENTS_PER_DOLLAR,
+        hard_cap_usd=override.hard_cap_cents / CENTS_PER_DOLLAR,
+    )
+
+
+@router.delete("/v1/customers/{customer_id}/ai-budget-limits", status_code=204)
+async def clear_ai_budget_limits(ctx: CustomerRequestContext = Depends(get_customer_request_context)) -> None:
+    authorize_manage_ai_budget(ctx.customer)
+    await ai_budget_service.clear_customer_ai_budget_override(
+        ctx.db, customer_id=ctx.customer.customer_id, actor_id=f"user:{ctx.customer.user_id}"
     )
 
 

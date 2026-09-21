@@ -43,10 +43,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.ai.errors import BudgetExceededError
 from doda.ai.types import ChatMode, GatewayUsage, Provider
+from doda.application.audit_service import record_audit_event
 from doda.config import get_settings
 from doda.domain.ai_usage.models import (
     AIBudgetLedger,
     AIUsageEvent,
+    CustomerAIBudgetOverride,
     UsageEventStatus,
     UsageMode,
     UsageProvider,
@@ -56,8 +58,110 @@ from doda.domain.workspace.models import Workspace
 from doda.infrastructure.ai_pricing import CENTS_PER_DOLLAR
 
 
+class InvalidBudgetOverrideError(Exception):
+    """Raised by set_customer_ai_budget_override for a non-positive cap
+    or a hard cap below the soft cap — the latter isn't a data-integrity
+    problem the DB itself would reject, but it would make the soft-cap
+    warning (over_soft_budget) fire only AFTER the hard cap has already
+    blocked the request, defeating the entire point of having two caps."""
+
+
 def current_year_month() -> str:
     return utcnow().strftime("%Y-%m")
+
+
+async def _effective_caps_cents(session: AsyncSession, *, customer_id: uuid.UUID) -> tuple[int, int]:
+    """(soft_cap_cents, hard_cap_cents) — a per-customer override
+    (FR-ADM-005) if one exists, otherwise the deployment-wide default
+    from Settings. The one place both reserve_budget and
+    get_budget_status resolve caps from, so they can never silently
+    disagree about which value is authoritative for a given customer."""
+    override = await session.get(CustomerAIBudgetOverride, customer_id)
+    if override is not None:
+        return override.soft_cap_cents, override.hard_cap_cents
+    settings = get_settings()
+    return (
+        round(settings.ai_budget_soft_usd_per_customer_month * CENTS_PER_DOLLAR),
+        round(settings.ai_budget_hard_usd_per_customer_month * CENTS_PER_DOLLAR),
+    )
+
+
+async def get_customer_ai_budget_override(
+    session: AsyncSession, *, customer_id: uuid.UUID
+) -> CustomerAIBudgetOverride | None:
+    return await session.get(CustomerAIBudgetOverride, customer_id)
+
+
+async def set_customer_ai_budget_override(
+    session: AsyncSession,
+    *,
+    customer_id: uuid.UUID,
+    actor_id: str,
+    soft_cap_usd: float,
+    hard_cap_usd: float,
+) -> CustomerAIBudgetOverride:
+    if soft_cap_usd <= 0 or hard_cap_usd <= 0:
+        raise InvalidBudgetOverrideError("budget caps must be positive")
+    if hard_cap_usd < soft_cap_usd:
+        raise InvalidBudgetOverrideError("the hard cap must be at least as large as the soft cap")
+    soft_cap_cents = round(soft_cap_usd * CENTS_PER_DOLLAR)
+    hard_cap_cents = round(hard_cap_usd * CENTS_PER_DOLLAR)
+
+    override = await session.get(CustomerAIBudgetOverride, customer_id)
+    if override is None:
+        override = CustomerAIBudgetOverride(
+            customer_id=customer_id, soft_cap_cents=soft_cap_cents, hard_cap_cents=hard_cap_cents
+        )
+        try:
+            async with session.begin_nested():
+                session.add(override)
+                await session.flush()
+        except IntegrityError:
+            # Two concurrent "set" calls for a customer with no override
+            # yet both saw None and both tried to insert — same "last
+            # write wins" recovery as notification_service.set_
+            # notification_preference, for the same reason: each caller
+            # has its own intended value, not a shared "ensure true".
+            override = await session.get(CustomerAIBudgetOverride, customer_id)
+            assert override is not None
+            override.soft_cap_cents = soft_cap_cents
+            override.hard_cap_cents = hard_cap_cents
+            await session.flush()
+    else:
+        override.soft_cap_cents = soft_cap_cents
+        override.hard_cap_cents = hard_cap_cents
+        await session.flush()
+
+    # FR-ADM-006's "o'zgarish darhol qo'llanadi va audit qilinadi" applies
+    # in spirit to every admin config change in this codebase, this one
+    # included — matches set_workspace_language's own "versioned AND
+    # audited, not just one of the two" reasoning.
+    await record_audit_event(
+        session,
+        customer_id=customer_id,
+        trace_id=uuid.uuid4(),
+        actor_id=actor_id,
+        event_type="ai_budget.override_set.v1",
+        safe_metadata={"soft_cap_usd": soft_cap_usd, "hard_cap_usd": hard_cap_usd},
+    )
+    return override
+
+
+async def clear_customer_ai_budget_override(
+    session: AsyncSession, *, customer_id: uuid.UUID, actor_id: str
+) -> None:
+    override = await session.get(CustomerAIBudgetOverride, customer_id)
+    if override is not None:
+        await session.delete(override)
+        await session.flush()
+        await record_audit_event(
+            session,
+            customer_id=customer_id,
+            trace_id=uuid.uuid4(),
+            actor_id=actor_id,
+            event_type="ai_budget.override_cleared.v1",
+            safe_metadata={},
+        )
 
 
 async def _get_or_create_locked_ledger(
@@ -92,15 +196,14 @@ async def _get_or_create_locked_ledger(
 
 
 async def reserve_budget(session: AsyncSession, *, customer_id: uuid.UUID, estimated_cost_cents: int) -> None:
-    settings = get_settings()
-    hard_cap_cents = round(settings.ai_budget_hard_usd_per_customer_month * CENTS_PER_DOLLAR)
+    _soft_cap_cents, hard_cap_cents = await _effective_caps_cents(session, customer_id=customer_id)
     year_month = current_year_month()
     ledger = await _get_or_create_locked_ledger(session, customer_id=customer_id, year_month=year_month)
 
     projected_cents = ledger.reserved_cents + ledger.actual_cents + estimated_cost_cents
     if projected_cents > hard_cap_cents:
         raise BudgetExceededError(
-            f"customer {customer_id} would exceed its ${settings.ai_budget_hard_usd_per_customer_month:.2f}"
+            f"customer {customer_id} would exceed its ${hard_cap_cents / CENTS_PER_DOLLAR:.2f}"
             " monthly AI budget",
             scope="customer_month",
         )
@@ -207,9 +310,7 @@ async def get_usage_report(
 
 
 async def get_budget_status(session: AsyncSession, *, customer_id: uuid.UUID) -> BudgetStatus:
-    settings = get_settings()
-    soft_cap_cents = round(settings.ai_budget_soft_usd_per_customer_month * CENTS_PER_DOLLAR)
-    hard_cap_cents = round(settings.ai_budget_hard_usd_per_customer_month * CENTS_PER_DOLLAR)
+    soft_cap_cents, hard_cap_cents = await _effective_caps_cents(session, customer_id=customer_id)
     year_month = current_year_month()
     ledger = await session.scalar(
         select(AIBudgetLedger).where(
