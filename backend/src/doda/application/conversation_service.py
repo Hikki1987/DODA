@@ -69,6 +69,7 @@ from doda.application.ai_tools import (
     is_write_tool,
     propose_write_tool_action,
 )
+from doda.application.audit_service import record_audit_event
 from doda.application.authz_service import WorkspaceContext
 from doda.application.workspace_service import get_workspace_language
 from doda.config import Settings
@@ -473,6 +474,18 @@ async def stream_message(
                     # turn(s), then either dispatch (read) or stop (write).
                     write_calls = [c for c in tool_calls_this_round if is_write_tool(c.name)]
                     read_calls = [c for c in tool_calls_this_round if is_read_tool(c.name)]
+                    # FR-ACT-001: a call to a tool name in neither registry
+                    # must be rejected AND audited — before this, such a
+                    # call fell out of both lists above and was silently
+                    # dropped (no tool-result message for its call_id, no
+                    # audit trail), which would also leave the next round's
+                    # history with an unanswered tool_call most providers'
+                    # own APIs reject outright.
+                    unregistered_calls = [
+                        c
+                        for c in tool_calls_this_round
+                        if not is_write_tool(c.name) and not is_read_tool(c.name)
+                    ]
 
                     for call in tool_calls_this_round:
                         assistant_tool_message = Message(
@@ -527,6 +540,29 @@ async def stream_message(
                         await session.flush()
                         yield TurnChunk(kind="tool_status", text=status_text)
                         break
+
+                    for call in unregistered_calls:
+                        error_text = f"Tool error: '{call.name}' is not a registered tool."
+                        await record_audit_event(
+                            session,
+                            customer_id=workspace_context.customer_id,
+                            workspace_id=workspace_context.workspace_id,
+                            trace_id=trace_id,
+                            actor_id=f"user:{workspace_context.user_id}",
+                            event_type="ai_tool.unregistered_call_rejected.v1",
+                            safe_metadata={"tool_name": call.name},
+                        )
+                        tool_result_message = Message(
+                            customer_id=conversation.customer_id,
+                            conversation_id=conversation.id,
+                            role=MessageRole.TOOL,
+                            content=error_text,
+                            tool_call_id=call.call_id,
+                        )
+                        session.add(tool_result_message)
+                        history.append(
+                            ChatTurn(role=ChatRole.TOOL, content=error_text, tool_call_id=call.call_id)
+                        )
 
                     for call in read_calls:
                         try:

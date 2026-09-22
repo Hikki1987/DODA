@@ -7667,3 +7667,52 @@ boshqa kamroq cheklangan endpoint emas) tekshirdi.
 **Natija: 0 topilma** — 4-, 6-, 7-, 9-, 10-, 11-review'lar bilan bir xil.
 
 548 test, barchasi real Postgres'da (kod o'zgarmadi — sof tekshiruv).
+
+**FR-ACT-001'ning o'z qabul mezoni — "Registrda bo'lmagan tool
+chaqiruvi rad etiladi va audit qilinadi" — haqiqatda bajarilmasdi.**
+TRD'ning FR-ACT bo'limini (3.6) qayta o'qib chiqishda aniqlandi:
+`conversation_service.py`ning tool-round handling'i `write_calls`/
+`read_calls`ni `is_write_tool`/`is_read_tool` orqali filtrlaydi, lekin
+model biror registrga kirmagan tool nomini (masalan, haqiqatda mavjud
+bo'lmagan `delete_all_customer_data`) chaqirsa, bu chaqiruv IKKALA
+ro'yxatdan ham chiqib qoladi — na `dispatch_read_tool`ning o'z
+`ToolNotFoundError`i (bu faqat `_READ_TOOL_ARGS`da RO'YXATGA OLINGAN,
+lekin argumentlari yaroqsiz tool uchun yetib boradi, chunki
+`is_read_tool` filtri allaqachon registrga kirganlarni saralab bo'ladi),
+na hech qanday audit yozuvi ishga tushmaydi. Amaliy oqibat ikki qavatli:
+(1) FR-ACT-001'ning o'z talabi — rad etish VA audit — ikkalasi ham
+sodir bo'lmaydi, chaqiruv shunchaki JIMGINA yo'qoladi; (2) keyingi
+raund modelning o'ziga shu javobsiz qolgan `tool_call_id` bilan tarix
+yuboriladi — ko'pchilik provayder API'lari (OpenAI/Anthropic/Gemini)
+buni o'zi rad etadi, chunki ular har bir `tool_call`ga mos `tool`
+roli javobini talab qiladi.
+
+Tuzatish: `stream_message`ning tool-round handling'iga uchinchi,
+`unregistered_calls` ro'yxati qo'shildi (`is_write_tool`/`is_read_tool`
+ikkalasiga ham kirmagan chaqiruvlar). Har biri uchun: (1)
+`record_audit_event` chaqiriladi (`ai_tool.unregistered_call_
+rejected.v1`, `safe_metadata={"tool_name": ...}` — bu kalit
+`test_audit_redaction.py`ning ruxsat ro'yxatida allaqachon bor edi),
+(2) `dispatch_read_tool`ning yaroqsiz-argument yo'li bilan bir xil
+shaklda TOOL-role xato xabari (`"Tool error: '<nom>' is not a
+registered tool."`) yoziladi va tarixga qo'shiladi — modelga har doim
+har bir `tool_call_id` uchun javob berilishini ta'minlab, "javobsiz
+tool_call" holatini oldini oladi.
+
+Audit-zanjiri uslubida isbotlandi: tuzatishni vaqtincha `git stash`
+bilan olib tashlab, yangi test
+(`test_a_call_to_an_unregistered_tool_is_rejected_and_audited`) aynan
+kutilgan tarzda muvaffaqiyatsiz bo'lishini ko'rsatdim
+(`roles == ['USER', 'ASSISTANT', 'ASSISTANT']` — TOOL yozuvi umuman
+yo'q, uch elementli, kutilgan to'rt o'rniga), keyin tuzatishni qaytarib
+yashil ekanini tasdiqladim. Test HAM to'liq turn muvaffaqiyatli
+yakunlanishini (`gateway.calls == 2` — cheksiz tsiklga tushmasligi),
+HAM to'g'ri TOOL xabar matnini, HAM `GET .../audit?event_type=ai_tool.
+unregistered_call_rejected.v1` orqali audit yozuvining haqiqatda
+mavjudligini va `safe_metadata`sining to'g'riligini tekshiradi.
+
+549 test, barchasi real Postgres'da; `ruff`/`mypy` toza. Frontend/API
+kontrakti o'zgarmadi (yangi filial faqat model o'zi hech qachon
+mavjud bo'lmagan tool nomini chaqirganda ishga tushadi — bu holat
+E2E'ning haqiqiy `NullModelGateway`/chat oqimida hech qachon
+yuzaga kelmaydi) — E2E qayta ishga tushirilmadi.

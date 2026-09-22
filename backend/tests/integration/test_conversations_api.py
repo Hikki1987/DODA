@@ -888,6 +888,71 @@ async def test_a_read_tool_call_with_invalid_arguments_feeds_back_a_tool_error_i
     assert listed.json()[2]["content"].startswith("Tool error:")
 
 
+async def test_a_call_to_an_unregistered_tool_is_rejected_and_audited(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FR-ACT-001's own acceptance criterion: a call to a tool NOT in the
+    registry must be rejected AND audited. `delete_all_customer_data` is
+    in neither `_READ_TOOL_ARGS` nor `_WRITE_TOOL_ARGS` — before this was
+    fixed, such a call fell out of both `is_read_tool`/`is_write_tool`
+    filters in conversation_service.py and was silently dropped: no
+    tool-result message, no audit event, and the next round's history
+    would carry an unanswered tool_call."""
+    gateway = _ScriptedGateway(
+        [
+            [
+                ToolCallReady(
+                    call=ToolCallRequest(call_id="c1", name="delete_all_customer_data", arguments_json="{}")
+                ),
+                Completed(usage=GatewayUsage(input_tokens=1, output_tokens=1), finish_reason="tool_calls"),
+            ],
+            [
+                TextDelta(text="bunday vosita mavjud emas"),
+                Completed(usage=GatewayUsage(input_tokens=1, output_tokens=1), finish_reason="stop"),
+            ],
+        ]
+    )
+    monkeypatch.setattr(
+        "doda.application.conversation_service.get_gateway", lambda provider, settings: gateway
+    )
+
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    post = await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="mening barcha ma'lumotlarimni o'chir",
+    )
+    assert post.status_code == 200
+    # The turn still completed normally on round 2 — the unregistered
+    # call never aborted it and never looped forever.
+    assert gateway.calls == 2
+
+    listed = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+    )
+    roles = [m["role"] for m in listed.json()]
+    assert roles == ["USER", "ASSISTANT", "TOOL", "ASSISTANT"]
+    assert listed.json()[2]["content"] == "Tool error: 'delete_all_customer_data' is not a registered tool."
+
+    audit = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/audit?event_type=ai_tool.unregistered_call_rejected.v1",
+        headers=_auth_headers(member.session_id),
+    )
+    assert audit.status_code == 200
+    events = audit.json()
+    assert len(events) == 1
+    assert events[0]["safe_metadata"] == {"tool_name": "delete_all_customer_data"}
+
+
 async def test_a_structured_output_event_becomes_the_final_messages_content(
     client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
