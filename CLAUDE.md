@@ -7649,3 +7649,21 @@ o'tdi; `ruff format`/`ruff check`/`mypy src/doda` toza; frontend
 (`task-attachments.spec.ts` ham — aynan tuzatilgan `_resolve_attachment`
 yo'lini ishlatadi) real backend+frontend'ga (production build, barcha
 11 mustaqil seed prefiksi bilan) qarshi qayta ishga tushirilib yashil.
+
+**O'n uchinchi `security-review` o'tkazildi — beshinchi `/simplify`
+pass'ining o'z diff'iga (`2046280..757f0c7`, 5 fayl, sof refaktor)
+qarshi.** Diapazon tor va aniq: uchta yordamchi funksiya chiqarish
+(`_to_budget_limits_out`, `_resolve_attachment`,
+`triggerBlobDownload`) va frontend'ning ikkita handler'i endi mutatsiya
+javobidan to'g'ridan-to'g'ri state yangilashi — hech biri xatti-harakat
+o'zgartirishga mo'ljallanmagan edi. Topish subagent'i har uch backend
+yordamchisini o'z chaqiruv nuqtalari bilan solishtirib (avtorizatsiya
+tekshiruvi ikkalasida ham helper chaqirilishidan OLDIN, o'zgarishsiz;
+`_resolve_attachment`ning `broken=False` yo'li hamon faqat `document`
+isbotlangan holda non-None bo'lgan yo'ldan chaqiriladi) va frontend
+o'zgarishini (mutatsiya javobi — xuddi shu authorized so'rovning o'zi,
+boshqa kamroq cheklangan endpoint emas) tekshirdi.
+
+**Natija: 0 topilma** — 4-, 6-, 7-, 9-, 10-, 11-review'lar bilan bir xil.
+
+548 test, barchasi real Postgres'da (kod o'zgarmadi — sof tekshiruv).
