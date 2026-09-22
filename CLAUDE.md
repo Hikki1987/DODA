@@ -7716,3 +7716,21 @@ kontrakti o'zgarmadi (yangi filial faqat model o'zi hech qachon
 mavjud bo'lmagan tool nomini chaqirganda ishga tushadi — bu holat
 E2E'ning haqiqiy `NullModelGateway`/chat oqimida hech qachon
 yuzaga kelmaydi) — E2E qayta ishga tushirilmadi.
+
+**O'n to'rtinchi `security-review` o'tkazildi — FR-ACT-001 tuzatishining
+o'z diff'iga qarshi (yangi kod yo'li, sof refaktor emas).** Tekshirilgan
+va to'g'ri ekani tasdiqlangan: (1) `call.name` (model-boshqaradigan,
+ishonchsiz) faqat ikkita joyga boradi — `Message.content` f-string (ORM
+TEXT maydoni, xom SQL emas) va `safe_metadata["tool_name"]` (allaqachon
+ruxsat etilgan kalit, boshqa har bir chaqiruv bilan bir xil canonical-
+JSON-hash quvuriga tushadi); (2) yangi filial hech qanday bajarish
+yo'liga (`dispatch_read_tool`/`propose_write_tool_action`) murojaat
+qilmaydi — faqat audit yozadi va rad etish xabarini qaytaradi, demak
+chetlab o'tiladigan avtorizatsiya sirti umuman yo'q; (3) audit
+yozuvining `customer_id`/`workspace_id`/`actor_id`si to'liq
+`workspace_context`dan keladi, `call.name` faqat `safe_metadata`ga
+tushadi — tenant-lararo audit yozish yo'li yo'q.
+
+**Natija: 0 topilma.**
+
+549 test, barchasi real Postgres'da (kod o'zgarmadi — sof tekshiruv).
