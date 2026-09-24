@@ -23,6 +23,7 @@ from doda.application.action_service import propose_action, validate_action
 from doda.config import get_settings
 from doda.db import tenant_scoped_session
 from doda.domain.action.models import RiskLevel
+from doda.domain.identity.models import ActorKind
 from doda.infrastructure.outbox_relay import main, relay_once, run_forever
 from tests.integration.conftest import assert_worker_still_running_before_signaling
 
@@ -73,6 +74,7 @@ async def test_relay_publishes_ready_action_to_its_event_stream(
             risk_level=RiskLevel.R1,
             payload={"query": "quarterly report"},
             idempotency_key="idem-relay-test",
+            actor_kind=ActorKind.HUMAN,
         )
         await validate_action(session, action, actor_id="user:alice")
 
@@ -127,6 +129,7 @@ async def test_two_concurrent_relay_workers_never_double_publish_the_same_messag
                 risk_level=RiskLevel.R1,
                 payload={"query": f"report {i}"},
                 idempotency_key=f"idem-concurrent-relay-{i}",
+                actor_kind=ActorKind.HUMAN,
             )
             await validate_action(session, action, actor_id="user:alice")
             action_ids.append(action.id)
@@ -168,6 +171,7 @@ async def test_run_forever_delivers_then_stops_promptly_on_stop_event(
             risk_level=RiskLevel.R1,
             payload={"query": "quarterly report"},
             idempotency_key="idem-run-forever-test",
+            actor_kind=ActorKind.HUMAN,
         )
         await validate_action(session, action, actor_id="user:alice")
 

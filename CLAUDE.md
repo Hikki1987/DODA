@@ -7964,3 +7964,91 @@ TRD'ning o'zi allaqachon yozgan C3/C4 sinflarining haqiqiy amalga
 oshirilishi).
 
 571 test, barchasi real Postgres'da. `ruff`/`mypy` toza.
+
+**Oltinchi `/simplify` ko'rib chiqish o'tkazildi — beshinchi pass'dan
+(`757f0c7`) keyingi 6 commit'ga qarshi (FR-ACT-001 tuzatishi, FR-AUTH-009
++ uning o'z chat-yo'li bypass tuzatishi, NFR-DATA-001b/c).** Jarayon bir
+xil: reuse/simplification/efficiency/altitude — 4 ta parallel subagent,
+bu safar to'rttasi ham to'liq ishladi (oldingi pass'da ikkitasi rate-limit
+bilan tugagan edi).
+
+**Topildi va tuzatildi (uch agent bir xil ikkita nuqtani mustaqil topdi —
+yuqori ishonchlilik belgisi):**
+1. **`conversation_service.py`ning yangi `unregistered_calls` bucket'i
+   `write_calls`/`read_calls`ni ALLAQACHON hisoblab bo'lgan
+   `is_write_tool`/`is_read_tool`ni UCHINCHI marta qayta tekshirardi** —
+   uchta mustaqil list comprehension, har biri butun `tool_calls_this_
+   round`ni aylanib chiqib. Bitta siklga (`for c in tool_calls_this_
+   round: if/elif/else`) birlashtirildi — har chaqiruv uchun ko'pi bilan
+   ikkita predikat tekshiruvi, uchta emas.
+2. **Read-tool va unregistered-tool xato yo'llarining ikkalasi ham bir
+   xil "TOOL-role Message qur, session.add, history.append" uch qatorli
+   naqshni mustaqil takrorlagan edi** (FR-ACT-001'ning yangi bucket'i
+   eskisining o'zini nusxalagan) — `_append_tool_result(call, text)`
+   yopiq funksiyasiga chiqarildi (session/conversation/history'ni
+   yopib oladi — bular butun `stream_message` davomida o'zgarmas),
+   ikkalasi ham endi shuni chaqiradi.
+3. **`api/service_actors.py`ning `create_service_actor`si `_to_out`
+   yordamchisi (aynan shu faylda, ikki funksiya yuqorida) mavjud bo'lsa-da,
+   to'rtta maydonni (`id`/`name`/`created_at`/`revoked_at`) qo'lda qayta
+   ro'yxatlagan edi** — `ServiceActorCredentialCreatedOut(**_to_out(
+   record).model_dump(), secret=secret)`ga o'zgartirildi, ikkinchi
+   nusxa yo'qoldi.
+4. **`service_actor_service.py`ning mashina `User`i uchun tasodifiy
+   placeholder qiymati uchta operatsiya orqali olinardi** (`uuid.uuid4()`
+   → f-string → `sha256(...).hexdigest()`) — holbuki xohlangan narsa
+   shunchaki tasodifiy, noyob 64-belgili hex satr, aynan shu faylning
+   o'zi haqiqiy credential secret uchun ishlatadigan `secrets.
+   token_hex(32)` bilan bitta chaqiruvda olinadi. Bu yerda haqiqiy
+   "subject" yo'q (haqiqiy OIDC subject'ni hash qiladigan `identity_
+   service.hash_oidc_subject`dan farqli), shuning uchun o'sha funksiyani
+   chaqirish ham noto'g'ri semantika bo'lardi — to'g'ridan-to'g'ri
+   `secrets.token_hex(32)`ga almashtirildi.
+5. **`api/errors.py`ning yangi `_sensitive_content_blocked` handler'i
+   mavjud `_outbound_content_blocked`ning aynan bir xil "warning logla →
+   422 + `_envelope` qaytar" shaklini bayt-baytiga takrorladi** — ikkinchi,
+   deyarli aynan bir xil nusxa paydo bo'lgani aynan shu naqshni
+   umumlashtirish kerak bo'lgan payt edi (birinchisi yolg'iz bo'lganda
+   umumlashtirish erta bo'lardi). Yangi `_blocked_content_response(
+   request, *, code, message, log_event, **log_fields)` yordamchisiga
+   chiqarildi — ikkala handler ham endi shuni chaqiradi. **Ataylab
+   birlashtirilmagan narsa**: ikkita DETEKTOR (`outbound_guard.detect_
+   likely_secret` — shartsiz bloklash; `data_classification.classify_
+   outbound_content`ning C4 filiali — o'z docstring'ida "kelajakda
+   workspace-darajasida sozlanadigan siyosat bo'lishi mumkin" deb
+   yozilgan) bitta abstraksiyaga majburlanmadi — faqat ularning HTTP
+   javob qurish "dumi" umumiy, ikkala tekshiruvning o'zi mustaqil,
+   turli kelajakka ega qolishi kerak.
+6. **`propose_action`ning o'z `actor_kind: ActorKind = ActorKind.HUMAN`
+   defaulti — aynan shu default'ning o'zi FR-AUTH-009'ning R2-cap
+   bypass'iga sabab bo'lgan edi — faqat IKKITA chaqiruv nuqtasida
+   (`ai_tools.propose_write_tool_action`, `stream_message`) tuzatilgan,
+   lekin ILDIZ funksiyaning o'zida qolgan edi.** Altitude agent aniq
+   ko'rsatdi: kelajakda `propose_action`ning uchinchi chaqiruvchisi
+   (masalan yangi ops-skript yoki connector-driven proposer) paydo
+   bo'lsa, u jimgina yana HUMAN'ni meros qilib olib, aynan shu xato
+   sinfini uchinchi marta ochib qo'yishi mumkin edi — buni hech qanday
+   test yoki mypy ushlamas edi. Buning aynan hamkasbi bo'lgan tuzatish
+   (`authz_service.authorize_consume_approval`) esa allaqachon `actor_
+   kind: ActorKind`ni HECH QANDAY defaultsiz, kalit-so'z-majburiy qilib
+   olgan edi — `propose_action` ham xuddi shu davolashga o'tkazildi
+   (default olib tashlandi). `mypy`ning o'zi 16 ta test chaqiruv nuqtasini
+   (`test_outbox_relay.py`, `test_approval_consume_concurrency.py`,
+   `test_action_lifecycle.py`, `test_telegram_relay.py`, `test_
+   notifications.py`, `test_notification_preferences.py`) "Missing named
+   argument" bilan aniq ko'rsatib berdi — barchasiga `actor_kind=
+   ActorKind.HUMAN` qo'shildi (ular haqiqatan doim inson bo'lgan
+   stsenariylar). `Session.create_session`ning o'z `actor_kind` defaulti
+   ATAYLAB TEGILMADI — u yerda faqat ikkita, strukturaviy jihatdan
+   qat'iy yaratish yo'li bor (OIDC login — doim inson; service-actor
+   endpoint — doim aniq SERVICE uzatadi), xavfsizlik qarori "qaysi
+   default tanlanishi"ga bog'liq emas, `propose_action`dan farqli.
+
+**Ataylab o'tkazib yuborildi**: `SensitiveContentBlockedError.
+classification`ning "har doim bitta qiymat" ekanligi (simplification
+agent'i ham "past qiymatli" deb baholadi — parametr sifatida qolishi
+xavfsiz, bitta chaqiruv nuqtasi bor).
+
+Tuzatishlardan keyin: 571 test (backend, real Postgres'da) o'zgarishsiz
+o'tdi; `ruff format`/`ruff check`/`mypy src/doda` toza. Sof refaktor —
+xatti-harakat o'zgarmadi.

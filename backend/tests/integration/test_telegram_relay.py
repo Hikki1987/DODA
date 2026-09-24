@@ -33,6 +33,7 @@ from doda.config import get_settings
 from doda.db import async_session_factory, tenant_scoped_session
 from doda.domain.action.models import Action, ActionStatus, RiskLevel
 from doda.domain.audit.models import AuditEvent
+from doda.domain.identity.models import ActorKind
 from doda.domain.outbox.models import OutboxMessage
 from doda.infrastructure import telegram_relay as telegram_relay_module
 from doda.infrastructure.outbox_relay import relay_once as outbox_relay_once
@@ -82,6 +83,7 @@ async def _seed_ready_telegram_action(
             risk_level=RiskLevel.R0,  # raised to R3 by tool_policy
             payload={"chat_id": chat_id, "text": text},
             idempotency_key=f"idem-telegram-relay-{uuid.uuid4()}",
+            actor_kind=ActorKind.HUMAN,
         )
         await validate_action(session, action, actor_id="user:alice")
         assert action.status is ActionStatus.AWAITING_APPROVAL
@@ -220,6 +222,7 @@ async def test_a_non_telegram_action_is_left_alone(db_available: bool, redis_cli
             risk_level=RiskLevel.R1,
             payload={"query": "q"},
             idempotency_key=f"idem-other-tool-{uuid.uuid4()}",
+            actor_kind=ActorKind.HUMAN,
         )
         await validate_action(session, action, actor_id="user:alice")
         assert action.status is ActionStatus.READY
@@ -546,6 +549,7 @@ async def test_malformed_payload_drives_action_to_failed_without_calling_telegra
             risk_level=RiskLevel.R0,  # raised to R3 by tool_policy
             payload={"recipient": "not-a-chat-id"},  # no chat_id/text at all
             idempotency_key=f"idem-telegram-malformed-{uuid.uuid4()}",
+            actor_kind=ActorKind.HUMAN,
         )
         await validate_action(session, action, actor_id="user:alice")
         approval = await request_approval(session, action)

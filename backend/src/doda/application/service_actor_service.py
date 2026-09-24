@@ -53,13 +53,15 @@ async def create_service_actor_credential(
     stored or logged anywhere past this call.
 
     Mints a brand-new, non-OIDC User for the machine identity: its
-    oidc_subject_hash is a hash of a random token, never a real provider
-    subject, so it can never collide with (or be confused for) a human
-    login."""
-    machine_user = User(
-        oidc_subject_hash=hashlib.sha256(f"service-actor:{uuid.uuid4()}".encode()).hexdigest(),
-        display_name=name,
-    )
+    oidc_subject_hash is itself a random 256-bit token (`secrets.token_hex`,
+    the same entropy source `plaintext_secret` uses below) — never a real
+    provider subject, and never derived from one — so it can never collide
+    with (or be confused for) a human login. There is no real "subject" to
+    hash here (unlike identity_service.hash_oidc_subject, which hashes an
+    actual OIDC provider subject), so this deliberately doesn't route
+    through that function or wrap the token in another sha256 pass — one
+    random-token generation is the whole mechanism, not two."""
+    machine_user = User(oidc_subject_hash=secrets.token_hex(32), display_name=name)
     session.add(machine_user)
     await session.flush()
 

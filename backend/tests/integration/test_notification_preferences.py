@@ -17,6 +17,7 @@ from doda.application.notification_service import (
 )
 from doda.db import tenant_scoped_session
 from doda.domain.action.models import ActionStatus, RiskLevel
+from doda.domain.identity.models import ActorKind
 from doda.domain.notification.models import NotificationType
 from doda.main import app
 from tests.integration.conftest import seed_workspace_member
@@ -111,6 +112,7 @@ async def test_disabling_a_type_persists_and_suppresses_the_real_trigger(
             risk_level=RiskLevel.R1,
             payload={},
             idempotency_key="ntf-pref-suppressed-1",
+            actor_kind=ActorKind.HUMAN,
         )
         await apply_transition(session, action, ActionStatus.VALIDATING, actor_id=f"user:{member.user_id}")
         await apply_transition(session, action, ActionStatus.READY, actor_id=f"user:{member.user_id}")

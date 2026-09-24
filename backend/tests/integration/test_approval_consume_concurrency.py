@@ -28,6 +28,7 @@ from doda.db import tenant_scoped_session
 from doda.domain.action.approval import Approval, ApprovalStatus
 from doda.domain.action.models import Action, ActionStatus, RiskLevel
 from doda.domain.action.state_machine import InvalidActionTransition
+from doda.domain.identity.models import ActorKind
 from doda.domain.outbox.models import OutboxMessage
 from tests.integration.conftest import race_outcome, two_racing_sessions
 
@@ -49,6 +50,7 @@ async def test_two_concurrent_consumes_of_the_same_nonce_do_not_both_succeed(
             risk_level=RiskLevel.R3,
             payload={"to": "someone@example.com"},
             idempotency_key=str(uuid.uuid4()),
+            actor_kind=ActorKind.HUMAN,
         )
         action, approval = await submit_action_for_execution(session, action, actor_id="user:proposer")
         assert approval is not None

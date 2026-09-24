@@ -69,6 +69,26 @@ def _trace_id(request: Request) -> str:
     return getattr(request.state, "trace_id", str(uuid.uuid4()))
 
 
+def _blocked_content_response(
+    request: Request, *, code: str, message: str, log_event: str, **log_fields: object
+) -> JSONResponse:
+    """Shared HTTP-422 shape for `stream_message`'s two "content refused
+    before persisting/sending" guards (`OutboundContentBlockedError`,
+    `SensitiveContentBlockedError`) — both log one warning field naming
+    WHAT matched (a fixed pattern label or a TRD 13.2 class), never the
+    matched text itself, then return the same envelope shape. Kept as one
+    helper rather than two independent handler bodies once a second,
+    near-identical occurrence appeared (6th `/simplify` pass) — the two
+    underlying *detectors* stay separate (one is an absolute block, the
+    other's own docstring says it may become a configurable per-workspace
+    policy later), only this response-building tail is shared."""
+    logger.warning(log_event, trace_id=_trace_id(request), **log_fields)
+    return JSONResponse(
+        status_code=422,
+        content=_envelope(code=code, message=message, trace_id=_trace_id(request), retryable=False),
+    )
+
+
 logger = structlog.get_logger()
 
 
@@ -402,35 +422,27 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def _outbound_content_blocked(request: Request, exc: OutboundContentBlockedError) -> JSONResponse:
         # 10.1/OD-003: never echo the matched text back — only the fixed
         # pattern label, which names a credential TYPE, not its value.
-        logger.warning("ai_outbound_content_blocked", trace_id=_trace_id(request), pattern_label=exc.label)
-        return JSONResponse(
-            status_code=422,
-            content=_envelope(
-                code="OUTBOUND_CONTENT_BLOCKED",
-                message="Xabar tarkibida maxfiy kalit/tokenga o'xshash matn aniqlandi — xabar yuborilmadi.",
-                trace_id=_trace_id(request),
-                retryable=False,
-            ),
+        return _blocked_content_response(
+            request,
+            code="OUTBOUND_CONTENT_BLOCKED",
+            message="Xabar tarkibida maxfiy kalit/tokenga o'xshash matn aniqlandi — xabar yuborilmadi.",
+            log_event="ai_outbound_content_blocked",
+            pattern_label=exc.label,
         )
 
     @app.exception_handler(SensitiveContentBlockedError)
     async def _sensitive_content_blocked(request: Request, exc: SensitiveContentBlockedError) -> JSONResponse:
         # NFR-DATA-001c: never echo the matched text back — only the class
         # it was classified into (C4), never the content that triggered it.
-        logger.warning(
-            "ai_sensitive_content_blocked", trace_id=_trace_id(request), classification=exc.classification
-        )
-        return JSONResponse(
-            status_code=422,
-            content=_envelope(
-                code="SENSITIVE_CONTENT_BLOCKED",
-                message=(
-                    "Xabar tarkibida moliyaviy, tibbiy yoki huquqiy sezgir ma'lumot (C4) "
-                    "aniqlandi — bu sinf ma'lumot tashqi AI providerga sukut bo'yicha yuborilmaydi."
-                ),
-                trace_id=_trace_id(request),
-                retryable=False,
+        return _blocked_content_response(
+            request,
+            code="SENSITIVE_CONTENT_BLOCKED",
+            message=(
+                "Xabar tarkibida moliyaviy, tibbiy yoki huquqiy sezgir ma'lumot (C4) "
+                "aniqlandi — bu sinf ma'lumot tashqi AI providerga sukut bo'yicha yuborilmaydi."
             ),
+            log_event="ai_sensitive_content_blocked",
+            classification=exc.classification,
         )
 
     @app.exception_handler(DeepRequestCostCeilingExceededError)

@@ -28,6 +28,7 @@ from doda.domain.action.approval import ApprovalStatus
 from doda.domain.action.models import Action, ActionStatus, RiskLevel
 from doda.domain.audit.models import AuditEvent
 from doda.domain.base import utcnow
+from doda.domain.identity.models import ActorKind
 from doda.domain.outbox.models import OutboxMessage
 
 
@@ -51,6 +52,7 @@ async def test_low_risk_action_auto_advances_to_ready_and_enqueues_outbox(
         risk_level=RiskLevel.R1,
         payload={"query": "quarterly report"},
         idempotency_key="idem-1",
+        actor_kind=ActorKind.HUMAN,
     )
     assert created is True
 
@@ -82,6 +84,7 @@ async def test_high_risk_action_requires_approval_before_ready(tenant_session) -
         risk_level=RiskLevel.R3,
         payload={"to": "boss@example.com", "subject": "Q3 numbers"},
         idempotency_key="idem-2",
+        actor_kind=ActorKind.HUMAN,
     )
 
     await validate_action(session, action, actor_id="user:alice")
@@ -126,6 +129,7 @@ async def test_registered_tool_cannot_be_under_declared_below_its_minimum_risk(
         risk_level=RiskLevel.R0,  # under-declared — must be raised to R3
         payload={"chat_id": "123", "text": "hello"},
         idempotency_key="idem-telegram-1",
+        actor_kind=ActorKind.HUMAN,
     )
 
     assert action.risk_level is RiskLevel.R3
@@ -157,6 +161,7 @@ async def test_approval_rejected_if_payload_changed_after_approval_requested(
         risk_level=RiskLevel.R3,
         payload={"to": "boss@example.com", "amount": 100},
         idempotency_key="idem-3",
+        actor_kind=ActorKind.HUMAN,
     )
     await validate_action(session, action, actor_id="user:alice")
     approval = await request_approval(session, action)
@@ -187,6 +192,7 @@ async def test_wrong_nonce_does_not_consume_the_approval(tenant_session) -> None
         risk_level=RiskLevel.R3,
         payload={"to": "boss@example.com"},
         idempotency_key="idem-4",
+        actor_kind=ActorKind.HUMAN,
     )
     await validate_action(session, action, actor_id="user:alice")
     approval = await request_approval(session, action)
@@ -214,6 +220,7 @@ async def test_expired_approval_is_rejected_and_action_moves_to_expired(
         risk_level=RiskLevel.R3,
         payload={"to": "boss@example.com"},
         idempotency_key="idem-5",
+        actor_kind=ActorKind.HUMAN,
     )
     await validate_action(session, action, actor_id="user:alice")
     approval = await request_approval(session, action)
@@ -241,6 +248,7 @@ async def test_duplicate_idempotency_key_returns_same_action_not_a_new_one(
         risk_level=RiskLevel.R3,
         payload={"to": "boss@example.com"},
         idempotency_key="idem-shared",
+        actor_kind=ActorKind.HUMAN,
     )
 
     first, first_created = await propose_action(session, **kwargs)
@@ -280,6 +288,7 @@ async def _running_action(tenant_session) -> tuple[uuid.UUID, object, Action]:
         risk_level=RiskLevel.R0,
         payload={"query": "hi"},
         idempotency_key="idem-receipt-1",
+        actor_kind=ActorKind.HUMAN,
     )
     await validate_action(session, action, actor_id="user:alice")
     assert action.status is ActionStatus.READY
@@ -337,6 +346,7 @@ async def _ready_action(tenant_session, *, idempotency_key: str) -> tuple[uuid.U
         risk_level=RiskLevel.R0,
         payload={"query": "hi"},
         idempotency_key=idempotency_key,
+        actor_kind=ActorKind.HUMAN,
     )
     await validate_action(session, action, actor_id="user:alice")
     assert action.status is ActionStatus.READY

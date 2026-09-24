@@ -18,6 +18,7 @@ from doda.application.task_service import (
 from doda.db import tenant_scoped_session
 from doda.domain.action.models import ActionStatus, RiskLevel
 from doda.domain.base import utcnow
+from doda.domain.identity.models import ActorKind
 from doda.domain.notification.models import NotificationType
 from doda.domain.task.models import TaskStatus
 from doda.main import app
@@ -90,6 +91,7 @@ async def test_failed_action_notification_fires_on_transition_to_failed(
             risk_level=RiskLevel.R1,
             payload={},
             idempotency_key="ntf-failed-1",
+            actor_kind=ActorKind.HUMAN,
         )
         await apply_transition(session, action, ActionStatus.VALIDATING, actor_id=f"user:{member.user_id}")
         await apply_transition(session, action, ActionStatus.READY, actor_id=f"user:{member.user_id}")

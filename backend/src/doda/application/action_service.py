@@ -97,7 +97,7 @@ async def propose_action(
     payload: dict[str, Any],
     idempotency_key: str,
     task_id: uuid.UUID | None = None,
-    actor_kind: ActorKind = ActorKind.HUMAN,
+    actor_kind: ActorKind,
 ) -> tuple[Action, bool]:
     """Create a DRAFT action, or return the existing one for a repeated
     idempotency_key (FR-ACT-004) instead of creating a duplicate.
@@ -114,15 +114,19 @@ async def propose_action(
     a registered tool's approval/step-up requirement can't be skipped by
     under-declaring risk_level in the request body.
 
-    15th security-review pass (FR-AUTH-009): this default let
-    `ai_tools.propose_write_tool_action`'s call site silently inherit
-    HUMAN and skip the Service Actor R2 cap entirely — a real, confirmed
-    bypass, not a hypothetical one. Fixed at that call site (it now
-    threads `actor_kind` through from `conversation_service.stream_message`,
-    which takes it as a required keyword with no default of its own) —
-    the default stays here only because every OTHER caller genuinely is
-    always human and forcing them to say so at every call site would be
-    pure ceremony, not a second layer of defense.
+    15th security-review pass (FR-AUTH-009) found this parameter's own
+    default let `ai_tools.propose_write_tool_action`'s call site silently
+    inherit HUMAN and skip the Service Actor R2 cap entirely — a real,
+    confirmed bypass. That call site was fixed by threading `actor_kind`
+    through explicitly, but its default stayed *here*, on the exact
+    function whose default caused the bug — a 6th-`/simplify`-pass
+    altitude review pointed out that leaves the same seam open for
+    whichever caller is added next. `actor_kind`'s own default is kept
+    only on `Session.create_session` (`session_service.py`) — there are
+    exactly two, structurally fixed creation paths (OIDC login: always
+    human; the service-actor endpoint: always passes SERVICE explicitly)
+    with no security decision resting on which one a careless future
+    caller picks by omission, unlike this function.
     """
     await assert_not_killed(session, customer_id=customer_id, workspace_id=workspace_id)
     risk_level = enforce_minimum_risk_level(tool_name, risk_level)

@@ -386,6 +386,24 @@ async def stream_message(
     history = _messages_to_history(
         await list_messages(session, conversation_id=conversation.id), max_chars=settings.ai_max_context_chars
     )
+
+    def _append_tool_result(call: ToolCallRequest, text: str) -> None:
+        """Shared tail of the read-tool and unregistered-tool-call branches
+        below: persist the TOOL-role Message and feed the same result back
+        into `history` so the next round's replay has an answer for every
+        `call.call_id` the model saw — a 6th-`/simplify`-pass reuse fix, the
+        two branches previously wrote this identical shape independently."""
+        session.add(
+            Message(
+                customer_id=conversation.customer_id,
+                conversation_id=conversation.id,
+                role=MessageRole.TOOL,
+                content=text,
+                tool_call_id=call.call_id,
+            )
+        )
+        history.append(ChatTurn(role=ChatRole.TOOL, content=text, tool_call_id=call.call_id))
+
     estimated_input_tokens = estimate_input_tokens_from_chars(sum(len(t.content) for t in history))
     per_round_cost_cents = estimate_cost_cents(
         choice.provider, model, input_tokens=estimated_input_tokens, output_tokens=max_output_tokens
@@ -517,20 +535,29 @@ async def stream_message(
 
                     # At least one tool call: persist the assistant's tool-call
                     # turn(s), then either dispatch (read) or stop (write).
-                    write_calls = [c for c in tool_calls_this_round if is_write_tool(c.name)]
-                    read_calls = [c for c in tool_calls_this_round if is_read_tool(c.name)]
-                    # FR-ACT-001: a call to a tool name in neither registry
-                    # must be rejected AND audited — before this, such a
-                    # call fell out of both lists above and was silently
-                    # dropped (no tool-result message for its call_id, no
-                    # audit trail), which would also leave the next round's
-                    # history with an unanswered tool_call most providers'
-                    # own APIs reject outright.
-                    unregistered_calls = [
-                        c
-                        for c in tool_calls_this_round
-                        if not is_write_tool(c.name) and not is_read_tool(c.name)
-                    ]
+                    # One pass over tool_calls_this_round, not three separate
+                    # comprehensions each re-checking is_write_tool/
+                    # is_read_tool — FR-ACT-001's own unregistered_calls
+                    # bucket is exhaustive by construction here, not by a
+                    # separate "matches neither" re-scan.
+                    write_calls: list[ToolCallRequest] = []
+                    read_calls: list[ToolCallRequest] = []
+                    unregistered_calls: list[ToolCallRequest] = []
+                    for c in tool_calls_this_round:
+                        if is_write_tool(c.name):
+                            write_calls.append(c)
+                        elif is_read_tool(c.name):
+                            read_calls.append(c)
+                        else:
+                            # FR-ACT-001: a call to a tool name in neither
+                            # registry must be rejected AND audited — before
+                            # this, such a call fell out of both buckets
+                            # above and was silently dropped (no tool-result
+                            # message for its call_id, no audit trail),
+                            # which would also leave the next round's
+                            # history with an unanswered tool_call most
+                            # providers' own APIs reject outright.
+                            unregistered_calls.append(c)
 
                     for call in tool_calls_this_round:
                         assistant_tool_message = Message(
@@ -598,17 +625,7 @@ async def stream_message(
                             event_type="ai_tool.unregistered_call_rejected.v1",
                             safe_metadata={"tool_name": call.name},
                         )
-                        tool_result_message = Message(
-                            customer_id=conversation.customer_id,
-                            conversation_id=conversation.id,
-                            role=MessageRole.TOOL,
-                            content=error_text,
-                            tool_call_id=call.call_id,
-                        )
-                        session.add(tool_result_message)
-                        history.append(
-                            ChatTurn(role=ChatRole.TOOL, content=error_text, tool_call_id=call.call_id)
-                        )
+                        _append_tool_result(call, error_text)
 
                     for call in read_calls:
                         try:
@@ -620,17 +637,7 @@ async def stream_message(
                             )
                         except Exception as exc:  # ToolArgumentsInvalidError/ToolNotFoundError
                             result_text = f"Tool error: {exc}"
-                        tool_result_message = Message(
-                            customer_id=conversation.customer_id,
-                            conversation_id=conversation.id,
-                            role=MessageRole.TOOL,
-                            content=result_text,
-                            tool_call_id=call.call_id,
-                        )
-                        session.add(tool_result_message)
-                        history.append(
-                            ChatTurn(role=ChatRole.TOOL, content=result_text, tool_call_id=call.call_id)
-                        )
+                        _append_tool_result(call, result_text)
                     await session.flush()
                 else:
                     # Exhausted ai_max_tool_rounds without a final text answer —

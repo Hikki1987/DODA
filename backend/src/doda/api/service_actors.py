@@ -41,13 +41,7 @@ async def create_service_actor(
     record, secret = await create_service_actor_credential(
         ctx.db, customer_id=ctx.customer.customer_id, name=body.name, created_by=ctx.customer.user_id
     )
-    return ServiceActorCredentialCreatedOut(
-        id=record.id,
-        name=record.name,
-        created_at=record.created_at,
-        revoked_at=record.revoked_at,
-        secret=secret,
-    )
+    return ServiceActorCredentialCreatedOut(**_to_out(record).model_dump(), secret=secret)
 
 
 @router.get("/v1/customers/{customer_id}/service-actors", response_model=list[ServiceActorCredentialOut])
