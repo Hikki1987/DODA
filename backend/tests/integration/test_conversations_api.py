@@ -39,11 +39,15 @@ from doda.ai.types import (
     ToolSpec,
 )
 from doda.application import ai_budget_service, ai_provider_settings_service
-from doda.application.workspace_service import create_workspace
+from doda.application.session_service import create_session
+from doda.application.workspace_service import add_workspace_member, create_workspace
 from doda.config import Settings
 from doda.db import tenant_scoped_session
 from doda.domain.ai_usage.models import AIBudgetLedger, AIUsageEvent, UsageEventStatus
 from doda.domain.conversation.models import Conversation, Message, MessageRole
+from doda.domain.customer.models import CustomerMembership
+from doda.domain.identity.models import ActorKind, AuthStrength, User
+from doda.domain.workspace.models import Workspace
 from doda.main import app
 from tests.integration.conftest import seed_workspace_member
 
@@ -1048,6 +1052,92 @@ async def test_a_write_tool_call_ends_the_turn_and_creates_a_real_pending_action
     assert len(action_list) == 1
     assert action_list[0]["tool_name"] == "telegram.send_message"
     assert action_list[0]["status"] == "AWAITING_APPROVAL"
+
+
+async def test_a_service_actor_chatting_still_gets_its_r2_risk_cap_enforced(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FR-AUTH-009, 15th security-review pass: `stream_message` reaching a
+    write tool call via `ai_tools.propose_write_tool_action` is a SECOND
+    call site into `action_service.propose_action`, independent of the
+    one in api/actions.py — the review that added FR-AUTH-009's R2 cap
+    only wired `actor_kind` through the direct
+    `POST /v1/workspaces/{id}/actions` route, leaving this one silently
+    defaulting to HUMAN. A Service Actor added to a workspace as an
+    ordinary member (a plausible real setup — "let this bot participate
+    in this workspace's chat") could otherwise get an R3 `telegram.
+    send_message` all the way to AWAITING_APPROVAL through chat alone,
+    exactly what 2.2's role table says its own max risk level (R2)
+    forbids.
+    """
+    gateway = _ScriptedGateway(
+        [
+            [
+                ToolCallReady(
+                    call=ToolCallRequest(
+                        call_id="c1",
+                        name="telegram_send_message",
+                        arguments_json=json.dumps({"chat_id": "123", "text": "salom"}),
+                    )
+                ),
+                Completed(usage=GatewayUsage(input_tokens=1, output_tokens=1), finish_reason="tool_calls"),
+            ]
+        ]
+    )
+    monkeypatch.setattr(
+        "doda.application.conversation_service.get_gateway", lambda provider, settings: gateway
+    )
+
+    owner = await seed_workspace_member(customer_role="customer_owner")
+
+    async with tenant_scoped_session(owner.customer_id) as db:
+        machine_user = User(oidc_subject_hash=str(uuid.uuid4()), display_name="ci-bot")
+        db.add(machine_user)
+        await db.flush()
+
+        machine_membership = CustomerMembership(
+            customer_id=owner.customer_id, user_id=machine_user.id, role="member"
+        )
+        db.add(machine_membership)
+        await db.flush()
+
+        workspace = await db.get(Workspace, owner.workspace_id)
+        assert workspace is not None
+        await add_workspace_member(
+            db,
+            workspace=workspace,
+            customer_membership=machine_membership,
+            role="member",
+            actor_id=f"user:{owner.user_id}",
+        )
+
+        service_session = await create_session(
+            db, user_id=machine_user.id, auth_strength=AuthStrength.AAL1, actor_kind=ActorKind.SERVICE
+        )
+
+    create = await client.post(
+        f"/v1/workspaces/{owner.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(service_session.id),
+    )
+    assert create.status_code == 200, create.text
+    conversation_id = create.json()["id"]
+
+    post = await _post_message(
+        client,
+        f"/v1/workspaces/{owner.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(service_session.id),
+        content="telegramga xabar yubor",
+    )
+    assert post.status_code == 403
+    assert post.json()["code"] == "SERVICE_ACTOR_RISK_LEVEL_EXCEEDED"
+
+    # No Action was left behind either — the rejection happens before
+    # even a DRAFT row is created (propose_action's own ordering).
+    actions = await client.get(
+        f"/v1/workspaces/{owner.workspace_id}/actions", headers=_auth_headers(owner.session_id)
+    )
+    assert actions.json() == []
 
 
 async def test_exhausting_every_tool_round_ends_as_an_explicit_incomplete_turn_not_a_silent_success(

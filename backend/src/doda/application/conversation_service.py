@@ -75,6 +75,7 @@ from doda.application.workspace_service import get_workspace_language
 from doda.config import Settings
 from doda.domain.ai_usage.models import UsageEventStatus
 from doda.domain.conversation.models import Conversation, Message, MessageRole
+from doda.domain.identity.models import ActorKind
 from doda.infrastructure.ai_pricing import estimate_cost_cents, estimate_input_tokens_from_chars
 
 MAX_PAGE_SIZE = 200
@@ -286,6 +287,7 @@ async def stream_message(
     mode: ChatMode,
     trace_id: uuid.UUID,
     settings: Settings,
+    actor_kind: ActorKind,
 ) -> typing.AsyncGenerator[TurnChunk, None]:
     """An async generator of `TurnChunk`s — the API layer
     (`api/conversations.py`) turns each into an SSE event, and also
@@ -297,6 +299,14 @@ async def stream_message(
     yielding anything and before any provider call, so a caller can
     translate those into a clean 4xx without any partial stream having
     started.
+
+    `actor_kind` is threaded straight through to
+    `ai_tools.propose_write_tool_action` (FR-AUTH-009's R2 cap) — this
+    parameter has no default precisely so a Service Actor chatting
+    cannot silently fall back to being treated as human here, the way
+    the 15th security-review pass found this exact call site doing
+    before `propose_action`'s own `actor_kind` was made a required
+    keyword.
     """
     # OD-003: block before the message is even persisted, let alone sent
     # to any provider — see doda.ai.outbound_guard's own docstring for
@@ -522,6 +532,7 @@ async def stream_message(
                             workspace_context=workspace_context,
                             trace_id=trace_id,
                             idempotency_key=idempotency_key,
+                            actor_kind=actor_kind,
                         )
                         status_text = (
                             f"Men '{call.name}' vositasini taklif qildim — holati: {action.status.value}. "

@@ -113,6 +113,16 @@ async def propose_action(
     can request a HIGHER tier than a tool's floor, never a lower one, so
     a registered tool's approval/step-up requirement can't be skipped by
     under-declaring risk_level in the request body.
+
+    15th security-review pass (FR-AUTH-009): this default let
+    `ai_tools.propose_write_tool_action`'s call site silently inherit
+    HUMAN and skip the Service Actor R2 cap entirely — a real, confirmed
+    bypass, not a hypothetical one. Fixed at that call site (it now
+    threads `actor_kind` through from `conversation_service.stream_message`,
+    which takes it as a required keyword with no default of its own) —
+    the default stays here only because every OTHER caller genuinely is
+    always human and forcing them to say so at every call site would be
+    pure ceremony, not a second layer of defense.
     """
     await assert_not_killed(session, customer_id=customer_id, workspace_id=workspace_id)
     risk_level = enforce_minimum_risk_level(tool_name, risk_level)

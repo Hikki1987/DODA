@@ -216,6 +216,7 @@ async def post_conversation_message(
         mode=body.mode,
         trace_id=trace_id,
         settings=get_settings(),
+        actor_kind=ctx.actor_kind,
     )
 
     # Prime the first item BEFORE returning the StreamingResponse: every

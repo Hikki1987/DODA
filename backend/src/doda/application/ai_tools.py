@@ -52,6 +52,7 @@ from doda.application.authz_service import WorkspaceContext
 from doda.application.task_service import list_tasks_for_workspace
 from doda.domain.action.approval import Approval
 from doda.domain.action.models import Action, RiskLevel
+from doda.domain.identity.models import ActorKind
 from doda.domain.task.models import TaskStatus
 
 
@@ -166,6 +167,7 @@ async def propose_write_tool_action(
     workspace_context: WorkspaceContext,
     trace_id: uuid.UUID,
     idempotency_key: str,
+    actor_kind: ActorKind,
 ) -> tuple[Action, Approval | None]:
     """Validates arguments, then routes through the EXACT SAME
     propose/validate/approval chain every other Action uses — this
@@ -199,6 +201,7 @@ async def propose_write_tool_action(
         risk_level=RiskLevel.R0,
         payload=json.loads(arguments_json),
         idempotency_key=idempotency_key,
+        actor_kind=actor_kind,
     )
     if created:
         return await submit_action_for_execution(session, action, actor_id=actor_id)

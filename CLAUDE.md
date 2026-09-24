@@ -7818,3 +7818,58 @@ session sifatida ishlamaydi").
 **Ataylab qolgan bo'shliq**: `CurrentIdentity`/`GET /v1/sessions`ning o'zi
 `actor_kind`ni hali ko'rsatmaydi (faqat ichki, `RequestContext` orqali
 enforcement uchun ishlatiladi) — bu kosmetik, funksional bo'shliq emas.
+
+**O'n beshinchi `security-review` o'tkazildi — yuqoridagi FR-AUTH-009 commit'iga
+qarshi, va HAQIQIY, jiddiy bo'shliq topildi: R2-cap ikkinchi, mustaqil chaqiruv
+yo'lida umuman ishlamas edi.** `authorize_consume_approval`/`propose_action`ga
+qo'shilgan `actor_kind` tekshiruvlari faqat `POST /v1/workspaces/{id}/actions`ning
+to'g'ridan-to'g'ri yo'lini (`api/actions.py`) qamragan edi — lekin `propose_action`ning
+IKKINCHI, mustaqil chaqiruvchisi bor: `ai_tools.propose_write_tool_action`, chat
+orkestratsiyasining (`conversation_service.stream_message`) o'zi model bir yozish
+tool'ini (masalan `telegram.send_message`) chaqirganda ishlatadi. Bu chaqiruv
+`actor_kind`ni umuman uzatmagani uchun `propose_action`ning o'z default qiymati
+(`ActorKind.HUMAN`) jimgina qo'llanardi.
+
+**Haqiqiy, konkret ekspluatatsiya stsenariysi**: CustomerOwner Service Actor
+kredensialini yaratib, uni oddiy workspace a'zosi sifatida qo'shsa (aynan
+"botni shu workspace'ning chatiga qo'shish" kabi oqilona, kutilgan sozlash) —
+Service Actor `POST /v1/auth/service-actor` orqali autentifikatsiyadan o'tib,
+`POST .../conversations/{id}/messages`ga xabar yuborib, modelni yozish tool'ini
+chaqirishga undasa, natijadagi R3 action HAQIQATDA `AWAITING_APPROVAL`gacha
+yetib borardi — 2.2'ning "eng yuqori risk darajasi R2" invariantini to'g'ridan-
+to'g'ri buzib. (`authorize_consume_approval`ning o'zi bu yo'l uchun ham to'g'ri
+ulangan edi — action baribir inson tasdig'ini talab qilardi, shuning uchun bu
+"nazoratsiz bajarilish"ga emas, balki R2-cap siyosatining buzilishiga olib
+kelardi.)
+
+Tuzatish: `ai_tools.propose_write_tool_action` va `conversation_service.
+stream_message`'ning ikkalasi ham endi `actor_kind`ni MAJBURIY (default'siz)
+kalit-so'z sifatida oladi — `api/conversations.py`ning chaqiruvi
+`ctx.actor_kind`ni uzatadi. `propose_action`ning o'zidagi `actor_kind: ActorKind
+= ActorKind.HUMAN` DEFAULTI ATAYLAB SAQLAB QOLINDI (uni butunlay majburiy
+qilish 19 ta boshqa, aloqasiz test chaqiruv nuqtasini o'zgartirishni talab
+qilardi — bu chaqiruvchilarning barchasi haqiqatda doim inson, va ularni
+majburlash sof marosim bo'lar edi) — lekin buning o'rniga HAQIQIY ikkita
+production chaqiruvchining (`api/actions.py`, `ai_tools.py`) ikkalasi ham endi
+ANIQ uzatadi, birontasi ham defaultga tayanmaydi.
+
+Audit-zanjiri uslubida isbotlandi: yangi
+`test_a_service_actor_chatting_still_gets_its_r2_risk_cap_enforced`
+(`test_conversations_api.py`) — haqiqiy Service Actor sessiyasini (machine
+User + CustomerMembership + WorkspaceMembership + `actor_kind=SERVICE`
+Session, hammasi to'g'ridan-to'g'ri qurilgan) workspace'ga oddiy a'zo
+sifatida qo'shib, chat orqali `telegram_send_message`ni chaqirtirib
+ko'rsatildi. Tuzatishni vaqtincha `ActorKind.HUMAN`ga qattiq bog'lab, test
+aynan kutilgan tarzda (`assert 200 == 403` — action haqiqatda
+`AWAITING_APPROVAL`gacha yetib borib) muvaffaqiyatsiz bo'lishini ko'rsatdim,
+keyin qaytarib yashil ekanini tasdiqladim.
+
+Bu topilma shu sessiyaning o'zi allaqachon bir necha marta ta'kidlagan
+darsning yana bir nusxasi: **yangi authz invariant qo'shilganda, uni FAQAT
+"asosiy"/birinchi topilgan chaqiruv yo'liga ulash yetarli emas — har doim
+`grep` orqali BARCHA chaqiruvchilarni tekshirish shart.** Bu safar buni
+mustaqil, alohida subagent (bu commit'ning o'zi ustida ishlagan) topdi —
+xuddi shu FR-AUTH-009 qurilishining o'zi yozganidan KEYIN, alohida ko'rib
+chiqishda.
+
+558 test (557+1), barchasi real Postgres'da. `ruff`/`mypy` toza.

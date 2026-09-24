@@ -23,6 +23,7 @@ from doda.application.authz_service import WorkspaceContext
 from doda.application.task_service import create_task
 from doda.db import tenant_scoped_session
 from doda.domain.action.models import ActionStatus
+from doda.domain.identity.models import ActorKind
 from doda.domain.security.roles import WorkspaceRole
 from tests.integration.conftest import seed_workspace_member
 
@@ -121,6 +122,7 @@ async def test_proposing_a_write_tool_creates_an_r3_action_requiring_approval(db
             workspace_context=ctx,
             trace_id=uuid.uuid4(),
             idempotency_key="chat:conv-1:call-1",
+            actor_kind=ActorKind.HUMAN,
         )
         await db.commit()
 
@@ -159,6 +161,7 @@ async def test_a_retried_write_tool_call_collapses_onto_the_same_action_not_a_du
             workspace_context=ctx,
             trace_id=uuid.uuid4(),
             idempotency_key="chat:conv-1:call-1",
+            actor_kind=ActorKind.HUMAN,
         )
         await db.commit()
 
@@ -170,6 +173,7 @@ async def test_a_retried_write_tool_call_collapses_onto_the_same_action_not_a_du
             workspace_context=ctx,
             trace_id=uuid.uuid4(),  # even a different trace_id — the key is what matters
             idempotency_key="chat:conv-1:call-1",
+            actor_kind=ActorKind.HUMAN,
         )
         await db.commit()
 
@@ -210,6 +214,7 @@ async def test_a_different_actors_replay_of_a_chat_derived_key_never_returns_the
             workspace_context=proposer_ctx,
             trace_id=uuid.uuid4(),
             idempotency_key=shared_key,
+            actor_kind=ActorKind.HUMAN,
         )
         await db.commit()
     assert proposer_approval is not None  # the real proposer legitimately gets the nonce
@@ -222,6 +227,7 @@ async def test_a_different_actors_replay_of_a_chat_derived_key_never_returns_the
             workspace_context=other_ctx,
             trace_id=uuid.uuid4(),
             idempotency_key=shared_key,
+            actor_kind=ActorKind.HUMAN,
         )
         await db.commit()
 
@@ -248,4 +254,5 @@ async def test_invalid_write_tool_arguments_are_rejected_before_any_action_is_cr
                 workspace_context=ctx,
                 trace_id=uuid.uuid4(),
                 idempotency_key="chat:conv-2:call-1",
+                actor_kind=ActorKind.HUMAN,
             )
