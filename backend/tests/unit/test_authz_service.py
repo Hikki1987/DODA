@@ -11,7 +11,7 @@ from doda.application.authz_service import (
     authorize_propose_action,
 )
 from doda.domain.action.models import Action, ActionStatus, RiskLevel
-from doda.domain.identity.models import AuthStrength
+from doda.domain.identity.models import ActorKind, AuthStrength
 from doda.domain.security.decisions import Decision
 from doda.domain.security.roles import WorkspaceRole
 
@@ -54,7 +54,9 @@ def test_self_approval_with_fresh_mfa_succeeds() -> None:
     action = _action(actor_id=f"user:{user_id}")
     context = _context(WorkspaceRole.MEMBER, user_id=user_id)
 
-    authorize_consume_approval(context, action, auth_strength=AuthStrength.AAL2)  # must not raise
+    authorize_consume_approval(
+        context, action, auth_strength=AuthStrength.AAL2, actor_kind=ActorKind.HUMAN
+    )  # must not raise
 
 
 def test_self_approval_without_fresh_mfa_requires_step_up() -> None:
@@ -63,7 +65,9 @@ def test_self_approval_without_fresh_mfa_requires_step_up() -> None:
     context = _context(WorkspaceRole.MEMBER, user_id=user_id)
 
     with pytest.raises(AuthorizationError) as exc_info:
-        authorize_consume_approval(context, action, auth_strength=AuthStrength.AAL1)
+        authorize_consume_approval(
+            context, action, auth_strength=AuthStrength.AAL1, actor_kind=ActorKind.HUMAN
+        )
     assert exc_info.value.decision is Decision.STEP_UP_REQUIRED
 
 
@@ -71,7 +75,9 @@ def test_workspace_admin_may_approve_someone_elses_action() -> None:
     action = _action(actor_id=f"user:{uuid.uuid4()}")
     admin_context = _context(WorkspaceRole.WORKSPACE_ADMIN)
 
-    authorize_consume_approval(admin_context, action, auth_strength=AuthStrength.AAL2)  # must not raise
+    authorize_consume_approval(
+        admin_context, action, auth_strength=AuthStrength.AAL2, actor_kind=ActorKind.HUMAN
+    )  # must not raise
 
 
 def test_plain_member_may_not_approve_someone_elses_action() -> None:
@@ -79,7 +85,25 @@ def test_plain_member_may_not_approve_someone_elses_action() -> None:
     other_member_context = _context(WorkspaceRole.MEMBER)
 
     with pytest.raises(AuthorizationError) as exc_info:
-        authorize_consume_approval(other_member_context, action, auth_strength=AuthStrength.AAL2)
+        authorize_consume_approval(
+            other_member_context, action, auth_strength=AuthStrength.AAL2, actor_kind=ActorKind.HUMAN
+        )
+    assert exc_info.value.decision is Decision.DENY
+
+
+def test_service_actor_may_never_consume_an_approval_even_its_own() -> None:
+    """FR-AUTH-009 / 2.2's invariant box: unconditional, checked before the
+    self-approval branch that would otherwise let a SERVICE session sail
+    through approving its own action under a plain MEMBER role and an
+    AAL2 auth_strength it could never actually reach."""
+    user_id = uuid.uuid4()
+    action = _action(actor_id=f"user:{user_id}")
+    context = _context(WorkspaceRole.MEMBER, user_id=user_id)
+
+    with pytest.raises(AuthorizationError) as exc_info:
+        authorize_consume_approval(
+            context, action, auth_strength=AuthStrength.AAL2, actor_kind=ActorKind.SERVICE
+        )
     assert exc_info.value.decision is Decision.DENY
 
 

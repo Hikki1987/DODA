@@ -29,7 +29,7 @@ from doda.application.authz_service import (
 )
 from doda.application.session_service import SessionInvalidError, resolve_session
 from doda.db import async_session_factory, tenant_scoped_session
-from doda.domain.identity.models import AuthStrength
+from doda.domain.identity.models import ActorKind, AuthStrength
 from doda.domain.security.decisions import Decision
 from doda.domain.workspace.models import WorkspaceTenantIndex
 
@@ -48,6 +48,7 @@ def _parse_bearer_session_id(authorization: str | None) -> uuid.UUID:
 class RequestContext:
     workspace: WorkspaceContext
     auth_strength: AuthStrength
+    actor_kind: ActorKind
     db: AsyncSession
 
 
@@ -74,7 +75,12 @@ async def _resolve_request_context(
         context = await get_workspace_context(
             db, user_id=session_record.user_id, workspace_id=workspace_id, allow_archived=allow_archived
         )
-        yield RequestContext(workspace=context, auth_strength=session_record.auth_strength, db=db)
+        yield RequestContext(
+            workspace=context,
+            auth_strength=session_record.auth_strength,
+            actor_kind=session_record.actor_kind,
+            db=db,
+        )
 
 
 async def get_request_context(

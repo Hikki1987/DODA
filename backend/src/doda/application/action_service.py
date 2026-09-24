@@ -23,6 +23,7 @@ from doda.domain.action.models import AUTO_APPROVED_RISK_LEVELS, Action, ActionS
 from doda.domain.action.state_machine import InvalidActionTransition, transition
 from doda.domain.action.tool_policy import enforce_minimum_risk_level
 from doda.domain.base import utcnow
+from doda.domain.identity.models import ActorKind
 from doda.domain.notification.models import NotificationType
 
 MAX_PAGE_SIZE = 200
@@ -30,6 +31,21 @@ MAX_PAGE_SIZE = 200
 
 class ApprovalInvalidError(Exception):
     """Raised when an approval cannot be consumed as-is (9.2 invariants)."""
+
+
+class ServiceActorRiskLevelExceededError(Exception):
+    """FR-AUTH-009 / 2.2's role table: a Service Actor's own maximum risk
+    level is R2 — it can never propose an action that would require human
+    approval, since it is also barred from ever consuming one
+    (authorize_consume_approval). Raised before the Action row is even
+    created (DRAFT), same "checked first" placement as the kill switch
+    check right above it in propose_action."""
+
+    def __init__(self, risk_level: RiskLevel) -> None:
+        self.risk_level = risk_level
+        super().__init__(
+            f"a service actor may not propose a {risk_level.value} action (max is R2, FR-AUTH-009)"
+        )
 
 
 class MissingProviderReceiptError(Exception):
@@ -81,6 +97,7 @@ async def propose_action(
     payload: dict[str, Any],
     idempotency_key: str,
     task_id: uuid.UUID | None = None,
+    actor_kind: ActorKind = ActorKind.HUMAN,
 ) -> tuple[Action, bool]:
     """Create a DRAFT action, or return the existing one for a repeated
     idempotency_key (FR-ACT-004) instead of creating a duplicate.
@@ -99,6 +116,8 @@ async def propose_action(
     """
     await assert_not_killed(session, customer_id=customer_id, workspace_id=workspace_id)
     risk_level = enforce_minimum_risk_level(tool_name, risk_level)
+    if actor_kind is ActorKind.SERVICE and risk_level not in AUTO_APPROVED_RISK_LEVELS:
+        raise ServiceActorRiskLevelExceededError(risk_level)
 
     action = Action(
         customer_id=customer_id,

@@ -7734,3 +7734,87 @@ tushadi — tenant-lararo audit yozish yo'li yo'q.
 **Natija: 0 topilma.**
 
 549 test, barchasi real Postgres'da (kod o'zgarmadi — sof tekshiruv).
+
+**FR-AUTH-009 (Service Actor uchun alohida machine credential oqimi, Must)
+qurildi — traceability auditning "41 ta hech qayerda tilga olinmagan"
+ro'yxatidagi yana bir ID, va 2.2-bo'limning o'z rol jadvalida allaqachon
+"Service Actor: mashina identifikatori... Eng yuqori risk darajasi: R2
+(approval bera olmaydi)" deb aniq belgilangan, ammo `domain/security/
+roles.py`ning o'z docstring'i tomonidan "hech qanday HTTP-facing use
+case'i yo'q" deb ochiq qoldirilgan edi.** Boshqa OD-* qarorlaridan
+(Telegram, Google OAuth) farqli, bu yerda tashqi provayder yoki yangi
+Product Owner qarori kerak emas edi — bu sof ichki kredensial mexanizmi,
+shuning uchun QOIDA 2'ni buzmasdan amalga oshirildi.
+
+2.2-bo'limning o'z "MUHIM INVARIANT" qutisi: "Service Actor hech qachon
+approval bera olmaydi va step-up authentication o'tay olmaydi." Bu ikkala
+cheklov ham **rol emas, Session'ning o'zining yangi `actor_kind` maydoni**
+orqali amalga oshirildi (`ActorKind.HUMAN`/`ActorKind.SERVICE`,
+0027-migratsiya) — chunki Service Actor'ning `CustomerMembership.role`si
+oddiy `MEMBER` (yangi `CustomerRole` qiymati YO'Q, ripple-effekt xavfisiz):
+agar cheklov rol orqali amalga oshirilganida, kelajakda kimdir Service
+Actor'ning workspace a'zoligiga `workspace_admin` bersa (texnik jihatdan
+hech narsa buni to'smaydi), cheklov jimgina chetlab o'tilgan bo'lardi.
+
+`domain/identity/models.py`ga `ServiceActorCredential` qo'shildi —
+`workspace_tenant_index`/`user_customer_index`ning aynan bir xil
+"chicken-and-egg" mulohazasi bilan ATAYLAB RLS'siz (
+`test_rls_coverage.py`ning to'rtinchi hujjatlashtirilgan istisnosi):
+taqdim etilgan secret'ni tekshirish customer_id ma'lum bo'lishidan OLDIN
+sodir bo'lishi kerak. `application/service_actor_service.py`:
+`create_service_actor_credential` (mashina uchun yangi, haqiqiy bo'lmagan
+OIDC subject bilan `User` yaratadi, keyin `customer_service.invite_
+customer_member`ning O'ZINI qayta ishlatib CustomerMembership+
+UserCustomerIndex'ni yozadi — parallel, ikkinchi yozish yo'li ixtiro
+qilinmadi), `authenticate_service_actor` (sha256 hash bo'yicha qidiruv —
+`identity_service.hash_oidc_subject`bilan bir xil "256-bit tasodifiy
+token uchun tuzsiz hash yetarli" mulohaza), `list_/revoke_service_actor_
+credential`.
+
+Ikkala invariant markazlashtirilgan, mavjud chokepoint'larda amalga
+oshirildi: (1) `authz_service.authorize_consume_approval` endi
+`actor_kind` parametrini oladi va `SERVICE` bo'lsa DENY qiladi — ROL yoki
+self-approval tekshiruvidan OLDIN, chunki bu shartsiz taqiq (Service
+Actor o'zining R0-R2 action'ini "self-approve" qilishga urinishi ham
+bloklanishi kerak, garchi u hech qachon R3+ propose qila olmasa ham —
+ikkinchi qatlam sifatida); (2) `action_service.propose_action` endi
+`actor_kind`ni oladi va SERVICE uchun `risk_level not in AUTO_APPROVED_
+RISK_LEVELS` (R0-R2) bo'lsa `ServiceActorRiskLevelExceededError`
+(403) ko'taradi — bu ro'yxat allaqachon mavjud edi (9.1'ning "R0-R2:
+policy-only" ta'rifi), 2.2'ning "eng yuqori risk darajasi R2" talabi
+bilan aynan mos kelgani uchun yangi ro'yxat ixtiro qilinmadi.
+
+`POST /v1/auth/service-actor` (secret'ni Session'ga almashtiradi, doim
+AAL1 — mashinada MFA faktori yo'q) va `POST/GET/DELETE /v1/customers/
+{id}/service-actors[...]` (yangi `authorize_manage_service_actors`,
+CustomerOwner-only — kill switch/audit-viewer/archived-workspace'lar
+bilan bir xil "10.2'da alohida qator yo'q, eng restriktiv precedentga
+ergashiladi" mulohazasi). Secret faqat yaratishda BIR MARTA qaytariladi
+(`Approval.nonce`ning aynan bir xil bir martalik-ko'rsatish shakli).
+
+Ikkala invariant ham audit-zanjiri uslubida isbotlandi: (1)
+`authorize_consume_approval`ning SERVICE tekshiruvini vaqtincha
+o'chirib, real HTTP orqali (SERVICE session workspace_admin sifatida
+qo'shilib, HAQIQIY R3 action'ning approval'ini AAL1 va notug'ri bo'lmagan
+nonce bilan iste'mol qilishga urinib) test aynan kutilgan, lekin
+YANGI narsani ochib bergan tarzda muvaffaqiyatsiz bo'ldi: `DENY` o'rniga
+`STEP_UP_REQUIRED` qaytdi — ya'ni bu tekshiruvsiz, bugun Service Actor
+faqat TASODIFAN (hech qanday sessiya AAL2'ga yetolmagani uchun)
+bloklangan bo'lar edi, kelajakda MFA/step-up oqimi qurilsa (FR-AUTH-002/
+008) bu tasodifiy to'siq yo'qolib, shartsiz taqiq buzilgan bo'lardi. (2)
+`propose_action`ning R2-cap tekshiruvini o'chirib, Service Actor R3
+`email.send` action'ini HAQIQATDA `AWAITING_APPROVAL`gacha yetkaza
+olishini (`200` va `assert 200 == 403` xatosi bilan) ko'rsatdim. Ikkalasi
+ham qaytarilib, yashil ekani tasdiqlandi.
+
+557 test (549+8: 1 unit — `test_authz_service.py`, 7 integration —
+`test_service_actors_api.py`), barchasi real Postgres'da. Migratsiya
+round-trip (0026→0027→0026→0027) qo'lda tekshirildi. `ruff`/`mypy` toza.
+
+Frontend'ga hech narsa qo'shilmadi — bu talab (FR-AUTH-009) mohiyatan
+mashina-mashinaga API oqimi, inson UI'si yo'q (2.2: "interaktiv human
+session sifatida ishlamaydi").
+
+**Ataylab qolgan bo'shliq**: `CurrentIdentity`/`GET /v1/sessions`ning o'zi
+`actor_kind`ni hali ko'rsatmaydi (faqat ichki, `RequestContext` orqali
+enforcement uchun ishlatiladi) — bu kosmetik, funksional bo'shliq emas.

@@ -26,6 +26,7 @@ from doda.application.action_service import (
     ActionNotCancellableError,
     ApprovalInvalidError,
     InvalidCompensationOutcomeError,
+    ServiceActorRiskLevelExceededError,
 )
 from doda.application.ai_budget_service import InvalidBudgetOverrideError
 from doda.application.ai_provider_settings_service import ProviderDisabledError
@@ -35,6 +36,7 @@ from doda.application.customer_service import CustomerMembershipError, Duplicate
 from doda.application.kill_switch_service import KillSwitchEngagedError
 from doda.application.notification_service import NotificationPreferenceError
 from doda.application.oidc_login_service import OidcNotConfiguredError, OidcStateMismatchError
+from doda.application.service_actor_service import ServiceActorAuthenticationError
 from doda.application.session_service import SessionInvalidError
 from doda.application.task_service import (
     InvalidTaskTransition,
@@ -222,6 +224,34 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=_envelope(
                 code="INVALID_COMPENSATION_OUTCOME",
                 message="Kompensatsiya natijasi COMPENSATED yoki FAILED bo'lishi kerak.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(ServiceActorRiskLevelExceededError)
+    async def _service_actor_risk_level_exceeded(
+        request: Request, exc: ServiceActorRiskLevelExceededError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=403,
+            content=_envelope(
+                code="SERVICE_ACTOR_RISK_LEVEL_EXCEEDED",
+                message="Service Actor faqat R0-R2 action taklif qila oladi.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(ServiceActorAuthenticationError)
+    async def _service_actor_authentication_error(
+        request: Request, exc: ServiceActorAuthenticationError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=401,
+            content=_envelope(
+                code="UNAUTHENTICATED",
+                message="Service actor credential yaroqsiz.",
                 trace_id=_trace_id(request),
                 retryable=False,
             ),

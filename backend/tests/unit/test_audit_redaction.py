@@ -62,6 +62,7 @@ ALLOWED_SAFE_METADATA_KEYS = {
     "hard_cap_usd",
     "provider",
     "model",
+    "credential_id",
 }
 
 

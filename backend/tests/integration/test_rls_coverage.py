@@ -47,7 +47,17 @@ from doda.domain.workspace import models as _workspace_models  # noqa: F401
 #   every customer's pending messages to deliver them, and the payload is
 #   already-derived event data, not raw tenant content. See
 #   doda.domain.outbox.models.OutboxMessage.
-KNOWN_RLS_EXEMPT_TABLES = {"workspace_tenant_index", "user_customer_index", "outbox_messages"}
+# - service_actor_credentials: the same chicken-and-egg problem one more
+#   level up — verifying a presented secret must happen BEFORE any
+#   customer_id is known (there is nothing else to key a
+#   tenant_scoped_session on yet), so the lookup itself cannot run inside
+#   one. See doda.domain.identity.models.ServiceActorCredential.
+KNOWN_RLS_EXEMPT_TABLES = {
+    "workspace_tenant_index",
+    "user_customer_index",
+    "outbox_messages",
+    "service_actor_credentials",
+}
 
 
 def _tables_with_customer_id() -> set[str]:

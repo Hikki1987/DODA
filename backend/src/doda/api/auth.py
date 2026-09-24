@@ -30,14 +30,18 @@ import structlog
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import RedirectResponse
 
+from doda.api.service_actor_schemas import AuthenticateServiceActorRequest, ServiceActorSessionOut
 from doda.application.notification_service import notify_new_device_login
 from doda.application.oidc_login_service import (
     GoogleLoginSettings,
     OidcNotConfiguredError,
     complete_google_login,
 )
+from doda.application.service_actor_service import authenticate_service_actor
+from doda.application.session_service import create_session
 from doda.config import get_settings
 from doda.db import async_session_factory
+from doda.domain.identity.models import ActorKind, AuthStrength
 from doda.infrastructure.google_oidc_client import build_authorization_url
 
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
@@ -119,3 +123,20 @@ async def google_login_callback(
     )
     redirect.delete_cookie(STATE_COOKIE_NAME, path=STATE_COOKIE_PATH)
     return redirect
+
+
+@router.post("/service-actor", response_model=ServiceActorSessionOut)
+async def authenticate_service_actor_route(
+    body: AuthenticateServiceActorRequest,
+) -> ServiceActorSessionOut:
+    """FR-AUTH-009's machine-credential login — a JSON exchange, not a
+    browser redirect, since a Service Actor has no user agent to redirect.
+    Always mints a fresh AAL1 session (a machine has no MFA factor to step
+    up with — see authorize_consume_approval's own unconditional
+    Service-Actor check, which does not depend on this ever changing)."""
+    async with async_session_factory() as db, db.begin():
+        credential = await authenticate_service_actor(db, secret=body.secret)
+        session_record = await create_session(
+            db, user_id=credential.user_id, auth_strength=AuthStrength.AAL1, actor_kind=ActorKind.SERVICE
+        )
+    return ServiceActorSessionOut(session_id=session_record.id)

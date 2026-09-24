@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.domain.base import utcnow
-from doda.domain.identity.models import AuthStrength, Session
+from doda.domain.identity.models import ActorKind, AuthStrength, Session
 
 IDLE_TIMEOUT = timedelta(minutes=30)
 ABSOLUTE_TIMEOUT = timedelta(hours=12)
@@ -38,11 +38,13 @@ async def create_session(
     user_id: uuid.UUID,
     auth_strength: AuthStrength,
     user_agent: str | None = None,
+    actor_kind: ActorKind = ActorKind.HUMAN,
 ) -> Session:
     now = utcnow()
     record = Session(
         user_id=user_id,
         auth_strength=auth_strength,
+        actor_kind=actor_kind,
         last_seen_at=now,
         expires_at=now + ABSOLUTE_TIMEOUT,
         user_agent=user_agent,

@@ -31,6 +31,7 @@ from doda.api.knowledge import router as knowledge_router
 from doda.api.me import router as me_router
 from doda.api.middleware import TraceIdMiddleware
 from doda.api.notifications import router as notifications_router
+from doda.api.service_actors import router as service_actors_router
 from doda.api.sessions import router as sessions_router
 from doda.api.tasks import router as tasks_router
 from doda.api.workspace_admin import router as workspace_admin_router
@@ -92,6 +93,7 @@ def create_app() -> FastAPI:
     app.include_router(kill_switch_router)
     app.include_router(audit_router)
     app.include_router(notifications_router)
+    app.include_router(service_actors_router)
     app.include_router(sessions_router)
     app.include_router(me_router)
     app.include_router(ai_settings_router)

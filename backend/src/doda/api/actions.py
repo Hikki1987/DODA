@@ -100,6 +100,7 @@ async def propose_and_submit_action(
         payload=body.payload,
         idempotency_key=idempotency_key,
         task_id=body.task_id,
+        actor_kind=ctx.actor_kind,
     )
 
     if created:
@@ -150,7 +151,9 @@ async def consume_action_approval(
         raise HTTPException(status_code=404, detail="approval not found")
 
     action = await _get_workspace_action(ctx, approval.action_id)
-    authorize_consume_approval(ctx.workspace, action, auth_strength=ctx.auth_strength)
+    authorize_consume_approval(
+        ctx.workspace, action, auth_strength=ctx.auth_strength, actor_kind=ctx.actor_kind
+    )
     action = await consume_approval(
         ctx.db,
         action,
