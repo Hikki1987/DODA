@@ -7873,3 +7873,94 @@ xuddi shu FR-AUTH-009 qurilishining o'zi yozganidan KEYIN, alohida ko'rib
 chiqishda.
 
 558 test (557+1), barchasi real Postgres'da. `ruff`/`mypy` toza.
+
+**NFR-DATA-001b/c (13.4-bo'lim: "Har bir tashqi AI so'rovi uchun
+yuborilgan ma'lumot sinfi telemetriyada yoziladi" + "C4 ma'lumot tashqi
+providerga default yuborilmaydi") qurildi — OD-003'ning xavfsizlik-faqat
+skanerini TRD 13.2'ning to'liq C1-C5 klassifikatsiyasiga kengaytirib.**
+Bu ikkita ID traceability auditlarida bir necha marta "hosting/OD-005'ga
+bog'liq" deb noto'g'ri umumlashtirilgan edi — TRD 13.4'ni qayta o'qishda
+aniqlandi: faqat NFR-DATA-001a ("asosiy DB/storage tasdiqlangan mintaqada")
+va NFR-DATA-001d ("backup ham bir xil mintaqa talabiga bo'ysunadi")
+haqiqatan OD-005/hosting qaroriga bog'liq — 001b/001c esa sof, deterministik
+engineering ishi, OD-003'ning "server-side credential/session token allaqachon
+strukturaviy jihatdan yetib bo'lmas" xulosasidan farqli, chunki bu safar
+haqiqiy YANGI qamrov (moliyaviy/tibbiy/huquqiy matn) kerak edi.
+
+Buni yozishning o'zi ikkinchi, mustaqil topilmani ochib berdi: `AIUsageEvent`
+domain modelining o'z docstring'i ("the *audit* trail for the same call is a
+separate `ai.gateway_call.v1` AuditEvent, written only once reconciled")
+hech qachon kod bilan tasdiqlanmagan edi — `grep` bilan tekshirilganda bu
+audit event turi butun kod bazasida FAQAT shu bitta docstring'da, hech qanday
+`record_audit_event(...)` chaqiruvida yozilmasdi. Bu RISK-006 sinfining
+(hujjatlashtirilgan, lekin hech qachon amalga oshirilmagan nazorat) yana bir
+nusxasi — auditor bo'shlig'i, append-only trigger tasdiqlovi, `is_new_device_
+login`ning "known limitation" docstring'i bilan bir xil naqsh.
+
+`doda/ai/data_classification.py` — `outbound_guard.py`ning aynan bir xil
+falsafasi ("deliberately narrow, high-precision pattern scan — not a general
+DLP/PII classifier"): `DataClassification` (C2_INTERNAL/C3_PERSONAL/
+C4_SENSITIVE — C1 hech qachon avtomatik qaytarilmaydi, "bu ochiq bo'lishi
+mo'ljallangan" deb bilish imkoni yo'q; C5 bu funksiyaga umuman yetib
+bormaydi, chunki `outbound_guard.detect_likely_secret` uni ALLAQACHON
+bloklagan bo'ladi). `classify_outbound_content(content)`:
+- **C4** (TRD 13.2'ning o'z misollari — moliya/sog'liq/huquqiy): karta
+  raqami (Luhn checksum bilan tasdiqlangan, oddiy 13-19 xonali ketma-ketlik
+  emas — soxta-musbatni oldini olish uchun), IBAN shakli, tor, qo'lda
+  ko'rib chiqilgan kalit so'zlar ro'yxati (diagnoz/retsept/sud ishi va
+  ularning ru/en tarjimalari). Ataylab "shifoxona"/"hospital" kabi umumiy
+  so'zlar KIRITILMAGAN — joy nomini tilga olish shaxsning o'z sog'liq
+  ma'lumotini oshkor qilish bilan bir xil emas.
+- **C3** (shaxsiy/kontakt): email, telefon raqami shakllari.
+- **Standart C2** (ichki) — hech narsa mos kelmasa, hech qachon C1 emas
+  (xavfsiz standart — under-classification emas, over-classification
+  tomonga og'ish).
+
+`conversation_service.stream_message`ga ikkita joyda ulandi: (1)
+`outbound_guard`ning secret-tekshiruvidan DARHOL keyin, xabar hali
+saqlanmasdan turib — C4 aniqlansa yangi `SensitiveContentBlockedError`
+(422 `SENSITIVE_CONTENT_BLOCKED`) ko'taradi, xuddi `OutboundContentBlockedError`
+bilan bir xil "block outright, never silently strip" falsafasi; (2)
+`_reconcile_and_record`ning umumiy tail funksiyasida — endi RECONCILED
+HAM, REFUNDED HAM holatida `ai.gateway_call.v1` audit event yozadi
+(provider/model/mode/data_classification `safe_metadata`da) — ikkalasi
+ham "shu tur uchun tashqi so'rov kamida bir marta urinilgan" degani,
+`BudgetExceededError`/`DeepRequestCostCeilingExceededError`/
+`ProviderDisabledError` esa `_reconcile_and_record`ga umuman yetib
+bormaydi (to'g'ri — bu holatlarda provayderga hech qanday so'rov
+yuborilmagan).
+
+Audit-zanjiri uslubida ikkalasi ham isbotlandi: (1) C4-bloklash — mavjud
+`OutboundContentBlockedError` testining aynan bir xil "hech qachon
+provayderga yetib bormasin" naqshi (`_never_called` stub, `AssertionError`
+provayder chaqirilsa) bilan tekshirildi; (2) audit yozuvi — yangi
+`record_audit_event(...)` chaqiruvini vaqtincha `pass`ga almashtirib,
+ikkala yangi integratsiya testi (`test_a_normal_turns_data_classification_
+is_recorded_on_its_own_audit_event`, `test_a_turns_c3_personal_data_is_
+recorded_not_silently_downgraded_to_c2`) aynan kutilgan tarzda (audit
+ro'yxati bo'sh qaytib) muvaffaqiyatsiz bo'lishi ko'rsatildi, keyin qaytarib
+`git diff`ning FAQAT qo'shimcha (o'chirilgan qator yo'q) ekanini tasdiqlab
+yashil ekani ko'rsatildi.
+
+`tests/unit/test_data_classification.py` (10 test) — Luhn-valid test karta
+raqami (`4111111111111111`, haqiqiy Visa test raqami) C4 deb belgilanishi,
+bir xil uzunlikdagi Luhn-invalid ketma-ketlik esa C2'da qolishi (soxta-musbat
+himoyasi), C4+C3 aralash matn ustuvorroq C4'ga tushishi, "shifoxona" kabi
+umumiy so'z C4 tetiklamasligi — barchasi tekshirildi.
+
+`ALLOWED_SAFE_METADATA_KEYS`ga (`test_audit_redaction.py`) `mode`/
+`data_classification` qo'shildi. `AIUsageEvent`ning o'z docstring'i endi
+haqiqiy amalga oshirishga mos yangilandi.
+
+Frontend'ga hech narsa qo'shilmadi — bu telemetriya, mavjud audit
+ko'rish/trace_id filtri (workspace/customer sahifalarida allaqachon bor)
+orqali ko'rinadi, yangi UI elementi shart emas.
+
+`docs/open-decisions.md`ning OD-003 qatoriga va `docs/risk-register.md`ning
+RISK-004 qatoriga qo'shimcha yozildi — bu kengaytirish, yangi qaror emas
+(OD-003'ning "kelajakda yangi sezgir ma'lumot sinfi paydo bo'lsa qayta
+ochilishi kerak" bandi endi qisman qo'llanildi: yangi domain emas, lekin
+TRD'ning o'zi allaqachon yozgan C3/C4 sinflarining haqiqiy amalga
+oshirilishi).
+
+571 test, barchasi real Postgres'da. `ruff`/`mypy` toza.

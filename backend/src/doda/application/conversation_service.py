@@ -39,11 +39,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from doda.ai.capabilities import assert_supports_tools
+from doda.ai.data_classification import DataClassification, classify_outbound_content
 from doda.ai.errors import (
     ModelProviderError,
     ModelRateLimitedError,
     ModelTimeoutError,
     OutboundContentBlockedError,
+    SensitiveContentBlockedError,
 )
 from doda.ai.factory import get_gateway
 from doda.ai.language import detect_language, response_language_instruction
@@ -317,6 +319,17 @@ async def stream_message(
             "the message looks like it contains a live credential", label=secret_label
         )
 
+    # NFR-DATA-001b/c: classify what TRD 13.2 class this turn's content
+    # falls into (a C5 credential has already been ruled out above), block
+    # C4 outright (OD-003's default), and keep the classification around
+    # to record once the turn's own audit event is written below.
+    data_classification = classify_outbound_content(content)
+    if data_classification is DataClassification.C4_SENSITIVE:
+        raise SensitiveContentBlockedError(
+            "the message looks like it contains C4-sensitive data (financial/medical/legal)",
+            classification=data_classification.value,
+        )
+
     user_message = Message(
         customer_id=conversation.customer_id,
         conversation_id=conversation.id,
@@ -431,6 +444,28 @@ async def stream_message(
             estimated_cost_cents=total_estimate_cents,
             actual_cost_cents=actual_cost_cents,
             status=status,
+        )
+        # NFR-DATA-001b: "har bir tashqi AI so'rovi uchun yuborilgan
+        # ma'lumot sinfi telemetriyada yoziladi" — written here regardless
+        # of RECONCILED/REFUNDED, since both mean an external request was
+        # at least attempted against `choice.provider` this turn (a
+        # BudgetExceededError/DeepRequestCostCeilingExceededError/
+        # ProviderDisabledError raised earlier never reaches this
+        # function at all, correctly recording nothing for a turn that
+        # never made it to the provider).
+        await record_audit_event(
+            session,
+            customer_id=workspace_context.customer_id,
+            workspace_id=workspace_context.workspace_id,
+            actor_id=f"user:{workspace_context.user_id}",
+            trace_id=trace_id,
+            event_type="ai.gateway_call.v1",
+            safe_metadata={
+                "provider": choice.provider.value,
+                "model": model,
+                "mode": mode.value,
+                "data_classification": data_classification.value,
+            },
         )
 
     try:

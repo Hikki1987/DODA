@@ -1491,6 +1491,118 @@ async def test_a_message_containing_a_live_looking_api_key_is_blocked_before_any
     assert listed.json() == []  # the message was never persisted either
 
 
+async def test_a_message_containing_c4_sensitive_data_is_blocked_before_any_provider_call(
+    client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """NFR-DATA-001c: TRD 13.2's C4 class (finance/medical/legal) is
+    refused by default (OD-003) — same "before any provider call, before
+    the message is even persisted" placement as the OD-003 secret guard
+    just above, proven the same way: the gateway must never be reached."""
+    called = False
+
+    async def _never_called(*args: object, **kwargs: object) -> typing.AsyncIterator[GatewayEvent]:
+        nonlocal called
+        called = True
+        if False:
+            yield  # pragma: no cover
+        raise AssertionError("must never call the provider once C4-sensitive content was detected")
+
+    fake_gateway = type("_Unreachable", (), {"stream_chat": staticmethod(_never_called)})()
+    monkeypatch.setattr(
+        "doda.application.conversation_service.get_gateway", lambda provider, settings: fake_gateway
+    )
+
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    post = await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="Bemorning diagnozi bilan tanishtiring",
+    )
+    assert post.status_code == 422
+    assert post.json()["code"] == "SENSITIVE_CONTENT_BLOCKED"
+    assert called is False
+
+    listed = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+    )
+    assert listed.json() == []  # the message was never persisted either
+
+
+async def test_a_normal_turns_data_classification_is_recorded_on_its_own_audit_event(
+    client: AsyncClient, db_available: bool
+) -> None:
+    """NFR-DATA-001b: "har bir tashqi AI so'rovi uchun yuborilgan
+    ma'lumot sinfi telemetriyada yoziladi" — proven end to end (the pure
+    classification logic itself is tests/unit/test_data_classification.py's
+    job), including that the event fires even against `NullModelGateway`
+    (no real provider configured in this test environment) — the point is
+    that an external-request *attempt* happened, not that it reached a
+    real provider."""
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    post = await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="Salom, DODA!",
+    )
+    assert post.status_code == 200
+
+    audit = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/audit?event_type=ai.gateway_call.v1",
+        headers=_auth_headers(member.session_id),
+    )
+    assert audit.status_code == 200
+    events = audit.json()
+    assert len(events) == 1
+    metadata = events[0]["safe_metadata"]
+    assert metadata["data_classification"] == "C2"
+    assert metadata["mode"] == "STANDARD"
+    assert metadata["provider"] in {"OPENAI", "GEMINI", "CLAUDE"}
+    assert isinstance(metadata["model"], str) and metadata["model"]
+
+
+async def test_a_turns_c3_personal_data_is_recorded_not_silently_downgraded_to_c2(
+    client: AsyncClient, db_available: bool
+) -> None:
+    member = await seed_workspace_member()
+    create = await client.post(
+        f"/v1/workspaces/{member.workspace_id}/conversations",
+        json={},
+        headers=_auth_headers(member.session_id),
+    )
+    conversation_id = create.json()["id"]
+
+    post = await _post_message(
+        client,
+        f"/v1/workspaces/{member.workspace_id}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(member.session_id),
+        content="Mening kontaktim: ali@example.com",
+    )
+    assert post.status_code == 200
+
+    audit = await client.get(
+        f"/v1/workspaces/{member.workspace_id}/audit?event_type=ai.gateway_call.v1",
+        headers=_auth_headers(member.session_id),
+    )
+    assert audit.json()[0]["safe_metadata"]["data_classification"] == "C3"
+
+
 async def test_a_customers_hard_budget_cap_refuses_a_turn_with_a_clean_402_before_any_provider_call(
     client: AsyncClient, db_available: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:

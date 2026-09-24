@@ -79,6 +79,22 @@ class OutboundContentBlockedError(ModelGatewayError):
         self.label = label
 
 
+class SensitiveContentBlockedError(ModelGatewayError):
+    """NFR-DATA-001c: "C4 ma'lumot tashqi providerga default taqiqlanadi"
+    (OD-003). Raised by `stream_message` right after the
+    `OutboundContentBlockedError` secret check, using
+    `doda.ai.data_classification.classify_outbound_content` — same "block
+    outright before persisting, before any provider call" placement.
+    `classification` is always `DataClassification.C4_SENSITIVE` here
+    (the only class this error is ever raised for), kept as a field
+    rather than hardcoded so the HTTP handler doesn't need a second
+    import just to echo it back."""
+
+    def __init__(self, message: str, *, classification: str) -> None:
+        super().__init__(message)
+        self.classification = classification
+
+
 def parse_retry_after_header(exc: Exception) -> float | None:
     """Extracts a provider SDK exception's own `retry-after` response
     header as seconds, or None if there isn't one / it isn't a valid

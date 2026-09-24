@@ -20,6 +20,7 @@ from doda.ai.errors import (
     ModelRateLimitedError,
     ModelTimeoutError,
     OutboundContentBlockedError,
+    SensitiveContentBlockedError,
 )
 from doda.api.middleware import TRACE_ID_HEADER
 from doda.application.action_service import (
@@ -407,6 +408,26 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=_envelope(
                 code="OUTBOUND_CONTENT_BLOCKED",
                 message="Xabar tarkibida maxfiy kalit/tokenga o'xshash matn aniqlandi — xabar yuborilmadi.",
+                trace_id=_trace_id(request),
+                retryable=False,
+            ),
+        )
+
+    @app.exception_handler(SensitiveContentBlockedError)
+    async def _sensitive_content_blocked(request: Request, exc: SensitiveContentBlockedError) -> JSONResponse:
+        # NFR-DATA-001c: never echo the matched text back — only the class
+        # it was classified into (C4), never the content that triggered it.
+        logger.warning(
+            "ai_sensitive_content_blocked", trace_id=_trace_id(request), classification=exc.classification
+        )
+        return JSONResponse(
+            status_code=422,
+            content=_envelope(
+                code="SENSITIVE_CONTENT_BLOCKED",
+                message=(
+                    "Xabar tarkibida moliyaviy, tibbiy yoki huquqiy sezgir ma'lumot (C4) "
+                    "aniqlandi — bu sinf ma'lumot tashqi AI providerga sukut bo'yicha yuborilmaydi."
+                ),
                 trace_id=_trace_id(request),
                 retryable=False,
             ),

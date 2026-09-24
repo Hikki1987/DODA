@@ -69,7 +69,12 @@ class AIUsageEvent(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     new row per state, unlike AuditEvent, because this is a cost ledger
     entry being finalized, not an immutable historical fact being
     recorded; the *audit* trail for the same call is a separate
-    `ai.gateway_call.v1` AuditEvent, written only once reconciled)."""
+    `ai.gateway_call.v1` AuditEvent — NFR-DATA-001b, recording the TRD
+    13.2 data class of what was sent — written by
+    `doda.application.conversation_service.stream_message`'s
+    `_reconcile_and_record` for both RECONCILED and REFUNDED turns, since
+    either one means a real request was at least attempted against the
+    provider)."""
 
     __tablename__ = "ai_usage_events"
 

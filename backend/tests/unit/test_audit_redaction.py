@@ -63,6 +63,8 @@ ALLOWED_SAFE_METADATA_KEYS = {
     "provider",
     "model",
     "credential_id",
+    "mode",
+    "data_classification",
 }
 
 
