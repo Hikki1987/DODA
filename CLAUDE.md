@@ -8052,3 +8052,45 @@ xavfsiz, bitta chaqiruv nuqtasi bor).
 Tuzatishlardan keyin: 571 test (backend, real Postgres'da) o'zgarishsiz
 o'tdi; `ruff format`/`ruff check`/`mypy src/doda` toza. Sof refaktor —
 xatti-harakat o'zgarmadi.
+
+**To'liq TRD-ID qamrovi qayta tekshirildi (dasturiy sweep, xotiradan
+emas) — sakkizta ID hech qayerda (kod ham, CLAUDE.md ham) ID bo'yicha
+keltirilmagani topildi: FR-ADM-004 (aslida `docs/design-proposals/
+FR-ADM-design-proposal.md`da bor edi, faqat mening grep'im `docs/*.md`
+naqshi bilan pastki papkani ko'rmagan edi — yolg'on signal) va
+FR-KNW-003..009 (haqiqiy sitatsiya bo'shlig'i).** FR-KNW-001'ning o'z
+commit xabari "FR-KNW-002 dan boshlab... barchasi qurilmadi" deb
+JAMOAVIY zikr qilgan edi, lekin QOIDA 2 har bir ID'ning alohida
+bog'lanishini talab qiladi.
+
+Yangi `docs/design-proposals/FR-KNW-memory-design-notes.md` — FR-ADM
+design-proposal hujjatining aynan bir xil formatida (A/B/C toifalash,
+har ID alohida bo'lim) — TRD 3.5-bo'limini (FR-KNW-002..009) VA
+8-bo'limini (Xotira/Memory modeli — 5 tur, write gate, retrieval ACL,
+o'chirish SLA jadvali, FR-KNW-007/FR-CTL-004'ga bog'liq) to'liq o'qib
+chiqib yozildi. Asosiy xulosa: FR-KNW-002 (parsing→chunking→embedding→
+indexing) — bu zanjirning yagona haqiqiy bloker bo'g'ini (haqiqiy
+embedding chaqiruvi + DB sxema qarori kerak, ADR-008/009'ning "tarmoq
+siyosati AI provayderlarni bloklaydi" cheklovi bilan bir xil sabab) —
+qolgan oltitasi (003/004/005/006/008/009) hammasi shu bitta narsaning
+ustiga quriladi, mustaqil qurib bo'lmaydi.
+
+**Haqiqiy topilma**: TRD 8-bo'limining besh xotira turidan biri —
+**Preference** ("til, format, ism, uslub... foydalanuvchiga ko'rinadi va
+tahrirlanadi") — bu kod bazasida ALLAQACHON, boshqa ID'lar ostida
+mustaqil qurilgan ekan: `Conversation.pinned_language`/
+`WorkspaceLanguageSetting` (FR-CONV-001/FR-WKS-007),
+`UserAIPreference`/`WorkspaceAIPreference` (FR-ADM-006) — hammasi
+TRD'ning o'z qabul mezoniga (ko'rinadi, tahrirlanadi, endi audit
+qilinadi ham) mos. Bu FR-KNW-007/FR-CTL-004 qurilganda "memory" atamasi
+ishlatilmagan edi, lekin TRD 8-bo'limini keyinroq to'g'ridan-to'g'ri
+o'qib solishtirilganda aynan shu qatlamning bir qismi ekani ochildi —
+tasodifiy mos kelish emas, chunki ikkalasi ham bir xil talabni
+("foydalanuvchi o'z til/uslub afzalligini boshqara oladi") tasvirlaydi.
+Qolgan to'rt turi (Working/Episodic/Semantic/Sensitive) — Episodic/
+Semantic FR-KNW-002'ning o'ziga bog'liq, Sensitive esa yangi, alohida
+Product Owner qarorini (consent modeli, shifrlash, kim ko'ra oladi)
+talab qiladi.
+
+`docs/risk-register.md`ning RISK-003 qatoriga yangi hujjatga havola
+qo'shildi. Sof hujjatlashtirish — kod o'zgarmadi, 571 test o'zgarishsiz.
